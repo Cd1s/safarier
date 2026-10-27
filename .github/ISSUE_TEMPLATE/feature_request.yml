@@ -1,0 +1,55 @@
+name: ✨ Feature request / 功能建议
+description: Suggest a browser feature, protocol, device preset or simulation capability. / 建议新的浏览器功能、协议、机型或模拟能力。
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Safarier only simulates environments through **native WebKit / macOS capabilities** — no scripts injected into web pages. Proposals that fake values with page scripts will not be accepted.
+        Safarier 只通过 **系统 WebKit / macOS 的原生能力** 模拟环境，不向网页注入脚本；用页面脚本伪造数值的方案不会被接受。
+
+  - type: textarea
+    id: request
+    attributes:
+      label: What do you want? / 需求描述
+      description: The feature, or the environment trait you want simulated. / 想要的功能，或想模拟的环境特征。
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case / 使用场景
+      description: What are you trying to do, and what blocks you today? / 你想做什么，现在卡在哪里？
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / 属于哪个层面
+      options:
+        - Browser UI & Safari shortcuts / 浏览器交互与 Safari 快捷键
+        - Subscriptions & proxy protocols / 订阅与代理协议
+        - Device & region simulation / 机型与环境模拟（屏幕、语言、时区）
+        - Native Engine Bridge capabilities / 原生引擎桥接层能力
+        - Manager & CLI / 管理器与命令行
+        - Other / 其它
+    validations:
+      required: true
+
+  - type: textarea
+    id: real-safari
+    attributes:
+      label: How does real Safari behave? / 真 Safari 的表现
+      description: If it's about matching Safari, tell us the macOS / Safari version and what Safari shows. / 如果是为了和 Safari 一致，请写明 macOS / Safari 版本以及 Safari 的实际表现。
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Runtime signature & capability verification / 运行时方法签名与能力核验
+      description: |
+        Native Engine Bridge changes require runtime signature and capability verification before implementation: check type encodings, calling conventions and supported macOS / WebKit versions. Report results using capability labels.
+        涉及原生引擎桥接层时，先核验运行时类型编码、调用约定和支持的 macOS / WebKit 版本；用能力名称记录验证结果。
+      render: shell

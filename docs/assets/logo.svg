@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="48%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#0B1120"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="22%" r="58%">
+      <stop offset="0%" stop-color="#7DD3FC" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="dial" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1E3A8A" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#090D16" stop-opacity="0.96"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="drop" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <filter id="needleShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- macOS Squircle Base -->
+  <rect x="88" y="88" width="848" height="848" rx="192" ry="192" fill="url(#bg)" filter="url(#drop)"/>
+  <rect x="88" y="88" width="848" height="848" rx="192" ry="192" fill="url(#glow)"/>
+  <rect x="91" y="91" width="842" height="842" rx="189" ry="189" fill="none" stroke="url(#rim)" stroke-width="6"/>
+
+  <!-- Inner Compass Dial -->
+  <circle cx="512" cy="512" r="332" fill="url(#dial)" filter="url(#drop)"/>
+  <circle cx="512" cy="512" r="332" fill="none" stroke="#7DD3FC" stroke-opacity="0.55" stroke-width="6"/>
+
+  <!-- 3 Orbital Environment Rings -->
+  <g transform="translate(512,512)">
+    <g transform="rotate(-28)">
+      <ellipse cx="0" cy="0" rx="262" ry="112" fill="none" stroke="#38BDF8" stroke-opacity="0.72" stroke-width="8"/>
+      <circle cx="223" cy="58" r="16" fill="#38BDF8"/>
+      <circle cx="223" cy="58" r="7" fill="#FFFFFF"/>
+    </g>
+    <g transform="rotate(32)">
+      <ellipse cx="0" cy="0" rx="262" ry="112" fill="none" stroke="#818CF8" stroke-opacity="0.72" stroke-width="8"/>
+      <circle cx="-202" cy="71" r="16" fill="#818CF8"/>
+      <circle cx="-202" cy="71" r="7" fill="#FFFFFF"/>
+    </g>
+    <g transform="rotate(92)">
+      <ellipse cx="0" cy="0" rx="262" ry="112" fill="none" stroke="#34D399" stroke-opacity="0.72" stroke-width="8"/>
+      <circle cx="-128" cy="-97" r="16" fill="#34D399"/>
+      <circle cx="-128" cy="-97" r="7" fill="#FFFFFF"/>
+    </g>
+  </g>
+
+  <!-- Bold Cardinal & Degree Ticks (clear at small sizes) -->
+  <g transform="translate(512,512)" stroke="#E0F2FE" stroke-linecap="round">
+    <line x1="0" y1="-304" x2="0" y2="-268" stroke-width="9" stroke-opacity="0.95"/>
+    <line x1="304" y1="0" x2="268" y2="0" stroke-width="9" stroke-opacity="0.95"/>
+    <line x1="0" y1="304" x2="0" y2="268" stroke-width="9" stroke-opacity="0.95"/>
+    <line x1="-304" y1="0" x2="-268" y2="0" stroke-width="9" stroke-opacity="0.95"/>
+    <g transform="rotate(30)"><line x1="0" y1="-304" x2="0" y2="-276" stroke-width="6.5" stroke-opacity="0.75"/><line x1="0" y1="304" x2="0" y2="276" stroke-width="6.5" stroke-opacity="0.75"/></g>
+    <g transform="rotate(60)"><line x1="0" y1="-304" x2="0" y2="-276" stroke-width="6.5" stroke-opacity="0.75"/><line x1="0" y1="304" x2="0" y2="276" stroke-width="6.5" stroke-opacity="0.75"/></g>
+    <g transform="rotate(120)"><line x1="0" y1="-304" x2="0" y2="-276" stroke-width="6.5" stroke-opacity="0.75"/><line x1="0" y1="304" x2="0" y2="276" stroke-width="6.5" stroke-opacity="0.75"/></g>
+    <g transform="rotate(150)"><line x1="0" y1="-304" x2="0" y2="-276" stroke-width="6.5" stroke-opacity="0.75"/><line x1="0" y1="304" x2="0" y2="276" stroke-width="6.5" stroke-opacity="0.75"/></g>
+    <g transform="rotate(15)"><line x1="0" y1="-304" x2="0" y2="-286" stroke-width="4.5" stroke-opacity="0.45"/><line x1="0" y1="304" x2="0" y2="286" stroke-width="4.5" stroke-opacity="0.45"/></g>
+    <g transform="rotate(45)"><line x1="0" y1="-304" x2="0" y2="-286" stroke-width="4.5" stroke-opacity="0.45"/><line x1="0" y1="304" x2="0" y2="286" stroke-width="4.5" stroke-opacity="0.45"/></g>
+    <g transform="rotate(75)"><line x1="0" y1="-304" x2="0" y2="-286" stroke-width="4.5" stroke-opacity="0.45"/><line x1="0" y1="304" x2="0" y2="286" stroke-width="4.5" stroke-opacity="0.45"/></g>
+    <g transform="rotate(105)"><line x1="0" y1="-304" x2="0" y2="-286" stroke-width="4.5" stroke-opacity="0.45"/><line x1="0" y1="304" x2="0" y2="286" stroke-width="4.5" stroke-opacity="0.45"/></g>
+    <g transform="rotate(135)"><line x1="0" y1="-304" x2="0" y2="-286" stroke-width="4.5" stroke-opacity="0.45"/><line x1="0" y1="304" x2="0" y2="286" stroke-width="4.5" stroke-opacity="0.45"/></g>
+    <g transform="rotate(165)"><line x1="0" y1="-304" x2="0" y2="-286" stroke-width="4.5" stroke-opacity="0.45"/><line x1="0" y1="304" x2="0" y2="286" stroke-width="4.5" stroke-opacity="0.45"/></g>
+  </g>
+
+  <!-- Faceted 3D Compass Needle -->
+  <g transform="translate(512,512) rotate(42)" filter="url(#needleShadow)">
+    <polygon points="0,-256 -50,0 0,0" fill="#FF6B5B"/>
+    <polygon points="0,-256 50,0 0,0" fill="#E11D48"/>
+    <polygon points="0,256 -50,0 0,0" fill="#FFFFFF"/>
+    <polygon points="0,256 50,0 0,0" fill="#CBD5E1"/>
+    <circle cx="0" cy="0" r="24" fill="#0F172A"/>
+    <circle cx="0" cy="0" r="11" fill="#38BDF8"/>
+  </g>
+</svg>

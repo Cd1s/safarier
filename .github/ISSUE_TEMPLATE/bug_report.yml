@@ -1,0 +1,110 @@
+name: 🐞 Bug report / 问题反馈
+description: Something in Safarier doesn't work as expected. / Safarier 的某个功能和预期不一致。
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Please do not paste subscription URLs, node links (`ss://` `vless://` …), proxy passwords, tokens or your real IP.** Replace them with `***`.
+        **请不要粘贴订阅链接、节点链接（`ss://` `vless://` 等）、代理密码、令牌或你的真实 IP**，用 `***` 代替。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened? / 问题描述
+      description: What did you expect, and what happened instead? / 你期望发生什么，实际发生了什么？
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version / macOS 版本
+      placeholder: "macOS 15.7.3 (24G419)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chip
+    attributes:
+      label: Mac chip / 芯片
+      options:
+        - Apple Silicon
+        - Intel
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Safarier version & package / 版本与安装包
+      placeholder: "1.0.0, universal zip / 1.0.0 arm64 / built from source (commit …)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: outbound
+    attributes:
+      label: Outbound / 出站方式
+      options:
+        - Direct / 直连
+        - Standalone proxy (SOCKS5 / HTTP CONNECT) / 独立代理
+        - Subscription node / 订阅节点
+        - Pasted node links / 直接粘贴的节点链接
+    validations:
+      required: true
+
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Node protocol (if any) / 节点协议（如有）
+      multiple: true
+      options:
+        - Not applicable / 不适用
+        - Shadowsocks
+        - Shadowsocks 2022 (2022-blake3-*)
+        - VLESS
+        - VLESS Reality
+        - VMess
+        - Trojan
+        - AnyTLS
+        - SOCKS
+        - Other (hysteria2 / tuic …, currently skipped) / 其它（目前会跳过）
+
+  - type: input
+    id: environment
+    attributes:
+      label: Device model, language & time zone / 模拟机型、语言与时区
+      description: Shown in the environment detail view, or `profile list`. / 环境详情页或 `profile list` 里能看到。
+      placeholder: "macbook-air-13-m4 · follow proxy / 跟随代理 · Asia/Tokyo · SPI afp,tz,safari,fontlist"
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      placeholder: |
+        1. Create a persistent environment with …
+        2. Open https://…
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or probe output / 脱敏后的日志或 probe 输出
+      description: |
+        Runner log / 浏览器日志：`~/Library/Application Support/Safarier/logs/<PROFILE_ID>.log`
+        Probe / 探针：`/Applications/Safarier.app/Contents/MacOS/Safarier probe <PROFILE_ID>`（`profile list` 查看 ID）
+        Remove subscription URLs, node links, passwords and real IPs first. / 先删掉订阅链接、节点链接、密码和真实 IP。
+      render: shell
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting / 提交前确认
+      options:
+        - label: I removed subscription URLs, node links, passwords, tokens and real IPs. / 我已删除订阅链接、节点链接、密码、令牌和真实 IP。
+          required: true
+        - label: I searched existing issues. / 我已搜索过现有的 Issue。

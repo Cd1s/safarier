@@ -33,6 +33,14 @@ struct SafarierAppView: View {
             actions: { _ in Button("好") {} },
             message: { Text($0.detail) }
         )
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { ManagerGUI.showAgentSetup() } label: {
+                    Label("AI Agent 接入", systemImage: "sparkles")
+                }
+                .help("同步 Skill 并查看 AI Agent 接入指南")
+            }
+        }
         .onAppear { model.startMonitoring() }
     }
 

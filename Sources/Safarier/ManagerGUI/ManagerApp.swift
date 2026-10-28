@@ -12,8 +12,26 @@ enum ManagerGUI {
             ManagerCLI.printError("无法打开元数据目录：\(error)")
             exit(1)
         }
+        _ = try? AgentSkillGuide.install()
         ManagerApp.main()
         exit(0)
+    }
+
+    static func showAgentSetup() {
+        let alert = NSAlert()
+        alert.messageText = "AI Agent 接入"
+        do {
+            _ = try AgentSkillGuide.install()
+            alert.informativeText = "已同步 safarier-browser Skill 到 Claude Code 与 Codex 的技能目录。重新加载 Agent 的技能列表后，即可操作环境、填表和截图。其他客户端可导入指南。\n\n遇到验证码或需要确认的步骤，可用 agent focus 切回窗口人工完成。"
+        } catch {
+            alert.informativeText = "Skill 同步失败：\(error.localizedDescription)\n可拷贝指南后手动导入。"
+        }
+        alert.addButton(withTitle: "拷贝接入指南")
+        alert.addButton(withTitle: "关闭")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(AgentSkillGuide.markdown, forType: .string)
+        }
     }
 }
 
@@ -53,6 +71,9 @@ struct ManagerApp: App {
                     .disabled(model.subscriptions.isEmpty)
                 Button("重新读取数据") { model.reload() }
                     .keyboardShortcut("r")
+            }
+            CommandMenu("AI Agent") {
+                Button("AI Agent 接入…") { ManagerGUI.showAgentSetup() }
             }
             CommandGroup(after: .windowArrangement) {
                 // 每个环境的浏览器是独立进程：⌘` 在管理器和正在运行的浏览器窗口之间轮换（中文输入法下的 ⌘· 由 ManagerAppDelegate 接住）。

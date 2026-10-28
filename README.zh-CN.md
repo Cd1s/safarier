@@ -4,7 +4,7 @@
   <p><strong>专为 macOS 打造的原生 Safari 多环境指纹浏览器</strong></p>
   <p>基于 Apple 真 Safari 内核与 Safari 无痕隐私护盾构建 — 支持多账号独立沙盒、34 款真实 Mac 机型模拟、语言时区自动跟随代理、内置全协议订阅引擎。</p>
   <p>
-    <a href="https://github.com/Cd1s/safarier/releases/latest"><img src="https://img.shields.io/badge/Release-v1.2.0-0A84FF?style=flat-square" alt="Release v1.2.0" /></a>
+    <a href="https://github.com/Cd1s/safarier/releases/latest"><img src="https://img.shields.io/badge/Release-v1.3.0-0A84FF?style=flat-square" alt="Release v1.3.0" /></a>
     <img src="https://img.shields.io/badge/macOS-14.0%2B-1d1d1f?style=flat-square&logo=apple" alt="macOS 14.0+" />
     <img src="https://img.shields.io/badge/Apple%20Silicon%20%26%20Intel-Universal-34C759?style=flat-square" alt="Universal" />
     <img src="https://img.shields.io/badge/Engine-Native%20Safari-007AFF?style=flat-square&logo=safari" alt="Native Safari" />
@@ -43,9 +43,9 @@
 
 | 版本 | 适用电脑 | 下载安装包 |
 |---|---|---|
-| **Apple Silicon 版** | 搭载 **Apple Silicon** 芯片的 Mac | [**`Safarier-v1.2.0-macOS-arm64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
-| **Intel 版** | 搭载 **Intel** 处理器的 Mac | [**`Safarier-v1.2.0-macOS-x86_64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
-| **Universal 通用版** | 双架构合一（Apple Silicon 与 Intel 通用） | [**`Safarier-v1.2.0-macOS-universal.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Apple Silicon 版** | 搭载 **Apple Silicon** 芯片的 Mac | [**`Safarier-v1.3.0-macOS-arm64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Intel 版** | 搭载 **Intel** 处理器的 Mac | [**`Safarier-v1.3.0-macOS-x86_64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Universal 通用版** | 双架构合一（Apple Silicon 与 Intel 通用） | [**`Safarier-v1.3.0-macOS-universal.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
 
 1. 解压下载的压缩包，将 **`Safarier.app`** 拖入「**应用程序**」（`/Applications`）文件夹。
 2. 首次打开如果系统弹出安全提示，在「终端」粘贴运行这一行命令即可正常打开：
@@ -91,6 +91,31 @@ Safarier 完整还原了你在 Mac 上最顺手的 Safari 操作习惯：
 | **重新载入 / 忽略缓存刷新** | `⌘R` / `⌥⌘R` | **缩放页面 / 仅缩放文字** | `⌘+` `⌘-` / `⌥⌘+` `⌥⌘-` |
 | **页内查找 / 用所选内容查找** | `⌘F` / `⌘E` | **网页检查器 / 显示页面源代码** | `⌥⌘I` / `⌥⌘U` |
 | **存储页面为 / 打印与导出 PDF** | `⌘S` / `⌘P` | **查看下载项** | `⌥⌘L` |
+
+---
+
+## AI Agent 自动化接入（Built for AI Agents）
+
+每个环境提供本地、仅当前用户可访问的 CLI 桥接：带元素引用与视口坐标的语义快照、适配受控表单的填充、OTP 逐字符输入、可见元素等待、原生坐标点击、截图和标签页管理。页面操作在隔离的客户端脚本世界执行，不向网页自身的 JavaScript 全局对象添加工具变量。
+
+打开管理器后，会自动将 **safarier-browser** Skill 同步到 `~/.claude/skills`、`~/.claude-ifrr/skills` 和 `~/.agents/skills`。在 Claude Code / Codex 中重新加载技能列表即可使用；也可点击管理器的 **AI Agent 接入** 按钮拷贝完整指南。Cursor、OpenCode 等客户端请按各自的 Skill 支持方式导入。
+
+```sh
+SF=/Applications/Safarier.app/Contents/MacOS/Safarier
+"$SF" agent spaces
+"$SF" agent open "测试环境" https://example.com --background
+"$SF" agent snapshot "测试环境"
+"$SF" agent fill "测试环境" e1 user@example.com
+"$SF" agent click "测试环境" e2
+"$SF" agent wait "测试环境" 'input[autocomplete="one-time-code"]'
+"$SF" agent type "测试环境" 'input[autocomplete="one-time-code"]' 123456
+"$SF" agent screenshot "测试环境" /tmp/page.png
+"$SF" agent focus "测试环境"
+```
+
+通过 `agent eval` 可用 `safarier.fill`、`safarier.type`、`safarier.waitFor` 和 `safarier.snapshot` 批量执行异步步骤；`agent skill` 输出完整用法。不同环境可并行操作。示例中的 `123456` 是测试数据，实际使用应填入本人或获授权的验证码。
+
+支持获授权的表单测试与辅助注册。遇到图形验证码、通行密钥确认等人工验证时，通过 `agent focus` 唤起窗口交给用户完成；不包含验证码破解功能。DOM 工具产生合成事件，原生坐标点击经 AppKit 分发，网站是否接受仍需检查页面结果。执行成功后应重新截图或读取快照确认。
 
 ---
 

@@ -4,7 +4,7 @@
   <p><strong>The Native Safari Multi-Environment Browser for macOS</strong></p>
   <p>Run dozens of isolated accounts side-by-side — powered by Apple's real Safari engine, Safari Private Browsing protection, 34 authentic Mac hardware presets, and built-in global proxy routing.</p>
   <p>
-    <a href="https://github.com/Cd1s/safarier/releases/latest"><img src="https://img.shields.io/badge/Release-v1.2.0-0A84FF?style=flat-square" alt="Release v1.2.0" /></a>
+    <a href="https://github.com/Cd1s/safarier/releases/latest"><img src="https://img.shields.io/badge/Release-v1.3.0-0A84FF?style=flat-square" alt="Release v1.3.0" /></a>
     <img src="https://img.shields.io/badge/macOS-14.0%2B-1d1d1f?style=flat-square&logo=apple" alt="macOS 14.0+" />
     <img src="https://img.shields.io/badge/Apple%20Silicon%20%26%20Intel-Universal-34C759?style=flat-square" alt="Universal" />
     <img src="https://img.shields.io/badge/Engine-Native%20Safari-007AFF?style=flat-square&logo=safari" alt="Native Safari" />
@@ -43,9 +43,9 @@ Choose the package for your Mac from [GitHub Releases](https://github.com/Cd1s/s
 
 | Edition | Recommended For | Download Package |
 |---|---|---|
-| **Apple Silicon** | Mac with **Apple Silicon** chip | [**`Safarier-v1.2.0-macOS-arm64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
-| **Intel** | Intel-based Mac | [**`Safarier-v1.2.0-macOS-x86_64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
-| **Universal** | Works on both Apple Silicon & Intel Macs | [**`Safarier-v1.2.0-macOS-universal.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Apple Silicon** | Mac with **Apple Silicon** chip | [**`Safarier-v1.3.0-macOS-arm64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Intel** | Intel-based Mac | [**`Safarier-v1.3.0-macOS-x86_64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Universal** | Works on both Apple Silicon & Intel Macs | [**`Safarier-v1.3.0-macOS-universal.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
 
 1. Unzip the downloaded file and drag **`Safarier.app`** into your **`Applications`** folder.
 2. If macOS prompts that the app cannot be verified on first launch, run this single command in Terminal:
@@ -91,6 +91,31 @@ Safarier is designed to feel right at home for every Mac and Safari user:
 | **Reload / Force Reload** | `⌘R` / `⌥⌘R` | **Zoom Page / Zoom Text Only** | `⌘+` `⌘-` / `⌥⌘+` `⌥⌘-` |
 | **Find on Page / Use Selection** | `⌘F` / `⌘E` | **Web Inspector / Page Source** | `⌥⌘I` / `⌥⌘U` |
 | **Save Page / Export PDF** | `⌘S` / `⌘P` | **Show Downloads** | `⌥⌘L` |
+
+---
+
+## Built for AI Agents
+
+Control each profile through a local, owner-only CLI bridge: semantic snapshots with element references and viewport coordinates, framework-friendly form filling, character-by-character OTP input, visible-element waits, native coordinate clicks, screenshots, and tab management. Page interactions run in an isolated client world and preserve the page's JavaScript globals.
+
+Opening the manager synchronizes the **safarier-browser** Skill to `~/.claude/skills`, `~/.claude-ifrr/skills`, and `~/.agents/skills`. Reload Skill discovery in Claude Code or Codex, or use **AI Agent → AI Agent 接入…** to copy the guide for another client. Cursor and OpenCode may need manual import according to their Skill support.
+
+```sh
+SF=/Applications/Safarier.app/Contents/MacOS/Safarier
+"$SF" agent spaces
+"$SF" agent open "Test Space" https://example.com --background
+"$SF" agent snapshot "Test Space"
+"$SF" agent fill "Test Space" e1 user@example.com
+"$SF" agent click "Test Space" e2
+"$SF" agent wait "Test Space" 'input[autocomplete="one-time-code"]'
+"$SF" agent type "Test Space" 'input[autocomplete="one-time-code"]' 123456
+"$SF" agent screenshot "Test Space" /tmp/page.png
+"$SF" agent focus "Test Space"
+```
+
+Use `agent eval` to batch asynchronous steps with `safarier.fill`, `safarier.type`, `safarier.waitFor`, and `safarier.snapshot`; use `agent skill` for the full guide. Different profiles can run concurrently. The `123456` code above is test data: supply only a code you are authorized to use.
+
+This supports authorized form testing and assisted registration. CAPTCHA challenges, passkey confirmation, and other human verification remain a human handoff through `agent focus`; no CAPTCHA solver is included. DOM helpers generate synthetic events; native coordinate clicks dispatch through AppKit, which does not guarantee acceptance by a website. A successful command should be followed by a snapshot to verify the result.
 
 ---
 

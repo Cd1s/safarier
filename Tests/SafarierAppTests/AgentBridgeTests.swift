@@ -166,4 +166,186 @@ final class AgentBridgeTests: XCTestCase {
         XCTAssertTrue(tabCloseResponse.ok)
         XCTAssertEqual(tabCloseResponse.tabs?.count, 1)
     }
+
+    private func loadFixture(_ body: String) throws -> WKWebView {
+        let view = try XCTUnwrap(session.openControllers.first?.webView)
+        view.loadHTMLString("<!doctype html><title>Agent Fixture</title>" + body, baseURL: URL(string: "https://agent.safarier.invalid/"))
+        let deadline = Date().addingTimeInterval(8)
+        while (view.isLoading || view.title != "Agent Fixture") && Date() < deadline { spin(0.05) }
+        XCTAssertEqual(view.title, "Agent Fixture")
+        return view
+    }
+
+    private func send(_ request: AgentRequest) throws -> AgentResponse {
+        let response = try AgentIPCClient.send(request, to: workspace.agentSocketURL(for: profile.id))
+        XCTAssertTrue(response.ok, response.error ?? "Agent request failed")
+        return response
+    }
+
+    private func evaluate(_ script: String) throws -> [String: Any] {
+        let response = try send(AgentRequest(action: .eval, script: script))
+        let data = try XCTUnwrap(response.evalResultJSON?.data(using: .utf8))
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    func testControlledFormNativeSetterEditableAndCancellation() throws {
+        _ = try loadFixture("""
+        <input id="controlled"><textarea id="area"></textarea><select id="choice"><option>a</option><option>b</option></select>
+        <div id="editor" contenteditable="true">Old</div><input id="blocked" value="unchanged">
+        <output id="model"></output><output id="events"></output>
+        <script>
+        const input = document.querySelector('#controlled');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        let tracked = '';
+        Object.defineProperty(input, 'value', {
+          get() { return Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').get.call(this); },
+          set(v) { tracked = String(v); setter.call(this, v); }
+        });
+        input.addEventListener('input', () => {
+          if (input.value !== tracked) document.querySelector('#model').textContent = input.value;
+        });
+        for (const type of ['beforeinput','input','change']) input.addEventListener(type, e => {
+          document.querySelector('#events').textContent += e.type + ':' + input.value + ';';
+        });
+        document.querySelector('#blocked').addEventListener('beforeinput', e => e.preventDefault());
+        </script>
+        """)
+        _ = try send(AgentRequest(action: .fill, target: "#controlled", value: "hello@example.com"))
+        _ = try send(AgentRequest(action: .fill, target: "#area", value: "Multiline\ntext"))
+        _ = try send(AgentRequest(action: .fill, target: "#choice", value: "b"))
+        _ = try send(AgentRequest(action: .fill, target: "#editor", value: "Editable text"))
+        let result = try evaluate("return {model: safarier.text('#model'), events: safarier.text('#events'), area: document.querySelector('#area').value, choice: document.querySelector('#choice').value, editor: safarier.text('#editor')};")
+        XCTAssertEqual(result["model"] as? String, "hello@example.com")
+        XCTAssertEqual(result["events"] as? String, "beforeinput:;input:hello@example.com;change:hello@example.com;")
+        XCTAssertEqual(result["area"] as? String, "Multiline\ntext")
+        XCTAssertEqual(result["choice"] as? String, "b")
+        XCTAssertEqual(result["editor"] as? String, "Editable text")
+        let cancelled = try AgentIPCClient.send(AgentRequest(action: .fill, target: "#blocked", value: "wrong"), to: workspace.agentSocketURL(for: profile.id))
+        XCTAssertFalse(cancelled.ok)
+        XCTAssertEqual(try evaluate("return {value: document.querySelector('#blocked').value};")["value"] as? String, "unchanged")
+    }
+
+    func testTypeFollowsOTPAutoAdvanceAndReplacesSingleCharacter() throws {
+        _ = try loadFixture("""
+        <div id="otp"></div><p id="events"></p>
+        <script>
+        for (let i = 0; i < 6; i++) {
+          const input = document.createElement('input');
+          input.id = 'otp' + i; input.maxLength = 1; input.value = '0';
+          input.addEventListener('input', () => input.nextElementSibling?.focus());
+          for (const type of ['keydown', 'keypress', 'input', 'keyup']) input.addEventListener(type, () => {
+            document.querySelector('#events').textContent += type + ',';
+          });
+          document.querySelector('#otp').append(input);
+        }
+        </script>
+        """)
+        _ = try send(AgentRequest(action: .type, target: "#otp0", value: "839201", delayMs: 5))
+        let result = try evaluate("return {otp: Array.from(document.querySelectorAll('input')).map(el => el.value).join(''), events: safarier.text('#events')};")
+        XCTAssertEqual(result["otp"] as? String, "839201")
+        XCTAssertEqual(result["events"] as? String, String(repeating: "keydown,keypress,input,keyup,", count: 6))
+    }
+
+    func testWaitForSelectorTextReferenceAndTimeout() throws {
+        _ = try loadFixture("<button id='go'>Continue</button>")
+        _ = try evaluate("setTimeout(() => { const el = document.createElement('p'); el.id = 'ready'; el.textContent = 'Ready to proceed'; document.body.append(el); }, 150); return {};")
+        _ = try send(AgentRequest(action: .wait, target: "#ready", timeoutMs: 3000))
+        _ = try send(AgentRequest(action: .wait, target: "Ready to proceed", timeoutMs: 100))
+        _ = try send(AgentRequest(action: .snapshot))
+        _ = try send(AgentRequest(action: .wait, target: "[ref=e1]", timeoutMs: 100))
+        let timedOut = try AgentIPCClient.send(AgentRequest(action: .wait, target: "#never", timeoutMs: 100), to: workspace.agentSocketURL(for: profile.id))
+        XCTAssertFalse(timedOut.ok)
+        _ = try evaluate("document.querySelector('#go').remove(); return {};")
+        let stale = try AgentIPCClient.send(AgentRequest(action: .click, target: "e1"), to: workspace.agentSocketURL(for: profile.id))
+        XCTAssertFalse(stale.ok)
+    }
+
+    func testSnapshotCoordinatesStateAndPasswordRedaction() throws {
+        _ = try loadFixture("""
+        <input type="password" value="secret-not-for-snapshots">
+        <input type="checkbox" checked disabled><div role="tab">Tab</div>
+        <iframe title="Embedded content" srcdoc="<button>Frame</button>"></iframe>
+        <div contenteditable="true">Edit</div><input type="hidden" value="hidden">
+        """)
+        let snapshot = try XCTUnwrap(try send(AgentRequest(action: .snapshot)).snapshot)
+        XCTAssertEqual(snapshot.elements.count, 5)
+        XCTAssertEqual(snapshot.elements.first?.value, "[redacted]")
+        XCTAssertFalse(snapshot.formatted.contains("secret-not-for-snapshots"))
+        XCTAssertEqual(snapshot.elements[1].checked, true)
+        XCTAssertEqual(snapshot.elements[1].disabled, true)
+        XCTAssertTrue(snapshot.elements.contains { $0.tag == "iframe" })
+        XCTAssertTrue(snapshot.formatted.contains("@("))
+        for element in snapshot.elements {
+            XCTAssertGreaterThan(try XCTUnwrap(element.width), 0)
+            XCTAssertGreaterThan(try XCTUnwrap(element.height), 0)
+            XCTAssertNotNil(element.x)
+            XCTAssertNotNil(element.y)
+        }
+    }
+
+    func testNativeCoordinateClickDispatchesTrustedDOMEvent() throws {
+        let webView = try loadFixture("""
+        <button style="position:absolute;left:80px;top:100px;width:150px;height:50px" id="native">Native</button>
+        <output id="result">none</output>
+        <script>document.querySelector('#native').addEventListener('click', e => {
+          document.querySelector('#result').textContent = String(e.isTrusted);
+        });</script>
+        """)
+        let snapshot = try XCTUnwrap(try send(AgentRequest(action: .snapshot)).snapshot)
+        let button = try XCTUnwrap(snapshot.elements.first { $0.tag == "button" })
+        _ = try send(AgentRequest(action: .clickXY, x: try XCTUnwrap(button.x), y: try XCTUnwrap(button.y)))
+        _ = try send(AgentRequest(action: .wait, target: "true", timeoutMs: 3000))
+        XCTAssertEqual(try evaluate("return {trusted: safarier.text('#result')};")["trusted"] as? String, "true")
+        webView.pageZoom = 1.5
+        defer { webView.pageZoom = 1 }
+        spin(0.1)
+        _ = try evaluate("document.querySelector('#result').textContent = 'none'; return {};")
+        let zoomed = try XCTUnwrap(try send(AgentRequest(action: .snapshot)).snapshot?.elements.first { $0.tag == "button" })
+        _ = try send(AgentRequest(action: .clickXY, x: zoomed.x, y: zoomed.y))
+        _ = try send(AgentRequest(action: .wait, target: "true", timeoutMs: 3000))
+        XCTAssertEqual(try evaluate("return {trusted: safarier.text('#result')};")["trusted"] as? String, "true")
+        let invalid = try AgentIPCClient.send(AgentRequest(action: .clickXY, x: -1, y: 20), to: workspace.agentSocketURL(for: profile.id))
+        XCTAssertFalse(invalid.ok)
+    }
+
+    func testSkillInstallationIsIdempotentAndUsesAllThreeDirectories() throws {
+        let home = tempRoot.appendingPathComponent("skill-home")
+        let installed = try AgentSkillGuide.install(homeDirectory: home)
+        XCTAssertEqual(installed.count, 3)
+        for target in installed {
+            XCTAssertEqual(try String(contentsOf: target), AgentSkillGuide.markdown)
+        }
+        let originalDate = try installed[0].resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        _ = try AgentSkillGuide.install(homeDirectory: home)
+        XCTAssertEqual(try installed[0].resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, originalDate)
+        XCTAssertTrue(AgentSkillGuide.markdown.contains("/Applications/Safarier.app/Contents/MacOS/Safarier"))
+        XCTAssertTrue(AgentSkillGuide.markdown.contains("agent focus"))
+    }
+
+
+    func testNativeCoordinateClickReachesOpaqueOriginFrame() throws {
+        _ = try loadFixture("""
+        <iframe sandbox="allow-scripts" style="position:absolute;left:80px;top:100px;width:200px;height:80px;border:0"
+          srcdoc="<button style='width:160px;height:60px' onclick='parent.postMessage(String(event.isTrusted), &quot;*&quot;)'>Frame button</button>"></iframe>
+        <output id="result">none</output>
+        <script>addEventListener('message', e => { document.querySelector('#result').textContent = e.origin + ':' + e.data; });</script>
+        """)
+        spin(0.2)
+        _ = try send(AgentRequest(action: .clickXY, x: 130, y: 130))
+        _ = try send(AgentRequest(action: .wait, target: "null:true", timeoutMs: 3000))
+        XCTAssertEqual(try evaluate("return {value: safarier.text('#result')};")["value"] as? String, "null:true")
+    }
+
+    func testSocketBurstAndLargeBatchResponse() throws {
+        _ = try loadFixture("<p>Transport fixture</p>")
+        for _ in 0..<50 { _ = try send(AgentRequest(action: .status)) }
+        let response = try send(AgentRequest(action: .eval, script: "return 'x'.repeat(256 * 1024);"))
+        let data = try XCTUnwrap(response.evalResultJSON?.data(using: .utf8))
+        XCTAssertEqual(try JSONDecoder().decode(String.self, from: data).count, 256 * 1024)
+        let overLimit = AgentRequest(action: .eval, script: String(repeating: " ", count: AgentWireIO.maximumMessageBytes))
+        XCTAssertThrowsError(try AgentIPCClient.send(overLimit, to: workspace.agentSocketURL(for: profile.id))) { error in
+            XCTAssertEqual(error as? AgentIPCError, .messageTooLarge)
+        }
+    }
+
 }

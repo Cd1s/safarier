@@ -16,115 +16,165 @@ final class AgentBridgeServer {
     private let acceptQueue = DispatchQueue(label: "safarier.agent.accept", qos: .userInitiated)
 
     /// 注入到 `WKContentWorld.defaultClient` 的辅助脚本：维护 `window.__safarierRefs` 与 `window.safarier`。
-    private static let bootstrapJS = """
-    if (!window.__safarierRefs) {
-      window.__safarierRefs = Object.create(null);
-    }
+    private static let bootstrapJS = #"""
+    if (!window.__safarierRefs) window.__safarierRefs = Object.create(null);
     window.safarier = {
+      visible(el) {
+        const style = getComputedStyle(el);
+        return !el.hidden && style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0;
+      },
       resolve(target) {
         if (!target) throw new Error('Empty target');
-        const cleaned = String(target).trim().replace(/^\\[|(?:\\])$/g, '');
-        if (window.__safarierRefs && window.__safarierRefs[cleaned] && window.__safarierRefs[cleaned].isConnected) {
-          return window.__safarierRefs[cleaned];
+        const raw = String(target).trim();
+        const cleaned = raw.replace(/^\[(?:ref=)?(e\d+)\]$/, '$1');
+        if (/^e\d+$/.test(cleaned)) {
+          const el = window.__safarierRefs[cleaned];
+          if (!el || !el.isConnected) throw new Error('Stale element reference; take a new snapshot: ' + cleaned);
+          return el;
         }
-        const el = document.querySelector(String(target));
-        if (!el) throw new Error('Element not found: ' + target);
+        const el = document.querySelector(raw);
+        if (!el) throw new Error('Element not found: ' + raw);
         return el;
       },
       snapshot() {
         const refs = Object.create(null);
         window.__safarierRefs = refs;
-        const selector = 'a[href], button, input, textarea, select, [role="button"], [onclick]';
-        const nodes = Array.from(document.querySelectorAll(selector));
-        const elements = [];
-        const lines = [];
-        let index = 0;
-        for (const el of nodes) {
-          if (el.hidden) continue;
+        const selector = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [role="menuitem"], [role="option"], [role="combobox"], [contenteditable]:not([contenteditable="false"]), iframe, summary, [onclick]';
+        const elements = [], lines = [];
+        for (const el of document.querySelectorAll(selector)) {
           const tag = el.tagName.toLowerCase();
-          const typeAttr = (el.getAttribute('type') || '').toLowerCase();
-          if (tag === 'input' && typeAttr === 'hidden') continue;
-          const style = window.getComputedStyle(el);
-          if (style.display === 'none' || style.visibility === 'hidden') continue;
-          index += 1;
-          const ref = 'e' + index;
+          const type = (el.getAttribute('type') || '').toLowerCase();
+          if (type === 'hidden' || !this.visible(el)) continue;
+          const ref = 'e' + (elements.length + 1);
           refs[ref] = el;
-          const rawLabel = (
-            el.innerText ||
-            el.getAttribute('aria-label') ||
-            el.getAttribute('placeholder') ||
-            el.value ||
-            el.getAttribute('name') ||
-            el.getAttribute('title') ||
-            ''
-          ).trim().replace(/\\s+/g, ' ').slice(0, 80);
-          elements.push({
-            ref,
-            tag,
-            type: typeAttr || null,
-            label: rawLabel
-          });
-          let desc = '[' + ref + '] <' + tag;
-          if (typeAttr) desc += ' type="' + typeAttr + '"';
-          const placeholder = el.getAttribute('placeholder');
-          if (placeholder) desc += ' placeholder="' + placeholder + '"';
-          desc += '>';
-          if (rawLabel) desc += ' "' + rawLabel + '"';
+          const secret = type === 'password';
+          const label = String(el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') ||
+            el.getAttribute('name') || el.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+          const r = el.getBoundingClientRect();
+          const x = r.x + r.width / 2, y = r.y + r.height / 2;
+          const value = secret ? '[redacted]' : ('value' in el ? String(el.value) : (el.isContentEditable ? el.innerText : null));
+          const checked = 'checked' in el ? Boolean(el.checked) : (el.hasAttribute('aria-checked') ? el.getAttribute('aria-checked') === 'true' : null);
+          const disabled = Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true');
+          const inViewport = r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+          elements.push({ ref, tag, type: type || null, label, x, y, width: r.width, height: r.height, value, checked, disabled, inViewport });
+          let desc = '[' + ref + '] <' + tag + (type ? ' type="' + type + '"' : '') + '>';
+          if (label) desc += ' ' + JSON.stringify(label);
+          desc += ' @(' + Math.round(x) + ',' + Math.round(y) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ')';
+          if (value !== null) desc += ' value=' + JSON.stringify(value.slice(0, 160));
+          if (checked !== null) desc += ' checked=' + checked;
+          if (disabled) desc += ' disabled';
+          if (!inViewport) desc += ' offscreen';
           lines.push(desc);
         }
-        const title = document.title || '';
-        const url = location.href || '';
-        const textSummary = (document.body ? (document.body.innerText || document.body.textContent || '') : '')
-          .trim()
-          .replace(/\\s+/g, ' ')
-          .slice(0, 1000);
-        const header = 'Title: ' + title + '\\nURL: ' + url + (textSummary ? '\\nText: ' + textSummary : '');
-        const formatted = lines.length > 0 ? header + '\\nElements:\\n' + lines.join('\\n') : header + '\\nElements: (none)';
-        return { title, url, textSummary, elements, formatted };
+        const title = document.title || '', url = location.href || '';
+        const textSummary = (document.body ? document.body.innerText || '' : '').trim().replace(/\s+/g, ' ').slice(0, 1000);
+        const header = 'Title: ' + title + '\nURL: ' + url + (textSummary ? '\nText: ' + textSummary : '');
+        return { title, url, textSummary, elements, formatted: header + '\nElements:\n' + (lines.join('\n') || '(none)') };
+      },
+      prepare(target) {
+        const el = this.resolve(target);
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        if (el.disabled || el.readOnly || el.getAttribute('aria-disabled') === 'true') throw new Error('Element is not editable or enabled');
+        if (typeof el.focus === 'function') el.focus();
+        return el;
       },
       click(target) {
-        const el = this.resolve(target);
-        if (typeof el.scrollIntoView === 'function') {
-          el.scrollIntoView({ block: 'center', inline: 'center' });
-        }
-        if (typeof el.focus === 'function') {
-          el.focus();
-        }
+        const el = this.prepare(target);
         el.click();
         return { clicked: String(target), tag: el.tagName.toLowerCase() };
       },
+      setValue(el, value) {
+        const w = el.ownerDocument.defaultView;
+        const prototype = el instanceof w.HTMLInputElement ? w.HTMLInputElement.prototype :
+          el instanceof w.HTMLTextAreaElement ? w.HTMLTextAreaElement.prototype :
+          el instanceof w.HTMLSelectElement ? w.HTMLSelectElement.prototype : null;
+        if (prototype) {
+          Object.getOwnPropertyDescriptor(prototype, 'value').set.call(el, value);
+        } else if (el.isContentEditable) {
+          el.textContent = value;
+        } else {
+          throw new Error('Target is not an input, textarea, select or editable element');
+        }
+      },
+      input(el, value, data, inputType) {
+        const w = el.ownerDocument.defaultView;
+        if (!el.dispatchEvent(new w.InputEvent('beforeinput', { bubbles: true, composed: true, cancelable: true, inputType, data }))) return false;
+        this.setValue(el, value);
+        el.dispatchEvent(new w.InputEvent('input', { bubbles: true, composed: true, inputType, data }));
+        return true;
+      },
       fill(target, value) {
-        const el = this.resolve(target);
-        if (typeof el.scrollIntoView === 'function') {
-          el.scrollIntoView({ block: 'center', inline: 'center' });
-        }
-        if (typeof el.focus === 'function') {
-          el.focus();
-        }
-        el.value = String(value);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
+        const el = this.prepare(target), text = String(value);
+        if (!this.input(el, text, text, 'insertText')) throw new Error('Page cancelled beforeinput');
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { filled: String(target), value: String(value) };
+        return { filled: String(target), length: text.length };
+      },
+      async type(target, text, delayMs = 30) {
+        this.prepare(target);
+        const delay = Number(delayMs);
+        if (!Number.isFinite(delay) || delay < 0 || delay > 1000) throw new Error('delayMs must be between 0 and 1000');
+        let count = 0;
+        for (const key of String(text)) {
+          const el = document.activeElement;
+          if (!el || el.disabled || el.readOnly) throw new Error('Active element is not editable');
+          const options = { key, bubbles: true, cancelable: true, composed: true };
+          const down = el.dispatchEvent(new KeyboardEvent('keydown', options));
+          const press = down && el.dispatchEvent(new KeyboardEvent('keypress', options));
+          if (press) {
+            const current = el.isContentEditable ? el.textContent : el.value;
+            if (current === undefined) throw new Error('Active element is not editable');
+            let next;
+            if (el.maxLength === 1) next = key;
+            else if (typeof el.selectionStart === 'number') next = current.slice(0, el.selectionStart) + key + current.slice(el.selectionEnd);
+            else next = current + key;
+            if (el.maxLength > 1) next = next.slice(0, el.maxLength);
+            const caret = typeof el.selectionStart === 'number' ? el.selectionStart + key.length : next.length;
+            if (this.input(el, next, key, 'insertText')) {
+              if (typeof el.setSelectionRange === 'function') {
+                try { el.setSelectionRange(caret, caret); } catch (_) {}
+              }
+              count++;
+            }
+          }
+          el.dispatchEvent(new KeyboardEvent('keyup', options));
+          await this.wait(delay);
+        }
+        return { typed: String(target), characters: count };
       },
       press(key) {
-        const active = document.activeElement || document.body || document.documentElement;
-        for (const type of ['keydown', 'keypress', 'keyup']) {
-          active.dispatchEvent(new KeyboardEvent(type, { key: String(key), bubbles: true, cancelable: true }));
-        }
+        const active = document.activeElement || document.body;
+        for (const type of ['keydown', 'keypress', 'keyup']) active.dispatchEvent(new KeyboardEvent(type, { key: String(key), bubbles: true, cancelable: true }));
         return { pressed: String(key) };
       },
-      wait(ms) {
-        return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+      wait(msOrSelector) {
+        if (typeof msOrSelector === 'string') return this.waitFor(msOrSelector);
+        return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(msOrSelector) || 0)));
+      },
+      async waitFor(query, timeoutMs = 10000) {
+        const timeout = Number(timeoutMs);
+        if (!query || !Number.isFinite(timeout) || timeout < 0 || timeout > 60000) throw new Error('waitFor requires a query and timeout between 0 and 60000 ms');
+        const deadline = performance.now() + timeout;
+        do {
+          let el;
+          try { el = this.resolve(query); } catch (_) {}
+          if (!el) {
+            const needle = String(query).toLocaleLowerCase();
+            el = Array.from(document.querySelectorAll('body *')).find(node =>
+              this.visible(node) && !['SCRIPT', 'STYLE', 'IFRAME'].includes(node.tagName) &&
+              (node.innerText || '').trim().toLocaleLowerCase().includes(needle));
+          }
+          if (el && this.visible(el)) return { matched: String(query), tag: el.tagName.toLowerCase() };
+          if (performance.now() >= deadline) break;
+          await this.wait(Math.min(100, Math.max(0, deadline - performance.now())));
+        } while (true);
+        throw new Error('Timed out waiting for: ' + query);
       },
       text(selector) {
-        if (!selector) {
-          return (document.body ? (document.body.innerText || document.body.textContent || '') : '').trim();
-        }
-        const el = this.resolve(selector);
-        return (el.innerText || el.textContent || el.value || '').trim();
+        const el = selector ? this.resolve(selector) : document.body;
+        return el ? (el.innerText || el.textContent || el.value || '').trim() : '';
       }
     };
-    """
+    """#
 
     init(session: BrowserSession, socketURL: URL) {
         self.session = session
@@ -218,6 +268,15 @@ final class AgentBridgeServer {
                 if errno == EAGAIN || errno == EWOULDBLOCK { break }
                 break
             }
+            // Darwin accepts inherit O_NONBLOCK; reads must wait for the client's first bytes.
+            let clientFlags = fcntl(clientFD, F_GETFL, 0)
+            _ = fcntl(clientFD, F_SETFL, clientFlags & ~O_NONBLOCK)
+            var uid: uid_t = 0
+            var gid: gid_t = 0
+            guard getpeereid(clientFD, &uid, &gid) == 0, uid == geteuid() else {
+                close(clientFD)
+                continue
+            }
             handleClientConnection(clientFD)
         }
     }
@@ -227,11 +286,19 @@ final class AgentBridgeServer {
             var noSigPipe: Int32 = 1
             setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
 
+            var timeout = timeval(tv_sec: 5, tv_usec: 0)
+            setsockopt(clientFD, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            setsockopt(clientFD, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             var data = Data()
             var buffer = [UInt8](repeating: 0, count: 8192)
             while true {
                 let count = Darwin.read(clientFD, &buffer, buffer.count)
                 if count > 0 {
+                    guard data.count + count <= AgentWireIO.maximumMessageBytes else {
+                        Self.writeResponse(AgentResponse(ok: false, error: "Agent request exceeds 8 MiB"), to: clientFD)
+                        close(clientFD)
+                        return
+                    }
                     data.append(buffer, count: count)
                     if buffer[0..<count].contains(0x0A) { break }
                 } else if count == 0 {
@@ -262,8 +329,10 @@ final class AgentBridgeServer {
                 } else {
                     response = AgentResponse(ok: false, error: "会话已关闭")
                 }
-                Self.writeResponse(response, to: clientFD)
-                close(clientFD)
+                DispatchQueue.global(qos: .userInitiated).async {
+                    Self.writeResponse(response, to: clientFD)
+                    close(clientFD)
+                }
             }
         }
     }
@@ -271,10 +340,7 @@ final class AgentBridgeServer {
     nonisolated private static func writeResponse(_ response: AgentResponse, to fd: Int32) {
         guard var bytes = try? JSONEncoder().encode(response) else { return }
         bytes.append(0x0A)
-        _ = bytes.withUnsafeBytes { rawBuffer in
-            guard let base = rawBuffer.baseAddress else { return 0 }
-            return Darwin.write(fd, base, rawBuffer.count)
-        }
+        try? AgentWireIO.writeAll(bytes, to: fd)
     }
 
     // MARK: - 请求分发
@@ -331,6 +397,28 @@ final class AgentBridgeServer {
                     message: "filled \(target)",
                     evalResultJSON: summary
                 )
+            case .type, .wait:
+                guard let target = request.target, !target.isEmpty else {
+                    return AgentResponse(ok: false, error: "Missing target")
+                }
+                let controller = try resolveController(tab: request.tab)
+                let method = request.action == .type ? "type(target, value, delay)" : "waitFor(target, timeout)"
+                let summary = try await runInDefaultClient(
+                    script: "\(Self.bootstrapJS)\nreturn JSON.stringify(await window.safarier.\(method));",
+                    arguments: ["target": target, "value": request.value ?? "", "delay": request.delayMs ?? 30, "timeout": request.timeoutMs ?? 10000],
+                    webView: controller.webView
+                )
+                return AgentResponse(ok: true, evalResultJSON: summary)
+            case .clickXY:
+                let controller = try resolveController(tab: request.tab)
+                try clickAtViewportPoint(request, in: controller.webView)
+                return AgentResponse(ok: true, message: "clicked viewport coordinates")
+            case .focus:
+                let controller = try resolveController(tab: request.tab)
+                controller.window.makeKeyAndOrderFront(nil)
+                controller.window.makeFirstResponder(controller.webView)
+                NSApp.activate(ignoringOtherApps: true)
+                return makeTabsResponse(message: "focused environment")
             case .eval:
                 guard let script = request.script, !script.isEmpty else {
                     return AgentResponse(ok: false, error: "eval 缺少 JavaScript 代码")
@@ -458,6 +546,32 @@ final class AgentBridgeServer {
         try? await Task.sleep(nanoseconds: 50_000_000)
         while webView.isLoading && Date() < deadline {
             try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    private func clickAtViewportPoint(_ request: AgentRequest, in webView: WKWebView) throws {
+        let zoom = webView.pageZoom
+        guard let x = request.x, let y = request.y, x.isFinite, y.isFinite,
+              zoom.isFinite, zoom > 0, x >= 0, y >= 0,
+              x * zoom < webView.bounds.width, y * zoom < webView.bounds.height,
+              let window = webView.window else {
+            throw NSError(domain: "SafarierAgent", code: 400, userInfo: [NSLocalizedDescriptionKey: "Coordinates must be inside the visible web viewport"])
+        }
+        // DOM viewport coordinates are CSS pixels; AppKit uses points after page zoom.
+        let point = NSPoint(x: x * zoom + webView.bounds.minX, y: webView.isFlipped ? y * zoom + webView.bounds.minY : webView.bounds.maxY - y * zoom)
+        let windowPoint = webView.convert(point, to: nil)
+        // Dispatch to the actual content view without activating a background window.
+        let recipient = webView.hitTest(webView.convert(point, to: webView.superview)) ?? webView
+        for kind: NSEvent.EventType in [.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(
+                with: kind, location: windowPoint, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: kind == .mouseMoved ? 0 : 1, pressure: kind == .leftMouseDown ? 1 : 0
+            ) else { continue }
+            switch kind {
+            case .mouseMoved: recipient.mouseMoved(with: event)
+            case .leftMouseDown: recipient.mouseDown(with: event)
+            default: recipient.mouseUp(with: event)
+            }
         }
     }
 

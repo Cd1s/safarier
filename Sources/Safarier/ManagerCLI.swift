@@ -31,6 +31,10 @@ enum ManagerCLI {
       safarier agent snapshot PROFILE_ID_OR_NAME [--tab N]
       safarier agent click PROFILE_ID_OR_NAME REF_OR_SELECTOR [--tab N]
       safarier agent fill PROFILE_ID_OR_NAME REF_OR_SELECTOR TEXT [--tab N]
+      safarier agent type PROFILE_ID_OR_NAME REF_OR_SELECTOR TEXT [--delay-ms 30] [--tab N]
+      safarier agent click-xy PROFILE_ID_OR_NAME X Y [--tab N]
+      safarier agent wait PROFILE_ID_OR_NAME SELECTOR_OR_TEXT [--timeout-ms 10000] [--tab N]
+      safarier agent focus PROFILE_ID_OR_NAME [--tab N]
       safarier agent eval PROFILE_ID_OR_NAME JS_CODE [--tab N]
       safarier agent screenshot PROFILE_ID_OR_NAME OUTPUT_PATH [--tab N]
       safarier agent tab-list | tab-new | tab-close PROFILE_ID_OR_NAME [--tab N]
@@ -495,7 +499,8 @@ enum ManagerCLI {
             print(AgentSkillGuide.markdown)
             return 0
         case "install-skill":
-            return try installAgentSkill()
+            for target in try AgentSkillGuide.install() { print("已安装 Skill：\(target.path)") }
+            return 0
         case "spaces":
             return try listAgentSpaces(workspace)
         case "open":
@@ -535,6 +540,40 @@ enum ManagerCLI {
                 request: AgentRequest(action: .fill, tab: try parseTabOption(args), target: target, value: text)
             )
             print(response.message ?? "filled \(target)")
+            return 0
+        case "type", "wait", "click-xy", "focus":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            var request = AgentRequest(action: .focus, tab: try parseTabOption(args))
+            switch subcommand {
+            case "type":
+                request.action = .type
+                request.target = try args.positional(1, name: "REF_OR_SELECTOR")
+                request.value = try args.positional(2, name: "TEXT")
+                request.delayMs = try numericOption(args, name: "--delay-ms", defaultValue: 30, range: 0...1000)
+            case "wait":
+                request.action = .wait
+                request.target = try args.positional(1, name: "SELECTOR_OR_TEXT")
+                request.timeoutMs = try numericOption(args, name: "--timeout-ms", defaultValue: 10000, range: 0...60000)
+            case "click-xy":
+                request.action = .clickXY
+                guard let x = Double(try args.positional(1, name: "X")), x.isFinite,
+                      let y = Double(try args.positional(2, name: "Y")), y.isFinite else {
+                    throw CLIError("X / Y 必须是有限数字（网页视口坐标）")
+                }
+                request.x = x
+                request.y = y
+            default: break
+            }
+            var timeout: TimeInterval = 15
+            if request.action == .wait {
+                timeout = (request.timeoutMs ?? 10000) / 1000 + 5
+            } else if request.action == .type {
+                let count = Double(request.value?.count ?? 0)
+                timeout += count * (request.delayMs ?? 30) / 1000
+            }
+            let response = try sendAgentRequest(workspace, profile: profile, request: request, timeout: timeout)
+            print(response.evalResultJSON ?? response.message ?? "ok")
             return 0
         case "eval":
             let args = try ParsedArguments(arguments)
@@ -579,21 +618,16 @@ enum ManagerCLI {
             printAgentTabs(response.tabs ?? [])
             return 0
         default:
-            throw CLIError("未知 agent 子命令：\(subcommand ?? "(空)")（可用 skill、install-skill、spaces、open、snapshot、click、fill、eval、screenshot、tab-list、tab-new、tab-close）")
+            throw CLIError("未知 agent 子命令：\(subcommand ?? "(空)")（可用 skill、install-skill、spaces、open、snapshot、click、fill、type、click-xy、wait、focus、eval、screenshot、tab-list、tab-new、tab-close）")
         }
     }
 
-    private static func installAgentSkill(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> Int32 {
-        let targets = [
-            homeDirectory.appendingPathComponent(".claude/skills/safarier-browser/SKILL.md"),
-            homeDirectory.appendingPathComponent(".agents/skills/safarier-browser/SKILL.md"),
-        ]
-        for target in targets {
-            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(AgentSkillGuide.markdown.utf8).write(to: target, options: .atomic)
-            print("已安装 Skill：\(target.path)")
+    private static func numericOption(_ args: ParsedArguments, name: String, defaultValue: Double, range: ClosedRange<Double>) throws -> Double {
+        guard let raw = args.value(name) else { return defaultValue }
+        guard let value = Double(raw), value.isFinite, range.contains(value) else {
+            throw CLIError("\(name) 必须在 \(range.lowerBound)...\(range.upperBound) 之间")
         }
-        return 0
+        return value
     }
 
     private static func listAgentSpaces(_ workspace: SafarierWorkspace) throws -> Int32 {
@@ -658,9 +692,9 @@ enum ManagerCLI {
         return tab
     }
 
-    private static func sendAgentRequest(_ workspace: SafarierWorkspace, profile: Profile, request: AgentRequest) throws -> AgentResponse {
+    private static func sendAgentRequest(_ workspace: SafarierWorkspace, profile: Profile, request: AgentRequest, timeout: TimeInterval = 15) throws -> AgentResponse {
         let socketURL = workspace.agentSocketURL(for: profile.id)
-        let response = try AgentIPCClient.send(request, to: socketURL)
+        let response = try AgentIPCClient.send(request, to: socketURL, timeout: timeout)
         guard response.ok else {
             throw CLIError(response.error ?? "Agent 请求执行失败")
         }

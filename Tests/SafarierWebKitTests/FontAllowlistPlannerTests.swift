@@ -154,8 +154,9 @@ final class FontAllowlistPlannerTests: XCTestCase {
     }
 
     /// 回归：用 CTFontCollection 生成白名单时漏掉了 Times、Courier 等能按名字解析的字体。
-    func testHostEnglishPlanKeepsSystemFontsThatFontCollectionOmits() {
+    func testHostEnglishPlanKeepsSystemFontsThatFontCollectionOmits() throws {
         let plan = hostPlan(["en-US"])
+        try XCTSkipIf(plan.isNoOp, "Host has no non-English Font7 assets installed")
         let names = Set(plan.names)
         for expected in ["Times", "Courier", "Heiti SC", "Hiragino Sans GB", "HiraginoSansGB-W3", "冬青黑体简体中文", "Songti SC", "Thonburi"] {
             XCTAssertTrue(names.contains(expected), "en-US 白名单缺少 \(expected)（共 \(plan.names.count) 个名字）")

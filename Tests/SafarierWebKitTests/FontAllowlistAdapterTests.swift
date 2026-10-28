@@ -100,6 +100,14 @@ final class FontAllowlistAdapterTests: XCTestCase {
         XCTAssertTrue(bridge.calls.isEmpty)
     }
 
+    func testMacOS27EngineReachesInjectedBridge() {
+        for version in ["22625.1.29.11.27", "22625.2.8.18.4"] {
+            let bridge = BridgeRecorder()
+            XCTAssertEqual(run(version: version, bridge: bridge).name, "active")
+            XCTAssertEqual(bridge.calls.count, 1, version)
+        }
+    }
+
     /// 跟随系统语言：保持宿主机字体，报 active，但不遍历字体、不调用 WebKit（版本不认识也一样）。
     func testEmptyProfileLanguagesIsActiveNoOpAndNeverCallsBridge() {
         let bridge = BridgeRecorder()

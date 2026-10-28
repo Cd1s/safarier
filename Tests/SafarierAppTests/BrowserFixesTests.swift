@@ -34,9 +34,11 @@ final class BrowserFixesTests: XCTestCase {
     }
 
     /// 等到条件成立（最多 `timeout` 秒）。
-    private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
+    @discardableResult
+    private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() && Date() < deadline { spin(0.1) }
+        return condition()
     }
 
     // MARK: - 网页打开的视图
@@ -136,20 +138,32 @@ final class BrowserFixesTests: XCTestCase {
     // MARK: - 出错页网址、⇧⌘H
 
     func testFailedURLIsClearedByBackAndByOtherNavigation() throws {
+        // Close a real loopback connection without replying; DNS policy and external connectivity cannot delay the failure.
+        let server = try LoopbackHTTPServer(routes: [:], disconnectImmediately: true)
+        defer { server.stop() }
+        XCTAssertTrue(spin(until: { server.port != nil }))
+        let port = try XCTUnwrap(server.port)
         let controller = session.openWindow(url: nil)
-        let failing = try XCTUnwrap(URL(string: "https://nonexistent.example.invalid/x"))
+        let failing = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/x"))
         controller.webView.load(URLRequest(url: failing))
-        spin(until: { controller.failedURL != nil })
-        XCTAssertEqual(controller.failedURL, failing, "出错页记下原本要打开的网址")
-        spin(1)
-        XCTAssertEqual(controller.failedURL, failing, "出错页自己的载入不清掉它")
+        XCTAssertTrue(spin(until: {
+            controller.failedURL == failing && controller.webView.title == "无法打开页面"
+                && !controller.webView.isLoading && !controller.isLoadingErrorPage
+        }, timeout: 30), "等待首张出错页加载完成超时")
+        XCTAssertEqual(controller.failedURL, failing, "出错页加载完成后仍保留原本失败的网址")
 
-        controller.webView.loadHTMLString("<p>other</p>", baseURL: URL(string: "https://other.example.invalid/"))
-        spin(until: { controller.failedURL == nil })
+        let other = try XCTUnwrap(URL(string: "https://other.example.invalid/"))
+        controller.webView.loadSimulatedRequest(URLRequest(url: other), responseHTML: "<title>Other</title><p>other</p>")
+        XCTAssertTrue(spin(until: {
+            controller.webView.url == other && controller.webView.title == "Other" && !controller.webView.isLoading
+        }, timeout: 30), "等待另一个页面提交并加载完成超时")
         XCTAssertNil(controller.failedURL, "打开了别的网页，⌘R 不再重试旧网址")
 
         controller.webView.load(URLRequest(url: failing))
-        spin(until: { controller.failedURL != nil })
+        XCTAssertTrue(spin(until: {
+            controller.failedURL == failing && controller.webView.title == "无法打开页面"
+                && !controller.webView.isLoading && !controller.isLoadingErrorPage
+        }, timeout: 30), "等待第二张出错页加载完成超时")
         controller.goBack(nil)
         XCTAssertNil(controller.failedURL, "后退时立即清掉")
     }
@@ -281,12 +295,18 @@ final class BrowserFixesTests: XCTestCase {
 
     /// 真实的导航失败：出错页挂在失败的网址上；出错页自己再失败时不再生成新的出错页。
     func testRealFailureUsesFailingURLAndErrorPageFailureDoesNotLoop() throws {
+        let server = try LoopbackHTTPServer(routes: [:], disconnectImmediately: true)
+        defer { server.stop() }
+        XCTAssertTrue(spin(until: { server.port != nil }))
+        let port = try XCTUnwrap(server.port)
         let controller = session.openWindow(url: nil)
-        let failing = try XCTUnwrap(URL(string: "https://nonexistent.example.invalid/x"))
+        let failing = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/x"))
         controller.webView.load(URLRequest(url: failing))
-        spin(until: { controller.failedURL != nil })
+        XCTAssertTrue(spin(until: {
+            controller.failedURL == failing && controller.webView.title == "无法打开页面"
+                && !controller.webView.isLoading && !controller.isLoadingErrorPage
+        }, timeout: 30), "等待真实导航失败后的出错页加载完成超时")
         XCTAssertEqual(controller.failedURL, failing)
-        spin(until: { controller.webView.title == "无法打开页面" })
         XCTAssertFalse(controller.isLoadingErrorPage, "出错页提交后复位")
 
         // 出错页正在载入时又失败：只记日志，不再生成出错页。
@@ -552,7 +572,7 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
         return boundPort
     }
 
-    init(routes: [String: Response]) throws {
+    init(routes: [String: Response], disconnectImmediately: Bool = false) throws {
         self.routes = routes
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -563,7 +583,15 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
             self.boundPort = port
             self.lock.unlock()
         }
-        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { connection.cancel(); return }
+            if disconnectImmediately {
+                connection.start(queue: self.queue)
+                connection.cancel()
+            } else {
+                self.serve(connection)
+            }
+        }
         listener.start(queue: queue)
     }
 

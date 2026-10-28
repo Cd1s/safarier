@@ -62,7 +62,7 @@ Choose the package for your Mac from [GitHub Releases](https://github.com/Cd1s/s
 | **Independent Account Spaces** | Create unlimited **Persistent** spaces (stay logged in forever) or **Temporary Private** spaces (auto-wiped when closed). Press **`⌘D`** to clone any environment in one click. |
 | **34 Real Mac Models** | Simulate **MacBook Pro 16" & 14"** (Apple Silicon XDR), **MacBook Air 15" & 13"**, **iMac 24" 4.5K**, **Mac Studio (5K Studio Display)**, **Mac mini (4K Retina)**, and **Mac Pro (6K XDR)** — complete with matching Retina ratio, P3 wide color, and HDR display traits. |
 | **Auto Follow-Proxy Region** | Simply select a proxy node (US, Japan, UK, Singapore, Hong Kong, Taiwan, Thailand, etc.) and Safarier automatically matches your browser **Language** and **Time Zone** to your exit IP's country and city. |
-| **Real Mac Font Isolation** | Enabled by default: blocks user-installed third-party fonts and automatically scopes system fonts to match your environment's language (for example, hiding CJK language packs inside an English or Thai environment). |
+| **Real Mac Font Isolation** | Enabled by default: blocks user-installed third-party fonts and keeps built-in system fonts, including baseline CJK families, while filtering additional downloaded language assets according to your environment's language. |
 | **Built-in All-Protocol Proxy** | No external proxy client needed. Paste a subscription URL or paste node links (`VLESS` / `Reality`, `VMess`, `Trojan`, `Shadowsocks` / `SS2022`, `AnyTLS`, `SOCKS5`, `HTTP`) directly. |
 | **Zero-Leak Protection** | Every environment routes traffic and DNS strictly through its assigned node. If a proxy disconnects, page loading stops immediately and **never** falls back to your real local IP. |
 

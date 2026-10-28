@@ -34,7 +34,7 @@ final class ProbeController: NSObject, WKNavigationDelegate, WKUIDelegate {
           const width = (family) => { g.font = '48px ' + family; return String(g.measureText(text).width); };
           const baseMonospace = width('monospace'), baseSerif = width('serif');
           const detected = {};
-          for (const name of ['PingFang SC', '苹方-简', '黑体', '微软雅黑', 'Heiti SC', '黑体-简', 'Hiragino Sans GB', 'Songti SC', '宋体', 'Times', 'Courier', 'Thonburi']) {
+          for (const name of ["Microsoft YaHei", "Microsoft YaHei UI", "SimSun", "NSimSun", "SimHei", "KaiTi", "FangSong", "DengXian", "PingFang SC", "Hiragino Sans GB", "STHeiti", "STSong", "Songti SC", "Source Han Sans CN", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Serif CJK SC", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Microsoft JhengHei", "PMingLiU", "MingLiU", "DFKai-SB", "PingFang TC", "PingFang HK", "Source Han Sans TW", "Noto Sans CJK TC", "MiSans", "MIUI", "HarmonyOS Sans SC", "HarmonyOS Sans", "HONOR Sans", "OPPO Sans", "vivo Sans", "Alibaba PuHuiTi", "Alibaba Sans", "DingTalk JinBuTi", "Douyin Sans", "HYQiHei", "FZShuSong-Z01S", "FZKai-Z03S", "FZHei-B01S", "FZFangSong-Z02S", "苹方-简", "Heiti SC", "Heiti TC", "Times", "Courier", "Helvetica", "黑体", "微软雅黑", "黑体-简", "宋体", "Thonburi"]) {
             detected[name] = width('"' + name + '", monospace') !== baseMonospace || width('"' + name + '", serif') !== baseSerif;
           }
           const generic = {};

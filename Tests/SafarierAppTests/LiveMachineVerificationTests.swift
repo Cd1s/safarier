@@ -8,7 +8,7 @@ import SafarierWebKit
 /// 实体机常规检测：每次 `swift test` 都在这台机器的真实 WebKit 上跑一遍检测站常用的探测。
 ///
 /// - 字体：在 WKWebView 的主线程和 Worker 里原样跑 fuck-claude.vercel.app 的 Canvas measureText 宽度探测
-///   （27 款简繁中文字体、16 款国产厂商字体），用 Runner 同一套配置工厂；
+///   （27 款简繁中文字体及本地化名称、16 款国产厂商字体），用 Runner 同一套配置工厂；
 /// - Canvas 噪声、时区、语言、屏幕：启动真实的 Runner 进程（`run --probe`，带 -AppleLanguages、TZ 和屏幕模拟），
 ///   读它在主线程和 Worker 里实际看到的值。语言和屏幕是进程级设置，只能这样端到端地测。
 @MainActor
@@ -25,6 +25,8 @@ final class LiveMachineVerificationTests: XCTestCase {
         "MiSans", "MIUI", "HarmonyOS Sans SC", "HarmonyOS Sans", "HONOR Sans", "OPPO Sans", "vivo Sans", "Alibaba PuHuiTi",
         "Alibaba Sans", "DingTalk JinBuTi", "Douyin Sans", "HYQiHei", "FZShuSong-Z01S", "FZKai-Z03S", "FZHei-B01S", "FZFangSong-Z02S",
     ]
+    static let assetAndUserFonts = ["PingFang SC", "PingFang TC", "PingFang HK", "苹方-简", "Microsoft YaHei"]
+    static let baseCJKFonts = ["Hiragino Sans GB", "Songti SC", "STSong", "Heiti SC", "Heiti TC"]
     static let standardFonts = ["Times", "Courier", "Helvetica"]
 
     /// 检测站的 isFontAvailable 原样照搬：72px，monospace / sans-serif / serif 三个基准，宽度差超过 0.5 就算装了。
@@ -108,7 +110,7 @@ final class LiveMachineVerificationTests: XCTestCase {
         XCTAssertTrue(loader.done, "页面没有载入")
 
         var result: Result<Any, Error>?
-        let arguments: [String: Any] = ["chinese": Self.chineseFonts, "vendor": Self.vendorFonts, "standard": Self.standardFonts]
+        let arguments: [String: Any] = ["chinese": Array(Set(Self.chineseFonts + Self.assetAndUserFonts + Self.baseCJKFonts)).sorted(), "vendor": Self.vendorFonts, "standard": Self.standardFonts]
         webView.callAsyncJavaScript(Self.fontProbeScript, arguments: arguments, in: nil, in: .page) { result = $0 }
         spin(until: { result != nil })
         let json = try XCTUnwrap(try XCTUnwrap(result, "探测脚本超时").get() as? String)
@@ -117,26 +119,48 @@ final class LiveMachineVerificationTests: XCTestCase {
 
     // MARK: - 字体
 
-    /// 英文环境（en-US, en + Asia/Singapore，默认 SPI）：检测站的中文字体和国产厂商字体主线程、Worker 都是 none detected，
-    /// Times / Courier / Helvetica 照常可用。同一台机器上的简体中文环境能测出中文字体，证明探测本身是灵的。
-    func testEnglishProfileHidesAllChineseAndVendorFontsInCanvasProbe() throws {
+    /// 英文 Profile 保留系统卷基础 CJK 字体，隐藏额外的中文资产和第三方字体。
+    /// “检测到中文字体”本身不等于泄漏：真实英文 macOS 也自带冬青黑体、宋体和黑体。
+    func testEnglishProfileKeepsBaseFontsAndHidesUnmatchedAssetsAndVendorFonts() throws {
         let english = Profile(name: "live-en", mode: .ephemeral, languages: ["en-US", "en"], timeZoneIdentifier: "Asia/Singapore")
         let output = try makeOutput(english)
         XCTAssertEqual(output.report[.fontAllowlist].name, "active", output.report[.fontAllowlist].summary)
-
         let probe = try probeFonts(output.configuration)
         for (thread, hits) in [("main", probe.main), ("worker", probe.worker)] {
             XCTAssertNil(hits.error, "\(thread)：\(hits.error ?? "")")
-            XCTAssertEqual(hits.chinese, [], "\(thread) 检出了中文字体")
+            let chinese = Set(try XCTUnwrap(hits.chinese))
+            for name in Self.assetAndUserFonts { XCTAssertFalse(chinese.contains(name), "\(thread) leaked \(name)") }
+            for name in Self.baseCJKFonts { XCTAssertTrue(chinese.contains(name), "\(thread) lost system font \(name)") }
             XCTAssertEqual(hits.vendor, [], "\(thread) 检出了国产厂商字体")
             XCTAssertEqual(hits.standard, Self.standardFonts, "\(thread) 的英文标准字体不全")
+            print("[live] en-US \(thread) base CJK visible: \(chinese.sorted()); language assets/vendor hidden")
         }
-
         let chinese = Profile(name: "live-zh", mode: .ephemeral, languages: ["zh-CN"], timeZoneIdentifier: "Asia/Singapore")
         let control = try probeFonts(try makeOutput(chinese).configuration)
-        XCTAssertFalse(control.main.chinese?.isEmpty ?? true, "简体中文环境应能测出系统中文字体：\(control.main)")
-        XCTAssertFalse(control.worker.chinese?.isEmpty ?? true, "简体中文环境应能测出系统中文字体：\(control.worker)")
-        print("[live] 中文环境检出：\(control.main.chinese ?? [])")
+        for hits in [control.main, control.worker] {
+            XCTAssertTrue(Set(hits.chinese ?? []).isSuperset(of: Self.baseCJKFonts), "Chinese profiles must retain base fonts too")
+        }
+    }
+
+    /// Profile.languages == [] 必须走进程英文首选语言；第二语言含中文也不能放行额外中文资产。
+    func testSystemFollowingEnglishKeepsBaseFontsAndFiltersLanguageAssetsInRunner() throws {
+        let profile = Profile(name: "live-system-en", mode: .ephemeral, languages: [])
+        let document = try runProbe(profile, preferredLanguages: ["en-US", "zh-CN"])
+        XCTAssertTrue(profile.languages.isEmpty)
+        XCTAssertEqual(capability(document, .fontAllowlist), "active")
+        for thread in ["main", "worker"] {
+            let values = try observed(document, thread)
+            XCTAssertEqual(values["language"] as? String, "en-US", thread)
+            let fonts = try XCTUnwrap(values["fonts"] as? [String: Any])
+            let detected = try XCTUnwrap(fonts["detected"] as? [String: Bool])
+            for name in Self.assetAndUserFonts + Self.vendorFonts {
+                XCTAssertEqual(detected[name], false, "\(thread) leaked \(name)")
+            }
+            for name in Self.baseCJKFonts + Self.standardFonts {
+                XCTAssertEqual(detected[name], true, "\(thread) lost system font \(name)")
+            }
+            print("[live] follow-system en-US \(thread): base fonts visible, language assets/vendor hidden")
+        }
     }
 
     // MARK: - 真实 Runner 探针
@@ -151,7 +175,7 @@ final class LiveMachineVerificationTests: XCTestCase {
     }
 
     /// 在临时元数据目录里建好环境，启动真实 Runner 的探针模式，返回它输出的 JSON。
-    private func runProbe(_ profile: Profile, spi: SPIFeatures? = nil) throws -> [String: Any] {
+    private func runProbe(_ profile: Profile, spi: SPIFeatures? = nil, preferredLanguages: [String]? = nil) throws -> [String: Any] {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("LiveMachineVerification-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
@@ -161,7 +185,7 @@ final class LiveMachineVerificationTests: XCTestCase {
 
         let process = Process()
         process.executableURL = try safarierExecutable()
-        process.arguments = spec.arguments()
+        process.arguments = preferredLanguages.map { RunnerLaunchSpec.replacingAppleLanguages($0, in: spec.arguments()) } ?? spec.arguments()
         var base = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("DYLD_") && !$0.key.hasPrefix("XCTest") }
         base["SAFARIER_HOME"] = home.path
         process.environment = spec.environment(inheriting: base)

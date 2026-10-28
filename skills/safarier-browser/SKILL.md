@@ -63,10 +63,11 @@ Targets accept `e1`, `[e1]`, `[ref=e1]` or CSS selectors. DOM helper events are 
 ```sh
 "$SF" agent screenshot "Test Space" /tmp/page.png
 "$SF" agent click-xy "Test Space" 240 380 --tab 1
+"$SF" agent click-xy "Test Space" 240 380 --hold-ms 1000 --tab 1
 "$SF" agent focus "Test Space" --tab 1
 ```
 
-`click-xy` dispatches native AppKit mouse events to the visible web viewport, in CSS viewport pixels from its top-left corner (page zoom is accounted for). Use a fresh snapshot/screenshot; coordinates change after scrolling, zooming, resizing or navigation. It can target ordinary canvas controls and frame surfaces without reading frame DOM. Native dispatch is not a guarantee that a site accepts an action.
+`click-xy <PROFILE> <X> <Y> [--hold-ms MS] [--tab N]` dispatches native AppKit mouse events to the visible web viewport, in CSS viewport pixels from its top-left corner (page zoom is accounted for). Use a fresh snapshot/screenshot; coordinates change after scrolling, zooming, resizing or navigation. It can target ordinary canvas controls and frame surfaces without reading frame DOM. The optional `--hold-ms MS` keeps the left mouse button down for 0–15000 milliseconds before releasing it (default: 0). Use it for ordinary press-and-hold controls; the CLI extends its response timeout by the hold duration. Direct IPC clients pass this duration in `AgentRequest.delayMs` and must allow enough response time. Native dispatch is not a guarantee that a site accepts an action.
 
 If a CAPTCHA, passkey confirmation, consent prompt or other human-verification step appears, use `focus`, ask the user to complete it, then inspect the result. Do not solve or bypass CAPTCHA challenges, impersonate a human, or promise an undetectable browser. Profile isolation and Skill availability do not grant permission for external actions.
 

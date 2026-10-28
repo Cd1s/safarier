@@ -308,6 +308,43 @@ final class AgentBridgeTests: XCTestCase {
         XCTAssertFalse(invalid.ok)
     }
 
+    func testNativeCoordinateClickHoldsThenReleasesMouse() throws {
+        _ = try loadFixture("""
+        <button id="hold" style="position:absolute;left:80px;top:100px;width:180px;height:60px">Hold control</button>
+        <output id="hold-result"></output>
+        <script>
+        const button = document.querySelector('#hold');
+        let pressed = false, sampledWhilePressed = false, downTime = 0, downTrusted = false;
+        button.addEventListener('mousedown', event => {
+          pressed = true; downTime = event.timeStamp; downTrusted = event.isTrusted;
+          setTimeout(() => { sampledWhilePressed = pressed; }, 75);
+        });
+        button.addEventListener('mouseup', event => {
+          pressed = false;
+          const result = document.querySelector('#hold-result');
+          result.textContent = JSON.stringify({duration: event.timeStamp - downTime, sampledWhilePressed, pressed, downTrusted, upTrusted: event.isTrusted});
+          result.dataset.done = 'true';
+        });
+        </script>
+        """)
+        let snapshot = try XCTUnwrap(try send(AgentRequest(action: .snapshot)).snapshot)
+        let button = try XCTUnwrap(snapshot.elements.first { $0.tag == "button" })
+        let start = ProcessInfo.processInfo.systemUptime
+        _ = try send(AgentRequest(action: .clickXY, x: button.x, y: button.y, delayMs: 300))
+        XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - start, 0.28)
+        _ = try send(AgentRequest(action: .wait, target: "#hold-result[data-done=true]", timeoutMs: 3000))
+        let state = try evaluate("return JSON.parse(safarier.text('#hold-result'));")
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(state["duration"] as? Double), 250)
+        XCTAssertEqual(state["sampledWhilePressed"] as? Bool, true, "The page timer must run while the button is held")
+        XCTAssertEqual(state["pressed"] as? Bool, false, "Mouse must be released before reporting completion")
+        XCTAssertEqual(state["downTrusted"] as? Bool, true)
+        XCTAssertEqual(state["upTrusted"] as? Bool, true)
+        for invalid in [-1.0, 15001.0] {
+            let response = try AgentIPCClient.send(AgentRequest(action: .clickXY, x: button.x, y: button.y, delayMs: invalid), to: workspace.agentSocketURL(for: profile.id))
+            XCTAssertFalse(response.ok, "Invalid hold duration must be rejected before pressing")
+        }
+    }
+
     func testSkillInstallationIsIdempotentAndUsesAllThreeDirectories() throws {
         let home = tempRoot.appendingPathComponent("skill-home")
         let installed = try AgentSkillGuide.install(homeDirectory: home)

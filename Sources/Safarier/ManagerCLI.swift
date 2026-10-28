@@ -32,7 +32,7 @@ enum ManagerCLI {
       safarier agent click PROFILE_ID_OR_NAME REF_OR_SELECTOR [--tab N]
       safarier agent fill PROFILE_ID_OR_NAME REF_OR_SELECTOR TEXT [--tab N]
       safarier agent type PROFILE_ID_OR_NAME REF_OR_SELECTOR TEXT [--delay-ms 30] [--tab N]
-      safarier agent click-xy PROFILE_ID_OR_NAME X Y [--tab N]
+      safarier agent click-xy PROFILE_ID_OR_NAME X Y [--hold-ms MS] [--tab N]
       safarier agent wait PROFILE_ID_OR_NAME SELECTOR_OR_TEXT [--timeout-ms 10000] [--tab N]
       safarier agent focus PROFILE_ID_OR_NAME [--tab N]
       safarier agent eval PROFILE_ID_OR_NAME JS_CODE [--tab N]
@@ -563,6 +563,7 @@ enum ManagerCLI {
                 }
                 request.x = x
                 request.y = y
+                request.delayMs = try numericOption(args, name: "--hold-ms", defaultValue: 0, range: 0...15000)
             default: break
             }
             var timeout: TimeInterval = 15
@@ -571,6 +572,8 @@ enum ManagerCLI {
             } else if request.action == .type {
                 let count = Double(request.value?.count ?? 0)
                 timeout += count * (request.delayMs ?? 30) / 1000
+            } else if request.action == .clickXY {
+                timeout += (request.delayMs ?? 0) / 1000
             }
             let response = try sendAgentRequest(workspace, profile: profile, request: request, timeout: timeout)
             print(response.evalResultJSON ?? response.message ?? "ok")

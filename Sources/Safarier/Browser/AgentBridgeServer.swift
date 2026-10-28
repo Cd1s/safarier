@@ -411,7 +411,7 @@ final class AgentBridgeServer {
                 return AgentResponse(ok: true, evalResultJSON: summary)
             case .clickXY:
                 let controller = try resolveController(tab: request.tab)
-                try clickAtViewportPoint(request, in: controller.webView)
+                try await clickAtViewportPoint(request, in: controller.webView)
                 return AgentResponse(ok: true, message: "clicked viewport coordinates")
             case .focus:
                 let controller = try resolveController(tab: request.tab)
@@ -549,7 +549,11 @@ final class AgentBridgeServer {
         }
     }
 
-    private func clickAtViewportPoint(_ request: AgentRequest, in webView: WKWebView) throws {
+    private func clickAtViewportPoint(_ request: AgentRequest, in webView: WKWebView) async throws {
+        let holdMs = request.delayMs ?? 0
+        guard holdMs.isFinite, (0...15000).contains(holdMs) else {
+            throw NSError(domain: "SafarierAgent", code: 400, userInfo: [NSLocalizedDescriptionKey: "Hold duration must be between 0 and 15000 milliseconds"])
+        }
         let zoom = webView.pageZoom
         guard let x = request.x, let y = request.y, x.isFinite, y.isFinite,
               zoom.isFinite, zoom > 0, x >= 0, y >= 0,
@@ -562,16 +566,25 @@ final class AgentBridgeServer {
         let windowPoint = webView.convert(point, to: nil)
         // Dispatch to the actual content view without activating a background window.
         let recipient = webView.hitTest(webView.convert(point, to: webView.superview)) ?? webView
-        for kind: NSEvent.EventType in [.mouseMoved, .leftMouseDown, .leftMouseUp] {
+        for kind: NSEvent.EventType in [.mouseMoved, .leftMouseDown] {
             guard let event = NSEvent.mouseEvent(
                 with: kind, location: windowPoint, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: kind == .mouseMoved ? 0 : 1, pressure: kind == .leftMouseDown ? 1 : 0
             ) else { continue }
-            switch kind {
-            case .mouseMoved: recipient.mouseMoved(with: event)
-            case .leftMouseDown: recipient.mouseDown(with: event)
-            default: recipient.mouseUp(with: event)
+            if kind == .mouseMoved {
+                recipient.mouseMoved(with: event)
+            } else {
+                recipient.mouseDown(with: event)
             }
+        }
+        if holdMs > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(holdMs * 1_000_000))
+        }
+        if let upEvent = NSEvent.mouseEvent(
+            with: .leftMouseUp, location: windowPoint, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0
+        ) {
+            recipient.mouseUp(with: upEvent)
         }
     }
 

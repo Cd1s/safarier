@@ -422,7 +422,13 @@ final class SafariBehaviorTests: XCTestCase {
         let controller = session.openWindow(url: nil)
         XCTAssertFalse(session.inspectable)
         XCTAssertFalse(controller.webView.isInspectable)
+        XCTAssertFalse(WebViewSPI.isDeveloperExtrasEnabled(on: controller.webView.configuration.preferences))
         XCTAssertTrue(WebViewSPI.hasInspector(controller.webView))
+
+        let inspectorItem = NSMenuItem(title: "显示网页检查器", action: #selector(BrowserActions.showWebInspector(_:)), keyEquivalent: "i")
+        let consoleItem = NSMenuItem(title: "显示 JavaScript 控制台", action: #selector(BrowserActions.showJavaScriptConsole(_:)), keyEquivalent: "c")
+        XCTAssertTrue(controller.validateMenuItem(inspectorItem), "起始页也允许打开网页检查器")
+        XCTAssertTrue(controller.validateMenuItem(consoleItem), "起始页也允许打开 JavaScript 控制台")
 
         let toggle = NSMenuItem(title: "允许检查网页元素", action: #selector(BrowserActions.toggleInspectable(_:)), keyEquivalent: "")
         XCTAssertTrue(controller.validateMenuItem(toggle))
@@ -431,27 +437,35 @@ final class SafariBehaviorTests: XCTestCase {
         controller.toggleInspectable(toggle)
         XCTAssertTrue(session.inspectable)
         XCTAssertTrue(controller.webView.isInspectable)
+        XCTAssertTrue(WebViewSPI.isDeveloperExtrasEnabled(on: controller.webView.configuration.preferences))
         _ = controller.validateMenuItem(toggle)
         XCTAssertEqual(toggle.state, .on)
         let later = session.openWindow(url: nil)
         XCTAssertTrue(later.webView.isInspectable, "之后新开的窗口跟着会话的设置")
+        XCTAssertTrue(WebViewSPI.isDeveloperExtrasEnabled(on: later.webView.configuration.preferences))
 
         controller.toggleInspectable(toggle)
         XCTAssertFalse(controller.webView.isInspectable)
         XCTAssertFalse(later.webView.isInspectable)
+        XCTAssertFalse(WebViewSPI.isDeveloperExtrasEnabled(on: controller.webView.configuration.preferences))
+        XCTAssertFalse(WebViewSPI.isDeveloperExtrasEnabled(on: later.webView.configuration.preferences))
     }
 
-    /// ⌥⌘I / ⌥⌘C 打开检查器时自动允许检查：当前窗口的所有标签一起打开，菜单勾选跟着变。
+    /// ⌥⌘I / ⌥⌘C 打开检查器时自动允许检查并收起起始页遮罩：当前窗口的所有标签一起打开，菜单勾选跟着变。
     func testOpeningInspectorEnablesInspectable() {
         let controller = session.openWindow(url: nil)
         let otherTab = session.openTab(in: controller, url: nil)
         XCTAssertFalse(session.inspectable)
+        XCTAssertFalse(WebViewSPI.isDeveloperExtrasEnabled(on: controller.webView.configuration.preferences))
+        XCTAssertTrue(controller.isShowingStartPage)
 
         controller.showWebInspector(nil)
 
         XCTAssertTrue(session.inspectable)
         XCTAssertTrue(controller.webView.isInspectable)
         XCTAssertTrue(otherTab.webView.isInspectable)
+        XCTAssertTrue(WebViewSPI.isDeveloperExtrasEnabled(on: controller.webView.configuration.preferences))
+        XCTAssertFalse(controller.isShowingStartPage, "打开检查器后隐藏起始页遮罩，避免挡住停靠的检查器")
         let toggle = NSMenuItem(title: "允许检查网页元素", action: #selector(BrowserActions.toggleInspectable(_:)), keyEquivalent: "")
         _ = controller.validateMenuItem(toggle)
         XCTAssertEqual(toggle.state, .on)

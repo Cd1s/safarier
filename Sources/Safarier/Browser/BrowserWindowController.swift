@@ -37,6 +37,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private(set) var wantsAddressFocus = false
     /// ⇧⌘H 回到起始页（环境没设起始网址时）：载入 about:blank 并显示起始页，直到导航到别的网址。
     private var showingHome = false
+    /// 在起始页上打开网页检查器时自动隐藏起始页（否则停靠在 webView 内的检查器会被起始页盖住）。
+    private var inspectorDismissedStartPage = false
     /// 脱敏的导航诊断（「开发 → 拷贝环境诊断摘要」用）。只有状态码、次数和错误码，不记网址、Cookie、账号。
     private(set) var navigationDiagnostics = NavigationDiagnostics()
 
@@ -166,10 +168,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     }
 
     func updateState() {
-        // 后退 / 前进回到 ⇧⌘H 留下的 about:blank 时也显示起始页；网页打开的空白弹窗（isPopup）不算。
-        if let url = webView.url { showingHome = !isPopup && url.absoluteString == "about:blank" }
+        // 后退 / 前进回到 ⇧⌘H 留下的 about:blank 时也显示起始页；网页打开的空白弹窗（isPopup）或已打开检查器的空白页不算。
+        if let url = webView.url {
+            if url.absoluteString != "about:blank" { inspectorDismissedStartPage = false }
+            showingHome = !isPopup && !inspectorDismissedStartPage && url.absoluteString == "about:blank"
+        }
         let url = displayURL
-        startPage.isHidden = isPopup || url != nil || (webView.isLoading && !showingHome)
+        startPage.isHidden = isPopup || inspectorDismissedStartPage || url != nil || (webView.isLoading && !showingHome)
         addressBar.update(url: url, isLoading: webView.isLoading && !showingHome, progress: webView.estimatedProgress, secure: webView.hasOnlySecureContent)
         updateTitle()
     }
@@ -379,6 +384,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
             open(start)
         } else {
             failedURL = nil
+            inspectorDismissedStartPage = false
             showingHome = true
             webView.load(URLRequest(url: URL(string: "about:blank")!))
             updateState()
@@ -403,6 +409,15 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         // inspectable 默认关闭：打开检查器时自动打开（所有标签一起），菜单里的勾选也跟着变。
         if !session.inspectable { session.setInspectable(true) }
         webView.isInspectable = true
+        WebViewSPI.setDeveloperExtrasEnabled(true, on: webView.configuration.preferences)
+        if isShowingStartPage {
+            inspectorDismissedStartPage = true
+            showingHome = false
+            startPage.isHidden = true
+            if webView.url == nil {
+                webView.load(URLRequest(url: URL(string: "about:blank")!))
+            }
+        }
         if case .failure(let failure) = WebViewSPI.inspector(action, on: webView) {
             FileHandle.standardError.write(Data("[inspector] \(action.rawValue) 失败：\(failure)\n".utf8))
             NSSound.beep()
@@ -511,7 +526,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         case #selector(closeOtherTabs(_:)): return tabs.count > 1
         case #selector(reopenClosedTab(_:)): return !session.closedTabURLs.isEmpty
         case #selector(selectTabByNumber(_:)): return Self.tab(number: item.tag, in: tabs) != nil
-        case #selector(showWebInspector(_:)), #selector(showJavaScriptConsole(_:)): return displayURL != nil && WebViewSPI.hasInspector(webView)
+        case #selector(showWebInspector(_:)), #selector(showJavaScriptConsole(_:)): return WebViewSPI.hasInspector(webView)
         case #selector(toggleInspectable(_:)): return session.validateMenuItem(item)
         default: return true
         }

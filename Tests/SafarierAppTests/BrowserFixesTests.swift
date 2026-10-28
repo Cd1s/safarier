@@ -205,9 +205,10 @@ final class BrowserFixesTests: XCTestCase {
             #selector(BrowserActions.zoomInPage(_:)), #selector(BrowserActions.zoomOutPage(_:)),
             #selector(BrowserActions.showFind(_:)), #selector(BrowserActions.findNextMatch(_:)), #selector(BrowserActions.findPreviousMatch(_:)),
             #selector(BrowserActions.duplicateTab(_:)), #selector(BrowserActions.goHome(_:)),
-            #selector(BrowserActions.showWebInspector(_:)), #selector(BrowserActions.showJavaScriptConsole(_:)),
         ]
         for action in pageOnly { XCTAssertFalse(enabled(action), "起始页上 \(action) 应当置灰") }
+        XCTAssertTrue(enabled(#selector(BrowserActions.showWebInspector(_:))), "起始页上允许直接打开网页检查器")
+        XCTAssertTrue(enabled(#selector(BrowserActions.showJavaScriptConsole(_:))), "起始页上允许直接打开 JavaScript 控制台")
 
         controller.webView.loadHTMLString("<p>x</p>", baseURL: URL(string: "https://page.example.invalid/"))
         spin(until: { controller.displayURL != nil })

@@ -136,6 +136,7 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = inspectable
+        WebViewSPI.setDeveloperExtrasEnabled(inspectable, on: webView.configuration.preferences)
         return webView
     }
 
@@ -287,10 +288,14 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         setInspectable(!inspectable)
     }
 
-    /// 改所有已开标签的 isInspectable；之后新开的窗口在 makeWebView 里跟着这个值。
+    /// 改所有已开标签的 isInspectable 和 developerExtras；之后新开的窗口在 makeWebView 里跟着这个值。
     func setInspectable(_ value: Bool) {
         inspectable = value
-        controllers.forEach { $0.webView.isInspectable = value }
+        WebViewSPI.setDeveloperExtrasEnabled(value, on: configuration.preferences)
+        controllers.forEach {
+            $0.webView.isInspectable = value
+            WebViewSPI.setDeveloperExtrasEnabled(value, on: $0.webView.configuration.preferences)
+        }
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

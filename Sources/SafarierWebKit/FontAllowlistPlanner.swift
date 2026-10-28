@@ -25,8 +25,12 @@ public struct FontAllowlistPlan: Equatable, Sendable {
     static let noOp = FontAllowlistPlan(names: [], excludedFamilies: [], excludedFontCount: 0, sharedNamesDropped: 0)
 }
 
-/// 字体白名单规划：宿主机按语言从 Apple 下载的字体资产（AssetsV2 Font7，例如中日韩语言下载的苹方）
-/// 只在 Profile 语言满足资产安装前提时保留；系统卷、/Library/Fonts 和用户字体保留。
+/// 字体白名单规划：
+/// - 只遍历系统自带的字体目录。/Library/Fonts 和 ~/Library/Fonts 里是用户或第三方软件装的字体（Office 的宋体、雅黑…），
+///   真 Safari 不给网页用，白名单也不收；
+/// - 宿主机按语言从 Apple 下载的字体资产（AssetsV2 Font7，例如中日韩语言下载的苹方）只在 Profile 语言满足资产安装前提时保留；
+/// - 中日韩字体（不论装在哪个系统目录）只在 Profile 语言里有这门语言时保留，见 `CJKFontGroup`。
+///   否则英文环境的网页用 Canvas 宽度探测能测出冬青黑体、华文宋体，以及经 WebKit 别名映射到宋体的 SimSun。
 ///
 /// 直接遍历字体文件取全部字面：`CTFontCollectionCreateFromAvailableFonts` 会漏掉 Times、Courier 等
 /// 能按名字解析的字体，用它生成白名单会把这些常用字体也挡掉。
@@ -34,12 +38,10 @@ public enum FontAllowlistPlanner {
     /// 按需下载的字体资产目录，每个 `.asset` 子目录的 Info.plist 里有安装前提（Prerequisite）。
     public static let defaultAssetRoot = "/System/Library/AssetsV2/com_apple_MobileAsset_Font7"
 
-    /// 遍历字体文件的根目录。
+    /// 遍历字体文件的根目录：只有系统卷上的字体。不在这里的字体不进白名单，网页按名字查不到。
     public static var defaultRoots: [String] {
         [
             "/System/Library/Fonts",
-            "/Library/Fonts",
-            NSHomeDirectory() + "/Library/Fonts",
             "/System/Library/PrivateFrameworks/FontServices.framework/Resources",
             defaultAssetRoot,
         ]
@@ -58,23 +60,25 @@ public enum FontAllowlistPlanner {
         var keep = Set<String>(), drop = Set<String>(), dropFamilies = Set<String>(), dropCount = 0
         for descriptor in fontDescriptorsFromFiles(roots: roots) {
             guard let url = CTFontDescriptorCopyAttribute(descriptor, kCTFontURLAttribute) as? URL else { continue }
-            var names = nameTableNames(CTFontCreateWithFontDescriptor(descriptor, 12, nil))
+            let font = CTFontCreateWithFontDescriptor(descriptor, 12, nil)
+            var names = nameTableNames(font)
             for key in [kCTFontFamilyNameAttribute, kCTFontNameAttribute, kCTFontDisplayNameAttribute] {
                 if let value = CTFontDescriptorCopyAttribute(descriptor, key) as? String { names.insert(value) }
             }
             // 资产字体：有前提且 Profile 语言满足前提才保留；没有前提的资产（用户按需下载）一律排除。
-            // 系统卷和其它位置的字体保留。
-            let allowed = catalog.asset(containing: url.path).map {
+            let assetAllowed = catalog.asset(containing: url.path).map {
                 !$0.prerequisites.isEmpty && LanguageMatcher.profile(keys, satisfies: $0.prerequisites)
             } ?? true
-            if allowed {
+            // 中日韩字体：Profile 语言里没有这门语言就排除。
+            let family = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String
+            let group = CJKFontGroup.classify(family: family, names: names) { CTFontCopySupportedLanguages(font) as? [String] ?? [] }
+            let languageAllowed = group.map { !keys.isDisjoint(with: $0.languageKeys) } ?? true
+            if assetAllowed && languageAllowed {
                 keep.formUnion(names)
             } else {
                 drop.formUnion(names)
                 dropCount += 1
-                if let family = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String {
-                    dropFamilies.insert(family)
-                }
+                if let family { dropFamilies.insert(family) }
             }
         }
         guard dropCount > 0 else { return .noOp }
@@ -104,6 +108,61 @@ public enum FontAllowlistPlanner {
     }
 }
 
+/// 中日韩字体按语言分组。Profile 语言里没有这门语言时，这组字体不进白名单。
+///
+/// 先按字族名、全名、PostScript 名（含本地化名）匹配已知字体；都没匹配上再看 CoreText 报的支持语言，
+/// 只支持中日韩、不支持阿拉伯文 / 希伯来文的才算（Arial Unicode MS、LastResort 这类泛 Unicode 字体不算）。
+/// 字族名以 "." 开头的系统界面字体（.PingFang SC、.Aqua Kana…）网页本来就按名字用不了，不归组，留着给系统回退。
+public enum CJKFontGroup: String, Sendable {
+    case chinese, japanese, korean
+
+    /// Profile 语言 key 里有其中之一，这组字体才保留。
+    public var languageKeys: Set<String> {
+        switch self {
+        case .chinese: ["zh", "zh-Hans", "zh-Hant"]
+        case .japanese: ["ja"]
+        case .korean: ["ko"]
+        }
+    }
+
+    /// 名字去掉空格、连字符、下划线并转小写后的前缀。中文先匹配：Hiragino Sans GB 是中文字体，Hiragino Sans 是日文字体。
+    static let chinesePrefixes = [
+        "hiraginosansgb", "hiraginosanstc", "hiraginosanscns", "stheiti", "stxihei", "heitisc", "heititc", "songti", "stsong", "simsong",
+        "kaiti", "stkaiti", "stfangsong", "fangsong", "baoli", "hanzipen", "hannotate", "lantinghei", "libian", "lingwai", "pingfang",
+        "wawa", "weibei", "xingkai", "yuanti", "yuppy", "appleligothic", "applelisung", "lihei", "lisong", "biaukai", "simsun", "nsimsun",
+        "simhei", "microsoftyahei", "microsoftjhenghei", "pmingliu", "mingliu", "dfkai", "dengxian", "gb18030", "sourcehansanscn",
+        "sourcehansanssc", "sourcehansanstw", "sourcehansanshk", "notosanscjksc", "notosanscjktc", "notoserifcjksc", "notoserifcjktc",
+        "wenquanyi",
+    ]
+    /// 整个名字就是这些（太短，按前缀会误伤）。
+    static let chineseExactNames: Set<String> = ["hei", "kai"]
+    static let japanesePrefixes = [
+        "hiraginokaku", "hiraginomaru", "hiraginomincho", "hiraginosans", "klee", "osaka", "toppanbunkyu", "tsukushi", "yugothic",
+        "yumincho", "yukyokasho", "bizud", "msgothic", "mspgothic", "msmincho", "mspmincho", "meiryo", "notosanscjkjp", "sourcehansansjp",
+    ]
+    static let koreanPrefixes = [
+        "applemyungjo", "applesdgothicneo", "applegothic", "gungseo", "headlinea", "nanum", "pcmyungjo", "pilgi", "malgungothic",
+        "gulim", "dotum", "batang", "gungsuh", "notosanscjkkr", "sourcehansanskr",
+    ]
+
+    /// nil：不是中日韩专用字体（或是不能按名字用的系统界面字体）。`supportedLanguages` 只在名字没匹配上时才读。
+    public static func classify(family: String?, names: Set<String>, supportedLanguages: () -> [String]) -> CJKFontGroup? {
+        if family?.hasPrefix(".") == true { return nil }
+        let normalized = names.filter { !$0.hasPrefix(".") }.map { $0.lowercased().filter { !" -_".contains($0) } }
+        func matches(_ prefixes: [String]) -> Bool { normalized.contains { name in prefixes.contains { name.hasPrefix($0) } } }
+        if matches(chinesePrefixes) || normalized.contains(where: chineseExactNames.contains) { return .chinese }
+        if matches(japanesePrefixes) { return .japanese }
+        if matches(koreanPrefixes) { return .korean }
+
+        let languages = supportedLanguages()
+        if languages.contains(where: { $0 == "ar" || $0 == "he" || $0.hasPrefix("ar-") || $0.hasPrefix("he-") }) { return nil }
+        if languages.contains(where: { $0 == "zh" || $0.hasPrefix("zh-") }) { return .chinese }
+        if languages.contains("ja") { return .japanese }
+        if languages.contains("ko") { return .korean }
+        return nil
+    }
+}
+
 /// 本机已安装的 AssetsV2 Font7 资产：字体文件所在目录 → 安装前提语言（Info.plist 的 Prerequisite）。
 struct FontAssetCatalog {
     struct Asset {
@@ -127,7 +186,7 @@ struct FontAssetCatalog {
         return FontAssetCatalog(assets: list)
     }
 
-    /// nil：不在任何 Font7 资产里（系统卷、/Library/Fonts、用户字体）。
+    /// nil：不在任何 Font7 资产里（系统卷上的其它字体）。
     func asset(containing fontPath: String) -> Asset? {
         let resolved = (fontPath as NSString).resolvingSymlinksInPath
         return assets.first { resolved.hasPrefix($0.directory + "/") || fontPath.hasPrefix($0.directory + "/") }

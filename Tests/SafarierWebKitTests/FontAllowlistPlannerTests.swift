@@ -131,6 +131,91 @@ final class FontAllowlistPlannerTests: XCTestCase {
         XCTAssertEqual(names.intersection(everything), fixture.ayuthaya.all)
     }
 
+    // MARK: - 中日韩字体分组
+
+    func testDefaultRootsAreSystemVolumeOnly() {
+        let roots = FontAllowlistPlanner.defaultRoots
+        XCTAssertFalse(roots.contains("/Library/Fonts"), "/Library/Fonts 是用户 / 第三方软件装的字体")
+        XCTAssertFalse(roots.contains(NSHomeDirectory() + "/Library/Fonts"))
+        XCTAssertTrue(roots.allSatisfy { $0.hasPrefix("/System/") }, "\(roots)")
+    }
+
+    func testCJKGroupMatchesKnownNamesBeforeLanguageFallback() {
+        func group(_ names: Set<String>, family: String? = nil, languages: [String] = []) -> CJKFontGroup? {
+            CJKFontGroup.classify(family: family ?? names.first, names: names) { languages }
+        }
+        XCTAssertEqual(group(["Hiragino Sans GB", "冬青黑體簡體中文"]), .chinese, "冬青黑体是中文字体，不能按 Hiragino Sans 前缀算成日文")
+        XCTAssertEqual(group(["Hiragino Sans"]), .japanese)
+        XCTAssertEqual(group(["Hiragino Kaku Gothic ProN"]), .japanese)
+        for chinese in ["STHeiti", "Heiti SC", "Songti TC", "STSong", "Kaiti SC", "STFangsong", "PingFang HK", "Lantinghei SC", "Wawati TC",
+                        "Apple LiGothic", "BiauKaiTC", "SimSun", "Microsoft YaHei", "PMingLiU", "DFKai-SB", "Hei", "Kai"] {
+            XCTAssertEqual(group([chinese]), .chinese, chinese)
+        }
+        for japanese in ["YuGothic", "Yu Mincho", "Klee", "Osaka", "Toppan Bunkyu Mincho", "Tsukushi A Round Gothic", "BIZ UDGothic"] {
+            XCTAssertEqual(group([japanese]), .japanese, japanese)
+        }
+        for korean in ["Apple SD Gothic Neo", "AppleMyungjo", "AppleGothic", "Nanum Gothic", "PilGi", "GungSeo", "HeadLineA", "PCMyungjo"] {
+            XCTAssertEqual(group([korean]), .korean, korean)
+        }
+        // 名字相近的非中日韩字体不能误伤。
+        for latin in ["Kailasa", "Noto Sans Kaithi", "Noto Sans Gothic", "Helvetica", "Hoefler Text"] {
+            XCTAssertNil(group([latin], languages: ["en", "fr"]), latin)
+        }
+    }
+
+    func testCJKGroupFallsBackToSupportedLanguagesButSparesPanUnicodeAndHiddenFonts() {
+        XCTAssertEqual(CJKFontGroup.classify(family: "BM Jua", names: ["BM Jua"]) { ["en", "ko"] }, .korean)
+        XCTAssertEqual(CJKFontGroup.classify(family: "Unknown Mincho", names: ["Unknown Mincho"]) { ["en", "ja"] }, .japanese)
+        XCTAssertEqual(CJKFontGroup.classify(family: "GB18030 Bitmap", names: ["GB18030 Bitmap"]) { ["zh-Hans"] }, .chinese)
+        XCTAssertEqual(CJKFontGroup.classify(family: "Unknown Hei", names: ["Unknown Hei"]) { ["ja", "zh-Hant"] }, .chinese, "中文和日文都支持时算中文")
+        XCTAssertNil(CJKFontGroup.classify(family: "Arial Unicode MS", names: ["Arial Unicode MS"]) { ["ar", "he", "ja", "ko", "zh-Hans"] },
+                     "泛 Unicode 字体不算中日韩字体")
+        XCTAssertNil(CJKFontGroup.classify(family: ".PingFang SC", names: [".PingFang SC", "PingFangSC-Regular"]) { ["zh-Hans"] },
+                     "系统界面字体网页按名字用不了，留着给系统回退")
+        var asked = false
+        _ = CJKFontGroup.classify(family: "Songti SC", names: ["Songti SC"]) { asked = true; return [] }
+        XCTAssertFalse(asked, "名字匹配上就不读支持语言")
+    }
+
+    /// 真实的中、日、韩、泛 Unicode 字体文件（用符号链接放进假的系统目录，不复制大文件）：
+    /// 每种语言只保留自己的中日韩字体，泛 Unicode 字体所有语言都保留。
+    func testCJKSystemFontsFollowProfileLanguage() throws {
+        let sources = [
+            "chinese": "/System/Library/Fonts/Supplemental/Songti.ttc",
+            "japanese": "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc",
+            "korean": "/System/Library/Fonts/Supplemental/AppleMyungjo.ttf",
+            "pan": "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "latin": "/System/Library/Fonts/Supplemental/Ayuthaya.ttf",
+        ]
+        for path in sources.values where !FileManager.default.fileExists(atPath: path) { throw XCTSkip("本机没有 \(path)") }
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("FontAllowlistCJK-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: base) }
+        let system = base.appendingPathComponent("system"), assets = base.appendingPathComponent("assets")
+        try FileManager.default.createDirectory(at: system, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        var fonts: [String: FontNames] = [:]
+        for (key, path) in sources {
+            let link = system.appendingPathComponent(URL(fileURLWithPath: path).lastPathComponent)
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: URL(fileURLWithPath: path))
+            fonts[key] = try names(of: link)
+        }
+        func kept(_ languages: [String]) -> Set<String> {
+            let names = Set(FontAllowlistPlanner.plan(languages: languages, roots: [system.path], assetRoot: assets.path).names)
+            return Set(fonts.filter { $0.value.families.isSubset(of: names) }.keys)
+        }
+        XCTAssertEqual(kept(["en-US", "en"]), ["pan", "latin"])
+        XCTAssertEqual(kept(["zh-CN"]), ["chinese", "pan", "latin"])
+        XCTAssertEqual(kept(["zh-TW"]), ["chinese", "pan", "latin"])
+        XCTAssertEqual(kept(["ja-JP"]), ["japanese", "pan", "latin"])
+        XCTAssertEqual(kept(["ko-KR"]), ["korean", "pan", "latin"])
+        XCTAssertEqual(kept(["en-US", "ja-JP"]), ["japanese", "pan", "latin"])
+
+        // 被排除的字体连本地化名（宋體-簡）也不在白名单里，否则网页能用本地化名探测。
+        let english = FontAllowlistPlanner.plan(languages: ["en-US"], roots: [system.path], assetRoot: assets.path)
+        XCTAssertTrue(Set(english.names).isDisjoint(with: ["Songti SC", "STSong", "宋體-簡", "Hiragino Mincho ProN", "AppleMyungjo"]))
+        XCTAssertTrue(Set(english.excludedFamilies).isSuperset(of: fonts["chinese"]!.families.union(fonts["japanese"]!.families).union(fonts["korean"]!.families)))
+    }
+
     // MARK: - 本机真实字体
 
     private static let hostLock = NSLock()
@@ -154,13 +239,20 @@ final class FontAllowlistPlannerTests: XCTestCase {
     }
 
     /// 回归：用 CTFontCollection 生成白名单时漏掉了 Times、Courier 等能按名字解析的字体。
-    func testHostEnglishPlanKeepsSystemFontsThatFontCollectionOmits() throws {
+    /// 系统卷上的中日韩字体（冬青黑体、华文黑体、宋体、平方、ヒラギノ、Apple SD Gothic Neo）英文环境不保留。
+    func testHostEnglishPlanKeepsLatinSystemFontsAndDropsCJKSystemFonts() throws {
         let plan = hostPlan(["en-US"])
-        try XCTSkipIf(plan.isNoOp, "Host has no non-English Font7 assets installed")
+        XCTAssertFalse(plan.isNoOp, "每台 Mac 的系统卷上都有中日韩字体，英文环境一定要排除")
         let names = Set(plan.names)
-        for expected in ["Times", "Courier", "Heiti SC", "Hiragino Sans GB", "HiraginoSansGB-W3", "冬青黑体简体中文", "Songti SC", "Thonburi"] {
+        for expected in ["Times", "Courier", "Helvetica", "Menlo", "Thonburi", "Arial Unicode MS"] {
             XCTAssertTrue(names.contains(expected), "en-US 白名单缺少 \(expected)（共 \(plan.names.count) 个名字）")
         }
+        for hidden in ["Heiti SC", "Heiti TC", "STHeiti", "Hiragino Sans GB", "HiraginoSansGB-W3", "冬青黑體簡體中文", "Songti SC", "STSong",
+                       "宋體-簡", "Hiragino Sans", "Hiragino Mincho ProN", "Apple SD Gothic Neo", "AppleMyungjo"] {
+            XCTAssertFalse(names.contains(hidden), "en-US 白名单不该有 \(hidden)")
+        }
+        XCTAssertTrue(Set(plan.excludedFamilies).isSuperset(of: ["Hiragino Sans GB", "Songti SC", "STSong", "Heiti SC", "Hiragino Sans", "Apple SD Gothic Neo"]),
+                      "\(plan.excludedFamilies)")
     }
 
     func testHostPingFangAssetFollowsProfileLanguage() throws {
@@ -172,10 +264,14 @@ final class FontAllowlistPlannerTests: XCTestCase {
         XCTAssertFalse(english.contains("PingFangSC-Regular"))
         XCTAssertTrue(hostPlan(["en-US"]).excludedFamilies.contains("PingFang SC"), "\(hostPlan(["en-US"]).excludedFamilies)")
 
-        let simplified = hostPlan(["zh-CN"])
-        XCTAssertTrue(simplified.isNoOp, "zh-CN 排除了 \(simplified.excludedFamilies)")
-        let traditional = hostPlan(["zh-TW"])
-        XCTAssertTrue(traditional.isNoOp, "zh-TW 排除了 \(traditional.excludedFamilies)")
+        // 中文环境保留苹方和系统中文字体，只排除日文、韩文专用字体。
+        for languages in [["zh-CN"], ["zh-TW"]] {
+            let plan = hostPlan(languages)
+            let names = Set(plan.names)
+            XCTAssertTrue(names.isSuperset(of: ["PingFang SC", "PingFang TC", "Hiragino Sans GB", "Songti SC"]), "\(languages)")
+            XCTAssertTrue(names.isDisjoint(with: ["Hiragino Sans", "Apple SD Gothic Neo"]), "\(languages)")
+            XCTAssertTrue(Set(plan.excludedFamilies).isDisjoint(with: ["PingFang SC", "Hiragino Sans GB", "Songti SC"]), "\(languages)：\(plan.excludedFamilies)")
+        }
 
         XCTAssertFalse(Set(hostPlan(["th-TH"]).names).contains("PingFang SC"))
     }

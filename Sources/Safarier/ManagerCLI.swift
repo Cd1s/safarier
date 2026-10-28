@@ -34,7 +34,7 @@ enum ManagerCLI {
     --spi：系统 WebKit 原生隐私能力。afp=高级隐私保护（反指纹），tz=引擎层时区同步，webrtc=关闭 WebRTC，
            safari=打开 Safari 专有接口（ApplePaySession、PushManager、navigator.mediaDevices），并像 Safari 一样关闭用户安装字体，
            webgpu=打开 WebGPU（真 Safari 在 macOS 15 上没有，打开后和真 Safari 不一致），
-           fontlist=按 Profile 语言收窄网页能按名字用的字体（如英文环境隐藏宿主机下载的苹方）。
+           fontlist=按 Profile 语言收窄网页能按名字用的字体（只留系统字体；英文环境隐藏苹方、冬青黑体、宋体等中日韩字体）。
            新建环境默认 default（afp,tz,safari,fontlist）；all 是全部六项。launch/probe 上的 --spi 只覆盖这一次运行。
     sub add --url：订阅网址（http / https / file），或直接给节点链接（ss:// ss2022:// vless:// vmess:// trojan:// anytls:// socks://，
            多条用换行分隔，也可以是 Base64；- 表示从标准输入读）。直接给的链接保存在元数据目录的 subscriptions-inline/ 里，

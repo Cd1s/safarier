@@ -100,6 +100,16 @@ final class FontAllowlistAdapterTests: XCTestCase {
         XCTAssertTrue(bridge.calls.isEmpty)
     }
 
+    /// 已验证前缀覆盖 macOS 14 / 15 / 26 / 27 和下一代的系统 WebKit。
+    func testVerifiedPrefixesCoverModernMacOSWebKit() {
+        XCTAssertEqual(SPIPrivacyAdapter.Symbols.webKit.fontAllowlistVerifiedWebKitPrefixes, ["196", "206", "216", "226", "236"])
+        for version in ["19618.3.11.11.5", "20620.2.4.11.6", "20621.3.11.11.3", "21622.1.22.11.15", "22625.1.29.11.27", "23626.1.1"] {
+            let bridge = BridgeRecorder()
+            XCTAssertEqual(run(version: version, bridge: bridge).name, "active", version)
+            XCTAssertEqual(bridge.calls.count, 1, version)
+        }
+    }
+
     func testMacOS27EngineReachesInjectedBridge() {
         for version in ["22625.1.29.11.27", "22625.2.8.18.4"] {
             let bridge = BridgeRecorder()

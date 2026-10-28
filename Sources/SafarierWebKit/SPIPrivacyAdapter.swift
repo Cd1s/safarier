@@ -494,18 +494,15 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             return state
         }
 
-        // 跟随系统语言：保持宿主机的字体，不需要白名单（不遍历字体、不调用 WebKit）。
-        guard !languages.isEmpty else {
-            let text = "跟随系统语言，保持宿主机系统字体"
-            return finish(.active(text), text)
-        }
+        // 跟随系统或代理解析降级时，仍按进程首选语言过滤字体，避免宿主机的其他语言字体泄漏。
+        let effectiveLanguages = languages.isEmpty ? (Locale.preferredLanguages.first.map { [$0] } ?? []) : languages
         guard let version = webKitVersion,
               symbols.fontAllowlistVerifiedWebKitPrefixes.contains(where: { version.hasPrefix($0) })
         else {
             let text = "WebKit \(webKitVersion ?? "未知") 未验证，fontlist 不生效"
             return finish(.unavailable(text), text)
         }
-        let plan = fontAllowlistPlanner(languages)
+        let plan = fontAllowlistPlanner(effectiveLanguages)
         if plan.isNoOp {
             let text = "Profile 语言与宿主机字体资产一致，无需设置白名单"
             return finish(.active(text), text)

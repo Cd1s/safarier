@@ -118,16 +118,23 @@ final class FontAllowlistAdapterTests: XCTestCase {
         }
     }
 
-    /// 跟随系统语言：保持宿主机字体，报 active，但不遍历字体、不调用 WebKit（版本不认识也一样）。
-    func testEmptyProfileLanguagesIsActiveNoOpAndNeverCallsBridge() {
+    /// 跟随系统时只采用进程首选语言，仍经过规划器和字体桥接。
+    func testEmptyProfileLanguagesUsesFirstProcessPreferredLanguageAndCallsBridge() {
         let bridge = BridgeRecorder()
         let planner = PlannerRecorder(plan: Self.plan(nameCount: 600))
         let followSystem = Profile(name: "sys", mode: .ephemeral, languages: [])
-        guard case .active(let text) = run(version: verifiedVersion, profile: followSystem, planner: planner, bridge: bridge) else {
-            return XCTFail("跟随系统应当是 active")
-        }
-        XCTAssertTrue(text.contains("跟随系统"), text)
-        XCTAssertEqual(run(version: "18615.1.1", profile: followSystem, planner: planner, bridge: bridge).name, "active")
+        let expectedLanguages = Locale.preferredLanguages.first.map { [$0] } ?? []
+        XCTAssertEqual(run(version: verifiedVersion, profile: followSystem, planner: planner, bridge: bridge).name, "active")
+        XCTAssertEqual(planner.calls, [expectedLanguages])
+        XCTAssertEqual(bridge.calls.count, 1)
+        XCTAssertEqual(bridge.calls.first?.names, planner.plan.names)
+    }
+
+    func testEmptyProfileLanguagesStillChecksEngineVersionBeforePlanning() {
+        let bridge = BridgeRecorder()
+        let planner = PlannerRecorder(plan: Self.plan(nameCount: 600))
+        let followSystem = Profile(name: "sys", mode: .ephemeral, languages: [])
+        XCTAssertEqual(run(version: "18615.1.1", profile: followSystem, planner: planner, bridge: bridge).name, "unavailable")
         XCTAssertTrue(bridge.calls.isEmpty)
         XCTAssertTrue(planner.calls.isEmpty)
     }

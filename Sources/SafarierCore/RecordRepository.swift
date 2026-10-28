@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// 可落盘、可校验的记录。
 public protocol ValidatableRecord: Codable, Identifiable, Sendable where ID == UUID {
@@ -33,7 +34,7 @@ public final class RecordRepository<Record: ValidatableRecord>: @unchecked Senda
 
     public func insert(_ record: Record) throws {
         try record.validate()
-        try locked {
+        try withWriteLock {
             var records = try store.load()
             guard !records.contains(where: { $0.id == record.id }) else {
                 throw RepositoryError.duplicateID(record.id)
@@ -45,7 +46,7 @@ public final class RecordRepository<Record: ValidatableRecord>: @unchecked Senda
 
     public func update(_ record: Record) throws {
         try record.validate()
-        try locked {
+        try withWriteLock {
             var records = try store.load()
             guard let index = records.firstIndex(where: { $0.id == record.id }) else {
                 throw RepositoryError.notFound(record.id)
@@ -57,7 +58,7 @@ public final class RecordRepository<Record: ValidatableRecord>: @unchecked Senda
 
     @discardableResult
     public func delete(id: UUID) throws -> Record {
-        try locked {
+        try withWriteLock {
             var records = try store.load()
             guard let index = records.firstIndex(where: { $0.id == id }) else {
                 throw RepositoryError.notFound(id)
@@ -65,6 +66,23 @@ public final class RecordRepository<Record: ValidatableRecord>: @unchecked Senda
             let removed = records.remove(at: index)
             try store.save(records)
             return removed
+        }
+    }
+
+    /// 锁独立文件：JSON 原子替换会改变 inode，不能锁 JSON 本身，也不能在解锁后删除锁文件。
+    private func withWriteLock<T>(_ body: () throws -> T) throws -> T {
+        try locked {
+            let url = store.fileURL.appendingPathExtension("lock")
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let fd = open(url.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+            guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: url.path]) }
+            defer { close(fd) }
+            while flock(fd, LOCK_EX) != 0 {
+                if errno == EINTR { continue }
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: url.path])
+            }
+            defer { flock(fd, LOCK_UN) }
+            return try body()
         }
     }
 

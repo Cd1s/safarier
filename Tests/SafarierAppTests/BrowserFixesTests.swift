@@ -334,7 +334,8 @@ final class BrowserFixesTests: XCTestCase {
         XCTAssertFalse(session.startPageDetails.contains { $0.hasPrefix("语言：") || $0.hasPrefix("时区：") }, "跟随系统时不显示")
     }
 
-    /// 台式机和笔记本预设下，窗口中央的鼠标点击命中测试都落到 WebView（不会被起始页覆盖层拦下）。
+    /// 台式机和笔记本预设下，网页打开后窗口中央的鼠标点击都落到 WebView（起始页已隐藏，不会拦下）。
+    /// 起始页显示时由它接住点击（磁贴、卡片、「编辑」可点，见 StartPageTests），那时下面的 WebView 是空的。
     func testDesktopAndLaptopPresetsNeverBlockWebViewMouseHitTest() throws {
         for id in ["mac-studio-m2-ultra", "imac-24-m4", "mac-mini-m2", "mac-pro-m2-ultra", "macbook-pro-16-m4-max"] {
             let profile = Profile(name: id, mode: .ephemeral, deviceModel: id)
@@ -342,6 +343,12 @@ final class BrowserFixesTests: XCTestCase {
             let controller = devSession.openWindow(url: nil)
             defer { controller.window.close() }
             let center = NSPoint(x: controller.webView.frame.midX, y: controller.webView.frame.midY)
+            XCTAssertTrue(controller.isShowingStartPage, id)
+            let startHit = controller.window.contentView?.hitTest(center)
+            XCTAssertFalse(startHit === controller.webView || startHit?.isDescendant(of: controller.webView) == true, "\(id): 起始页显示时由起始页接住点击")
+
+            controller.webView.loadSimulatedRequest(URLRequest(url: URL(string: "https://\(id).example.invalid/")!), responseHTML: "<p>x</p>")
+            spin(until: { !controller.isShowingStartPage })
             let hit = controller.window.contentView?.hitTest(center)
             XCTAssertNotNil(hit, id)
             XCTAssertTrue(hit === controller.webView || hit?.isDescendant(of: controller.webView) == true, "\(id): hit=\(String(describing: hit))")

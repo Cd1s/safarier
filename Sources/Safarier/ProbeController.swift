@@ -120,9 +120,37 @@ final class ProbeController: NSObject, WKNavigationDelegate, WKUIDelegate {
     };
     const main = Object.assign(snapshot(), {
       screen: [screen.width, screen.height, window.devicePixelRatio],
+      availScreen: [screen.availWidth, screen.availHeight],
       viewport: [window.innerWidth, window.innerHeight],
+      visualViewport: window.visualViewport ? [Math.round(window.visualViewport.width), Math.round(window.visualViewport.height), window.visualViewport.scale] : null,
       outer: [window.outerWidth, window.outerHeight],
       devicePixelRatio: window.devicePixelRatio,
+      webdriver: Boolean(navigator.webdriver),
+      notification: { defined: typeof Notification === 'function', permission: typeof Notification === 'function' ? Notification.permission : null },
+      webAuthn: await (async () => {
+        const publicKeyCredentialDefined = typeof PublicKeyCredential === 'function';
+        const credentialsDefined = typeof navigator.credentials === 'object' && navigator.credentials !== null;
+        const call = async (fn) => {
+          if (!publicKeyCredentialDefined || typeof fn !== 'function') return null;
+          let timer;
+          try {
+            return await Promise.race([
+              Promise.resolve(fn.call(PublicKeyCredential)),
+              new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), 1500); })
+            ]);
+          } catch (e) {
+            return String(e);
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+        return {
+          publicKeyCredentialDefined,
+          credentialsDefined,
+          platformAuthenticatorAvailable: await call(publicKeyCredentialDefined && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable),
+          conditionalMediationAvailable: await call(publicKeyCredentialDefined && PublicKeyCredential.isConditionalMediationAvailable)
+        };
+      })(),
       safariAPIs: { applePay: 'ApplePaySession' in window, push: 'PushManager' in window, mediaDevices: 'mediaDevices' in navigator, safariObject: 'safari' in window, fullscreenEnabled: document.fullscreenEnabled },
       display: { colorGamutP3: matchMedia('(color-gamut: p3)').matches, dynamicRangeHigh: matchMedia('(dynamic-range: high)').matches, videoDynamicRangeHigh: matchMedia('(video-dynamic-range: high)').matches, colorDepth: screen.colorDepth },
       webGPU: { present: 'gpu' in navigator, adapter: await (async () => { try { const a = navigator.gpu && await navigator.gpu.requestAdapter(); return a ? { vendor: a.info && a.info.vendor, architecture: a.info && a.info.architecture } : null; } catch (e) { return String(e); } })() },
@@ -235,6 +263,15 @@ final class ProbeController: NSObject, WKNavigationDelegate, WKUIDelegate {
         guard !finished else { return }
         finished = true
 
+        let model = profile.deviceModel.flatMap(MacDeviceModel.preset)
+        let fitted: CGSize = {
+            guard let model else { return BrowserSession.defaultContentSize }
+            let screen = NSScreen.main?.visibleFrame.size ?? model.viewportSize
+            let available = CGSize(width: screen.width, height: screen.height - BrowserWindowController.chromeHeight)
+            return model.viewport(fitting: available)
+        }()
+        let downscaled = model.map { fitted != $0.viewportSize } ?? false
+
         var document: [String: Any] = [
             "profile": [
                 "id": profile.id.uuidString,
@@ -246,6 +283,14 @@ final class ProbeController: NSObject, WKNavigationDelegate, WKUIDelegate {
                 "followProxyTimeZone": profile.followProxyTimeZone,
                 "spi": profile.spi.tokenList,
                 "deviceModel": profile.deviceModel as Any? ?? NSNull(),
+            ],
+            "geometry": [
+                "usesOffscreenProbeWindow": true,
+                "configuredViewport": model.map { [$0.viewportWidth, $0.viewportHeight] } as Any? ?? NSNull(),
+                "configuredScale": model?.scale as Any? ?? NSNull(),
+                "probeWindowSize": [Int(window.frame.width), Int(window.frame.height)],
+                "browserFittedViewport": [Int(fitted.width), Int(fitted.height)],
+                "downscaled": downscaled,
             ],
             "outbound": outbound,
             "process": [

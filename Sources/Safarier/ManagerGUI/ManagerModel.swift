@@ -27,6 +27,11 @@ enum ProxyBinding {
 /// 命令行在别处改了数据，窗口回到前台时会重新读。
 @MainActor
 final class ManagerModel: ObservableObject {
+    enum ProxyTestState: Equatable {
+        case running
+        case success(ProxyConnectionResult)
+        case failure(String)
+    }
     enum Selection: Hashable {
         case profile(UUID)
         case subscription(UUID)
@@ -66,6 +71,9 @@ final class ManagerModel: ObservableObject {
 
     let workspace: SafarierWorkspace
     private let credentials: any CredentialStore
+    private let proxyTester: ProxyConnectionTester.Test
+    private var proxyTestTasks: [UUID: Task<Void, Never>] = [:]
+    @Published private(set) var proxyTests: [UUID: ProxyTestState] = [:]
 
     @Published private(set) var profiles: [Profile] = []
     @Published private(set) var proxies: [ProxySettings] = []
@@ -84,9 +92,11 @@ final class ManagerModel: ObservableObject {
     private var monitor: Timer?
     private var activationObserver: NSObjectProtocol?
 
-    init(workspace: SafarierWorkspace, credentials: any CredentialStore = KeychainCredentialStore()) {
+    init(workspace: SafarierWorkspace, credentials: any CredentialStore = KeychainCredentialStore(),
+         proxyTester: @escaping ProxyConnectionTester.Test = { try await ProxyConnectionTester.check(proxy: $0, password: $1) }) {
         self.workspace = workspace
         self.credentials = credentials
+        self.proxyTester = proxyTester
         reload()
         selection = profiles.first.map { .profile($0.id) } ?? proxies.first.map { .proxy($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
     }
@@ -99,7 +109,12 @@ final class ManagerModel: ObservableObject {
             let proxies = try workspace.proxies.all()
             let subscriptions = try workspace.subscriptions.all()
             if profiles != self.profiles { self.profiles = profiles }
-            if proxies != self.proxies { self.proxies = proxies }
+            if proxies != self.proxies {
+                for previous in self.proxies where proxies.first(where: { $0.id == previous.id }) != previous {
+                    cancelProxyTest(previous.id)
+                }
+                self.proxies = proxies
+            }
             if subscriptions != self.subscriptions { self.subscriptions = subscriptions }
         } catch {
             report("读取数据失败", error)
@@ -151,6 +166,42 @@ final class ManagerModel: ObservableObject {
         profiles.filter { $0.proxyID == proxy.id }
     }
 
+    func testProxy(_ proxy: ProxySettings) {
+        guard proxyTestTasks[proxy.id] == nil else { return }
+        do {
+            guard let current = try workspace.proxies.record(id: proxy.id) else { throw RepositoryError.notFound(proxy.id) }
+            let password = current.username?.isEmpty == false ? try credentials.password(forKey: current.credentialKey) : nil
+            if current.username?.isEmpty == false, password == nil { throw ProxyConnectionError.missingPassword }
+            let tester = proxyTester
+            proxyTests[current.id] = .running
+            proxyTestTasks[current.id] = Task { @MainActor [weak self] in
+                let outcome: ProxyTestState
+                do {
+                    outcome = .success(try await tester(current, password))
+                } catch is CancellationError {
+                    return
+                } catch {
+                    outcome = .failure(DisplayText.describe(error))
+                }
+                guard !Task.isCancelled, let self else { return }
+                // CLI 或其它窗口在测试中修改了配置时，丢弃旧快照的结果。
+                guard (try? self.workspace.proxies.record(id: current.id)) == current else {
+                    self.cancelProxyTest(current.id)
+                    return
+                }
+                self.proxyTests[current.id] = outcome
+                self.proxyTestTasks[current.id] = nil
+            }
+        } catch {
+            proxyTests[proxy.id] = .failure(DisplayText.describe(error))
+        }
+    }
+
+    func cancelProxyTest(_ id: UUID) {
+        proxyTestTasks.removeValue(forKey: id)?.cancel()
+        proxyTests[id] = nil
+    }
+
     /// 空密码表示保留已有密码；关闭认证才删除 Keychain 项。
     func saveProxy(_ draft: ProxySettings, password: String?, isNew: Bool) throws {
         var proxy = draft
@@ -167,6 +218,7 @@ final class ManagerModel: ObservableObject {
             if isNew { try workspace.proxies.insert(proxy) }
             else { try workspace.proxies.update(proxy) }
         }
+        cancelProxyTest(proxy.id)
         reload()
         selection = .proxy(proxy.id)
     }
@@ -179,6 +231,7 @@ final class ManagerModel: ObservableObject {
         try withProxyPassword(nil, previous: previous, key: proxy.credentialKey) {
             _ = try workspace.proxies.delete(id: proxy.id)
         }
+        cancelProxyTest(proxy.id)
         reload()
     }
 

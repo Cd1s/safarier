@@ -380,9 +380,10 @@ public enum ProxyGeoResolver {
 
     /// 经标准输入交给 curl 的配置：每行一条，值都在引号里并转义，用户名 / 密码里的引号、换行注入不了新的配置行。
     static func curlConfig(url: String, proxy: ProxySettings, password: String?) -> String {
-        let host = proxy.host.contains(":") ? "[\(proxy.host)]" : proxy.host
+        let rawHost = proxy.host.hasPrefix("[") && proxy.host.hasSuffix("]") ? String(proxy.host.dropFirst().dropLast()) : proxy.host
+        let host = rawHost.contains(":") ? "[\(rawHost)]" : rawHost
         let scheme = proxy.kind == .socks5 ? "socks5h" : "http"
-        var config = "url = \"\(curlEscape(url))\"\nproxy = \"\(scheme)://\(host):\(proxy.port)\"\nnoproxy = \"\"\n"
+        var config = "url = \"\(curlEscape(url))\"\nproxy = \"\(curlEscape("\(scheme)://\(host):\(proxy.port)"))\"\nnoproxy = \"\"\n"
         if let username = proxy.username, !username.isEmpty {
             config += "proxy-user = \"\(curlEscape(username)):\(curlEscape(password ?? ""))\"\n"
         }

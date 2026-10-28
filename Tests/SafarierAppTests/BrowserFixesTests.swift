@@ -228,6 +228,92 @@ final class BrowserFixesTests: XCTestCase {
         XCTAssertTrue(controller.validateMenuItem(NSMenuItem(title: "", action: #selector(BrowserActions.goHome(_:)), keyEquivalent: "")))
     }
 
+    // MARK: - 出错页不能盖掉正常页面（bad URL）
+
+    func testErrorPageURLRule() throws {
+        typealias C = BrowserWindowController
+        let failing = try XCTUnwrap(URL(string: "https://failing.example.invalid/"))
+        let pending = try XCTUnwrap(URL(string: "https://pending.example.invalid/"))
+        let current = try XCTUnwrap(URL(string: "https://ippure.com/"))
+        let bare = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL)
+        let withURL = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL, userInfo: [NSURLErrorFailingURLErrorKey: failing])
+        let withString = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL, userInfo: [NSURLErrorFailingURLStringErrorKey: failing.absoluteString])
+
+        XCTAssertEqual(C.errorPageURL(for: withURL, provisional: true, pending: pending, current: current), failing)
+        XCTAssertEqual(C.errorPageURL(for: withString, provisional: true, pending: pending, current: current), failing)
+        XCTAssertEqual(C.errorPageURL(for: bare, provisional: true, pending: pending, current: current), pending, "没提交的导航：用这次要去的网址")
+        XCTAssertNil(C.errorPageURL(for: bare, provisional: true, pending: nil, current: current), "不能拿正在显示的页面当失败网址")
+        XCTAssertEqual(C.errorPageURL(for: bare, provisional: false, pending: nil, current: current), current, "已提交的导航失败：就是当前页面")
+    }
+
+    func testErrorReasonIsReadable() {
+        typealias C = BrowserWindowController
+        XCTAssertTrue(C.errorReason(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL)).hasPrefix("网址无效（"))
+        XCTAssertTrue(C.errorReason(NSError(domain: "WebKitErrorDomain", code: 101)).hasPrefix("网址无效"))
+        XCTAssertTrue(C.errorReason(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost)).hasPrefix("找不到服务器"))
+        XCTAssertTrue(C.errorReason(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)).hasPrefix("无法连接服务器"))
+        let other = NSError(domain: "x", code: 1, userInfo: [NSLocalizedDescriptionKey: "原文"])
+        XCTAssertEqual(C.errorReason(other), "原文")
+    }
+
+    /// 页面已经正常打开时，一次不带失败网址的 bad URL（例如网址表示不出来）不能用出错页把它盖掉。
+    func testProvisionalFailureWithoutURLKeepsCurrentPage() throws {
+        let controller = session.openWindow(url: nil)
+        let page = try XCTUnwrap(URL(string: "https://ippure.example.invalid/"))
+        controller.webView.loadSimulatedRequest(URLRequest(url: page), responseHTML: "<title>IPPure</title><p>ok</p>")
+        spin(until: { controller.webView.url == page && !controller.webView.isLoading && controller.webView.title == "IPPure" })
+        XCTAssertNil(controller.pendingNavigationURL, "提交后清空")
+
+        controller.webView(controller.webView, didFailProvisionalNavigation: nil, withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+        spin(0.8)
+        XCTAssertNil(controller.failedURL, "没有生成出错页")
+        XCTAssertFalse(controller.isLoadingErrorPage)
+        XCTAssertEqual(controller.webView.url, page)
+        XCTAssertEqual(controller.webView.title, "IPPure", "正常页面还在")
+
+        // 已提交的导航失败（didFail）才用当前网址。
+        controller.webView(controller.webView, didFail: nil, withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost))
+        XCTAssertEqual(controller.failedURL, page)
+        spin(until: { controller.webView.title == "无法打开页面" })
+        XCTAssertEqual(controller.webView.title, "无法打开页面")
+    }
+
+    /// 真实的导航失败：出错页挂在失败的网址上；出错页自己再失败时不再生成新的出错页。
+    func testRealFailureUsesFailingURLAndErrorPageFailureDoesNotLoop() throws {
+        let controller = session.openWindow(url: nil)
+        let failing = try XCTUnwrap(URL(string: "https://nonexistent.example.invalid/x"))
+        controller.webView.load(URLRequest(url: failing))
+        spin(until: { controller.failedURL != nil })
+        XCTAssertEqual(controller.failedURL, failing)
+        spin(until: { controller.webView.title == "无法打开页面" })
+        XCTAssertFalse(controller.isLoadingErrorPage, "出错页提交后复位")
+
+        // 出错页正在载入时又失败：只记日志，不再生成出错页。
+        controller.webView(controller.webView, didFail: nil, withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost))
+        XCTAssertTrue(controller.isLoadingErrorPage)
+        controller.webView(controller.webView, didFailProvisionalNavigation: nil, withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL, userInfo: [NSURLErrorFailingURLErrorKey: failing]))
+        XCTAssertFalse(controller.isLoadingErrorPage)
+    }
+
+    // MARK: - 工具栏环境头像
+
+    /// 圆形色块、左右留边：不会顶出新版工具栏左端胶囊的半圆。
+    func testProfileBadgeIsCircularAndInset() {
+        let badge = ProfileBadge(profile: Profile(name: "orange", mode: .persistent), accent: .systemOrange, isPrivate: false)
+        badge.frame = NSRect(origin: .zero, size: badge.fittingSize)
+        badge.layoutSubtreeIfNeeded()
+        let dot = badge.convert(badge.dot.bounds, from: badge.dot)
+        XCTAssertEqual(dot.width, ProfileBadge.dotDiameter)
+        XCTAssertEqual(dot.height, ProfileBadge.dotDiameter)
+        XCTAssertEqual(badge.dot.layer?.cornerRadius, ProfileBadge.dotDiameter / 2, "是圆，不是圆角方块")
+        XCTAssertEqual(dot.minX, ProfileBadge.leadingInset, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(dot.minX, 7)
+        XCTAssertEqual(dot.midY, badge.bounds.midY, accuracy: 0.5, "垂直居中")
+        // 右边距按内容（栈视图）算；NSTextField 的 frame 比它的对齐矩形左右各宽 2pt，文字本身不越界。
+        let content = badge.subviews.map(\.frame.maxX).max() ?? 0
+        XCTAssertEqual(content, badge.bounds.width - ProfileBadge.trailingInset, accuracy: 0.5)
+    }
+
     // MARK: - 地址栏 Esc、起始页信息
 
     func testEscapeInAddressBarCallsOnCancel() {

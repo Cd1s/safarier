@@ -342,8 +342,8 @@ struct ProfileEditorView: View {
         var url: URL?
         let rawURL = startURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !rawURL.isEmpty {
-            // 和浏览窗口的地址栏一样：没写 scheme 时补 https://。
-            url = rawURL.contains("://") ? URL(string: rawURL) : URL(string: "https://" + rawURL)
+            // 和浏览窗口的地址栏一样规范化（去掉看不见的字符、没写协议时补上），但起始网址必须是有主机的网页地址，不当成搜索。
+            url = AddressInput.webURL(for: rawURL)
             guard url != nil else {
                 errorText = "起始网址不合法：\(rawURL)"
                 return

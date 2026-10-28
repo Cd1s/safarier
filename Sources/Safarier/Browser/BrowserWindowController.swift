@@ -26,6 +26,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private var downloadsPopover: NSPopover?
     /// 当前显示的是我们自己的出错页时，记下原本要打开的网址（重新载入时重试它）。
     private(set) var failedURL: URL?
+    /// 主框架这次导航要去的网址（导航决策时记下，服务器重定向后更新，提交后清空）。
+    /// 没提交的导航失败时 webView.url 还是之前那个正常显示的页面，出错页要挂在这个网址上。
+    private(set) var pendingNavigationURL: URL?
+    /// 最近一次提交的网址：用来分辨重定向后 webView.url 是新地址还是旧页面。
+    private var committedURL: URL?
+    /// 正在载入我们自己的出错页：这次载入再失败就不再生成出错页，避免来回循环。
+    private(set) var isLoadingErrorPage = false
     /// 新标签 / 新窗口要在成为 key window 之后再把焦点放进地址栏，早了会被系统重置。
     private(set) var wantsAddressFocus = false
     /// ⇧⌘H 回到起始页（环境没设起始网址时）：载入 about:blank 并显示起始页，直到导航到别的网址。
@@ -733,6 +740,9 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
                 break
             }
         }
+        if navigationAction.targetFrame?.isMainFrame == true, let url = navigationAction.request.url {
+            pendingNavigationURL = url
+        }
         decisionHandler(.allow)
     }
 
@@ -814,19 +824,28 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 
     func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
         navigationDiagnostics.redirectCount += 1
+        // 重定向后 webView.url 是新的目标；如果还是旧页面的网址（新地址表示不出来），保留导航决策时记下的那个。
+        if let url = webView.url, url != committedURL { pendingNavigationURL = url }
     }
 
     /// 真正打开了别的网页（点链接、手势后退等）：出错页记下的网址作废，⌘R 重新载入的是当前页。
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if let failedURL, webView.url != failedURL { self.failedURL = nil }
+        committedURL = webView.url
+        pendingNavigationURL = nil
+        isLoadingErrorPage = false
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        pendingNavigationURL = nil
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        showErrorPage(error)
+        showErrorPage(error, provisional: true)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        showErrorPage(error)
+        showErrorPage(error, provisional: false)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -835,16 +854,29 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     }
 
     /// 和 Safari 一样在页面里显示出错原因（不弹窗）。代理连不上时也走这里，不会改走直连。
-    private func showErrorPage(_ error: Error) {
+    private func showErrorPage(_ error: Error, provisional: Bool) {
         let nsError = error as NSError
+        let pending = pendingNavigationURL
+        if provisional { pendingNavigationURL = nil }
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
         // 102 = 下载等策略变化打断了这次载入。
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 { return }
         navigationDiagnostics.lastErrorDomain = nsError.domain
         navigationDiagnostics.lastErrorCode = nsError.code
         FileHandle.standardError.write(Data("[load-error] \(nsError.domain) \(nsError.code) \(nsError.localizedDescription)\n".utf8))
-        guard let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? webView.url else { return }
+        if isLoadingErrorPage {
+            // 出错页自己没载入成功：不再生成新的出错页。
+            isLoadingErrorPage = false
+            FileHandle.standardError.write(Data("[load-error] 出错页本身载入失败，保留当前页面\n".utf8))
+            return
+        }
+        guard let url = Self.errorPageURL(for: nsError, provisional: provisional, pending: pending, current: webView.url) else {
+            // 不知道是哪个网址出错（错误里没有失败网址、也不是我们记下的导航）：不能拿正在显示的正常页面顶替。
+            FileHandle.standardError.write(Data("[load-error] 错误里没有失败网址，保留当前页面\n".utf8))
+            return
+        }
         failedURL = url
+        isLoadingErrorPage = true
         let host = Self.escape(url.host ?? url.absoluteString)
         let html = """
         <!doctype html><html><head><meta charset="utf-8"><title>无法打开页面</title><style>
@@ -854,9 +886,49 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         h1 { font-size: 22px; font-weight: 600; color: CanvasText; margin: 0 0 12px; }
         p { font-size: 14px; line-height: 1.5; margin: 0; }
         </style></head><body><main><h1>无法打开该页面</h1>
-        <p>无法打开“\(host)”，因为：\(Self.escape(nsError.localizedDescription))</p></main></body></html>
+        <p>无法打开“\(host)”，因为：\(Self.escape(Self.errorReason(nsError)))</p></main></body></html>
         """
         webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: html)
+    }
+
+    /// 出错页挂在哪个网址上：错误里带的失败网址 → 失败网址字符串 →（没提交的导航）这次导航要去的网址 →（已提交的导航）当前网址。
+    /// 没提交的导航失败时 webView.url 还是之前正常显示的页面，不能拿它当失败网址，否则正常页面会被一张写着它自己网址的出错页盖掉
+    /// （例如 CFNetwork 因为网址表示不出来报 -1000 bad URL 时，错误里没有失败网址）。都没有就返回 nil，保留当前页面。
+    static func errorPageURL(for error: NSError, provisional: Bool, pending: URL?, current: URL?) -> URL? {
+        if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL { return url }
+        if let text = error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String, let url = URL(string: text), url.scheme != nil {
+            return url
+        }
+        return provisional ? pending : current
+    }
+
+    /// 常见网络错误用中文说明，后面附上系统原文（便于对照日志）。
+    static func errorReason(_ error: NSError) -> String {
+        let reason: String?
+        switch (error.domain, error.code) {
+        case (NSURLErrorDomain, NSURLErrorBadURL), (NSURLErrorDomain, NSURLErrorUnsupportedURL), ("WebKitErrorDomain", 101):
+            reason = "网址无效"
+        case (NSURLErrorDomain, NSURLErrorCannotFindHost), (NSURLErrorDomain, NSURLErrorDNSLookupFailed):
+            reason = "找不到服务器"
+        case (NSURLErrorDomain, NSURLErrorCannotConnectToHost):
+            reason = "无法连接服务器"
+        case (NSURLErrorDomain, NSURLErrorTimedOut):
+            reason = "连接超时"
+        case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet):
+            reason = "没有连接到互联网"
+        case (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
+            reason = "网络连接中断"
+        case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
+             (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
+             (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
+             (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
+             (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
+            reason = "无法建立安全连接"
+        default:
+            reason = nil
+        }
+        guard let reason else { return error.localizedDescription }
+        return "\(reason)（\(error.localizedDescription)）"
     }
 
     private static func escape(_ text: String) -> String {
@@ -963,16 +1035,22 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 /// 工具栏左侧的环境标识：彩色首字母 + 环境名；无痕环境像 Safari 一样标「私密浏览」。
 @MainActor
 final class ProfileBadge: NSView {
+    /// 圆形色块，左右留出边距：新版工具栏把左侧几项包在一个两端是半圆的胶囊里，方块或贴边会顶出圆弧。
+    static let dotDiameter: CGFloat = 18
+    static let leadingInset: CGFloat = 8
+    static let trailingInset: CGFloat = 6
+
+    let dot = NSView()
+
     init(profile: Profile, accent: NSColor, isPrivate: Bool) {
         super.init(frame: .zero)
         let letter = NSTextField(labelWithString: profile.name.first.map { String($0).uppercased() } ?? "?")
-        letter.font = .systemFont(ofSize: 11, weight: .bold)
+        letter.font = .systemFont(ofSize: 10, weight: .bold)
         letter.textColor = .white
         letter.alignment = .center
-        let dot = NSView()
         dot.wantsLayer = true
         dot.layer?.backgroundColor = accent.cgColor
-        dot.layer?.cornerRadius = 5
+        dot.layer?.cornerRadius = Self.dotDiameter / 2
         letter.translatesAutoresizingMaskIntoConstraints = false
         dot.addSubview(letter)
         let name = NSTextField(labelWithString: isPrivate ? "\(profile.name) · 私密浏览" : profile.name)
@@ -984,13 +1062,13 @@ final class ProfileBadge: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
-            dot.widthAnchor.constraint(equalToConstant: 20),
-            dot.heightAnchor.constraint(equalToConstant: 20),
+            dot.widthAnchor.constraint(equalToConstant: Self.dotDiameter),
+            dot.heightAnchor.constraint(equalToConstant: Self.dotDiameter),
             letter.centerXAnchor.constraint(equalTo: dot.centerXAnchor),
             letter.centerYAnchor.constraint(equalTo: dot.centerYAnchor),
             name.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.leadingInset),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.trailingInset),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             heightAnchor.constraint(equalToConstant: 24),

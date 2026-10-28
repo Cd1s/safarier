@@ -471,6 +471,80 @@ final class SafariBehaviorTests: XCTestCase {
         XCTAssertEqual(toggle.state, .on)
     }
 
+    /// 停靠在网页旁边的检查器视图（WebKit 自己的 WKWebView 子类）。
+    private func inspectorView(of controller: BrowserWindowController) -> WKWebView? {
+        controller.pageArea.subviews.first { $0 is WKWebView && $0 !== controller.webView } as? WKWebView
+    }
+
+    private func waitFor(_ timeout: TimeInterval = 8, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline { spin(0.1) }
+        return condition()
+    }
+
+    private func evaluate(_ script: String, in webView: WKWebView) -> Any? {
+        var result: Any?
+        var done = false
+        webView.evaluateJavaScript(script) { value, _ in result = value; done = true }
+        _ = waitFor(5) { done }
+        return result
+    }
+
+    /// 停靠的检查器和网页在同一个普通容器里分上下两块（父视图是 NSStackView 时检查器画不出来，窗口里一片空白）；
+    /// 检查器界面真的载入了；⌥⌘I 是开关，菜单标题跟着在「显示 / 关闭网页检查器」间切换，关掉后网页铺满。
+    func testWebInspectorDocksBesideWebViewAndToggles() throws {
+        let controller = session.openWindow(url: nil)
+        controller.webView.loadHTMLString("<h1>inspector</h1>", baseURL: URL(string: "https://example.com/"))
+        XCTAssertTrue(waitFor { !controller.webView.isLoading && controller.webView.url != nil })
+        let pageArea = controller.pageArea
+        XCTAssertTrue(controller.webView.superview === pageArea)
+        let menuItem = NSMenuItem(title: "显示网页检查器", action: #selector(BrowserActions.showWebInspector(_:)), keyEquivalent: "i")
+
+        controller.showWebInspector(nil)
+        XCTAssertTrue(waitFor { WebViewSPI.isInspectorVisible(controller.webView) && self.inspectorView(of: controller) != nil })
+        let inspector = try XCTUnwrap(inspectorView(of: controller), "检查器视图停靠在 webView 旁边，不在 NSStackView 里")
+        XCTAssertTrue(controller.webView.superview === pageArea)
+        XCTAssertFalse(inspector.superview is NSStackView)
+        XCTAssertTrue(waitFor { !inspector.isLoading && inspector.url != nil })
+        XCTAssertTrue(waitFor { self.evaluate("document.querySelector('.tab-bar .dock-close') !== null", in: inspector) as? Bool == true },
+                      "检查器界面（标签栏和关闭按钮）载入了")
+        _ = controller.validateMenuItem(menuItem)
+        XCTAssertEqual(menuItem.title, "关闭网页检查器")
+
+        func assertTiles(_ message: String) {
+            pageArea.layoutSubtreeIfNeeded()
+            let page = controller.webView.frame, docked = inspector.frame
+            XCTAssertGreaterThan(page.height, 0, message)
+            XCTAssertGreaterThan(docked.height, 0, message)
+            XCTAssertFalse(page.intersects(docked), message)
+            XCTAssertEqual(page.union(docked), pageArea.bounds, message)
+        }
+        assertTiles("检查器和网页分上下两块，正好铺满")
+        controller.window.setContentSize(NSSize(width: 1100, height: 820))
+        assertTiles("缩放窗口后检查器和网页跟着铺满")
+
+        controller.showWebInspector(nil)
+        XCTAssertTrue(waitFor { !WebViewSPI.isInspectorVisible(controller.webView) && self.inspectorView(of: controller) == nil }, "再按一次 ⌥⌘I 关掉检查器")
+        pageArea.layoutSubtreeIfNeeded()
+        XCTAssertEqual(controller.webView.frame, pageArea.bounds, "关掉后网页铺满")
+        _ = controller.validateMenuItem(menuItem)
+        XCTAssertEqual(menuItem.title, "显示网页检查器")
+    }
+
+    /// 在起始页上打开检查器会收起起始页；用 ⌥⌘I 关掉后起始页回来。
+    func testClosingInspectorOpenedFromStartPageRestoresStartPage() {
+        let controller = session.openWindow(url: nil)
+        XCTAssertTrue(controller.isShowingStartPage)
+        controller.showWebInspector(nil)
+        XCTAssertFalse(controller.isShowingStartPage)
+        XCTAssertTrue(waitFor { WebViewSPI.isInspectorVisible(controller.webView) })
+
+        controller.showWebInspector(nil)
+        XCTAssertTrue(waitFor { !WebViewSPI.isInspectorVisible(controller.webView) })
+        XCTAssertTrue(controller.isShowingStartPage)
+        XCTAssertNil(controller.displayURL)
+    }
+
     /// 「开发」菜单：允许检查网页元素和拷贝环境诊断摘要（⌥⇧⌘D）都在；拷贝的是当前窗口的诊断 JSON。
     func testDevelopMenuHasInspectableToggleAndDiagnosticsCopy() throws {
         let develop = try XCTUnwrap(BrowserMenu.make().items.first { $0.title == "开发" }?.submenu)

@@ -18,6 +18,8 @@ public enum WebViewSPI {
         case show
         /// 打开检查器并切到控制台。
         case showConsole
+        /// 关闭网页检查器（停靠的和独立窗口的都关）。
+        case close
     }
 
     /// 文本缩放倍数（只放大文字，不改布局宽度）；接口不在时返回 nil。
@@ -44,16 +46,31 @@ public enum WebViewSPI {
         (try? SPIRuntimeBridge.setBool(enabled, developerExtrasSetter, on: preferences).get()) != nil
     }
 
-    /// 打开网页检查器或控制台。调用前自动开启 developerExtrasEnabled，避免 WebInspectorUIProxy::show() 提前返回。
+    /// 网页检查器现在是否开着（停靠或独立窗口）。接口不在时当作没开。
+    public static func isInspectorVisible(_ webView: WKWebView) -> Bool {
+        guard case .success(let inspector) = inspectorObject(of: webView) else { return false }
+        return (try? SPIRuntimeBridge.getBool("isVisible", on: inspector).get()) ?? false
+    }
+
+    /// 打开网页检查器或控制台，或者关掉它。打开前自动开启 developerExtrasEnabled，避免 WebInspectorUIProxy::show() 提前返回。
     @discardableResult
     public static func inspector(_ action: InspectorAction, on webView: WKWebView) -> Result<Void, SPICallFailure> {
-        setDeveloperExtrasEnabled(true, on: webView.configuration.preferences)
+        if action != .close { setDeveloperExtrasEnabled(true, on: webView.configuration.preferences) }
+        switch inspectorObject(of: webView) {
+        case .failure(let failure):
+            return .failure(failure)
+        case .success(let inspector):
+            return SPIRuntimeBridge.callVoid(action.rawValue, on: inspector)
+        }
+    }
+
+    private static func inspectorObject(of webView: WKWebView) -> Result<NSObject, SPICallFailure> {
         switch SPIRuntimeBridge.getObject(inspectorGetter, on: webView) {
         case .failure(let failure):
             return .failure(failure)
         case .success(let object):
             guard let inspector = object as? NSObject else { return .failure(.missingClass("inspector 返回 nil")) }
-            return SPIRuntimeBridge.callVoid(action.rawValue, on: inspector)
+            return .success(inspector)
         }
     }
 

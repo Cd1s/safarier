@@ -22,6 +22,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private let findBar = FindBar()
     private let startPage: StartPageView
     private let content = NSStackView()
+    /// webView 的父视图；停靠的网页检查器也放在这里。
+    let pageArea = NSView()
     private var observations: [NSKeyValueObservation] = []
     private var downloadsPopover: NSPopover?
     private var privacyReportPopover: NSPopover?
@@ -123,11 +125,17 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
             self.window.makeFirstResponder(self.webView)
         }
 
+        // 网页放在普通容器里，按 autoresizing 铺满。WebKit 停靠网页检查器时把检查器视图加进 webView 的父视图，
+        // 再自己分配两者的 frame；父视图要是 NSStackView，检查器视图画不出来（窗口里一片空白），关掉后也排不回去。
+        webView.frame = pageArea.bounds
+        webView.autoresizingMask = [.width, .height]
+        pageArea.addSubview(webView)
+
         content.orientation = .vertical
         content.spacing = 0
         content.addArrangedSubview(findBar)
-        content.addArrangedSubview(webView)
-        for view in [findBar, webView] as [NSView] {
+        content.addArrangedSubview(pageArea)
+        for view in [findBar, pageArea] {
             view.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
         }
         let container = NSView(frame: NSRect(origin: .zero, size: contentSize))
@@ -451,8 +459,24 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     // MARK: 开发
 
     /// ⌥⌘I / ⌥⌘C：打开网页检查器 / JavaScript 控制台（原生引擎桥接）。
-    @objc func showWebInspector(_ sender: Any?) { openInspector(.show) }
+    /// ⌥⌘I 和 Safari 一样是开关：检查器开着时关掉它，菜单项随之显示「关闭网页检查器」。
+    @objc func showWebInspector(_ sender: Any?) {
+        if WebViewSPI.isInspectorVisible(webView) { closeInspector() } else { openInspector(.show) }
+    }
     @objc func showJavaScriptConsole(_ sender: Any?) { openInspector(.showConsole) }
+
+    private func closeInspector() {
+        if case .failure(let failure) = WebViewSPI.inspector(.close, on: webView) {
+            FileHandle.standardError.write(Data("[inspector] close 失败：\(failure)\n".utf8))
+            NSSound.beep()
+            return
+        }
+        // 检查器是从起始页打开的：关掉后把起始页还回来。
+        if inspectorDismissedStartPage && webView.url?.absoluteString == "about:blank" {
+            inspectorDismissedStartPage = false
+            updateState()
+        }
+    }
 
     private func openInspector(_ action: WebViewSPI.InspectorAction) {
         // inspectable 默认关闭：打开检查器时自动打开（所有标签一起），菜单里的勾选也跟着变。
@@ -599,7 +623,10 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         case #selector(closeOtherTabs(_:)): return tabs.count > 1
         case #selector(reopenClosedTab(_:)): return !session.closedTabURLs.isEmpty
         case #selector(selectTabByNumber(_:)): return Self.tab(number: item.tag, in: tabs) != nil
-        case #selector(showWebInspector(_:)), #selector(showJavaScriptConsole(_:)): return WebViewSPI.hasInspector(webView)
+        case #selector(showWebInspector(_:)):
+            item.title = WebViewSPI.isInspectorVisible(webView) ? "关闭网页检查器" : "显示网页检查器"
+            return WebViewSPI.hasInspector(webView)
+        case #selector(showJavaScriptConsole(_:)): return WebViewSPI.hasInspector(webView)
         case #selector(toggleInspectable(_:)): return session.validateMenuItem(item)
         default: return true
         }

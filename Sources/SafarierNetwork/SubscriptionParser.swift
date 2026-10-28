@@ -41,10 +41,17 @@ public enum SubscriptionParser {
         // 有些订阅（和 Windows 记事本存的文件）开头带 UTF-8 BOM，它不算空白，要单独去掉。
         let raw = stripBOM(content).trimmingCharacters(in: .whitespacesAndNewlines)
         let decoded = decodeBase64IfNeeded(raw)
-        let lines = decoded
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        var lines: [String] = []
+        for physicalLine in decoded.components(separatedBy: .newlines) {
+            let line = physicalLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            if !line.contains("://"), let previous = lines.last, previous.contains("://") {
+                // 粘贴时折断的链接：续行里的缩进、空格不属于 Base64 内容。
+                lines[lines.count - 1] += line.filter { !$0.isWhitespace }
+            } else {
+                lines.append(line)
+            }
+        }
         guard !lines.isEmpty else { return SubscriptionParseResult(nodes: []) }
 
         var nodes: [SubscriptionNode] = []
@@ -68,6 +75,7 @@ public enum SubscriptionParser {
 
     /// Shadowsocks 链接的前缀（小写比较）。
     static let shadowsocksPrefixes = ["ss://", "ss2022://", "shadowsocks://"]
+    static let socksPrefixes = ["socks://", "socks5://", "socks5h://"]
 
     public static func parseLine(_ line: String) throws -> SubscriptionNode {
         // 节点名在 `#` 后面，常带空格等 URL 里不允许的字符：先切掉，主体单独解析。
@@ -80,9 +88,12 @@ public enum SubscriptionParser {
         if shadowsocksPrefixes.contains(where: lowered.hasPrefix) {
             return try parseShadowsocksURI(body, name: name)
         }
+        if socksPrefixes.contains(where: lowered.hasPrefix) {
+            return try parseSocksURI(body, name: name)
+        }
         if let schemeRange = lowered.range(of: "://") {
             let rawScheme = String(lowered[..<schemeRange.lowerBound])
-            let supported = ["vless", "vmess", "trojan", "socks", "socks5", "anytls"]
+            let supported = ["vless", "vmess", "trojan", "anytls"]
             if !rawScheme.isEmpty, !supported.contains(rawScheme) {
                 throw SubscriptionParseError.unsupportedScheme(rawScheme)
             }
@@ -95,7 +106,6 @@ public enum SubscriptionParser {
         case "vless": return try parseVLESS(url, name: name)
         case "vmess": return try parseVMess(url, name: name)
         case "trojan": return try parseTrojan(url, name: name)
-        case "socks", "socks5": return try parseSOCKS(url, name: name)
         case "anytls": return try parseAnyTLS(url, name: name)
         default: throw SubscriptionParseError.unsupportedScheme(scheme)
         }
@@ -235,30 +245,62 @@ public enum SubscriptionParser {
         return out
     }
 
-    /// `socks://base64(user:pass)@host:port`（v2rayN 格式）或 `socks5://user:pass@host:port`（明文）。
-    /// `base64(":")`（即 `Og==`）表示无认证。
-    private static func parseSOCKS(_ url: URL, name: String?) throws -> SubscriptionNode {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let host = serverHost(components), let port = components.port else {
-            throw SubscriptionParseError.invalidLine(url.absoluteString)
+    /// 支持明文、仅认证 Base64，以及 Shadowrocket 的整段 Base64。
+    /// 不经 URLComponents，避免把 Base64 的 `/` 当路径、漏掉编码在内部的端口。
+    static func parseSocksURI(_ body: String, name: String?) throws -> SubscriptionNode {
+        let invalid = SubscriptionParseError.invalidLine(body)
+        guard let prefix = socksPrefixes.first(where: body.lowercased().hasPrefix) else { throw invalid }
+        var authority = String(body.dropFirst(prefix.count))
+        var parameters: [String: String] = [:]
+        if let question = authority.firstIndex(of: "?") {
+            parameters = queryValues(String(authority[authority.index(after: question)...]))
+            authority = String(authority[..<question])
         }
-        var username = components.user
-        var password = components.password
-        if password == nil, let user = username,
-           let data = decodeBase64(user), let text = String(data: data, encoding: .utf8), text.contains(":") {
-            let split = text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            username = split[0]
-            password = split[1]
+        var decodedAuthority = false
+        if !authority.contains("@"), socksEndpoint(authority) == nil {
+            let token = authority.removingPercentEncoding ?? authority
+            guard let data = decodeBase64(token), let text = String(data: data, encoding: .utf8) else { throw invalid }
+            authority = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            decodedAuthority = true
         }
+        var username: String?
+        var password: String?
+        var endpointText = authority
+        if let at = authority.lastIndex(of: "@") {
+            endpointText = String(authority[authority.index(after: at)...])
+            var userInfo = String(authority[..<at])
+            var percentDecode = !decodedAuthority
+            if !userInfo.contains(":"), !decodedAuthority {
+                let token = userInfo.removingPercentEncoding ?? userInfo
+                if let data = decodeBase64(token), let text = String(data: data, encoding: .utf8), text.contains(":") {
+                    userInfo = text
+                    percentDecode = false
+                }
+            }
+            // 明文先按第一个冒号拆分，再分别解码；密码中的冒号和 @ 原样保留。
+            // Base64 内的认证已经是原始文本，不能再把字面的 %41 等二次解释。
+            let parts = userInfo.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            let credentials = parts.map { percentDecode ? ($0.removingPercentEncoding ?? $0) : $0 }
+            username = credentials[0].isEmpty ? nil : credentials[0]
+            password = credentials.count > 1 && !credentials[1].isEmpty ? credentials[1] : nil
+        }
+        guard let (host, port) = socksEndpoint(endpointText) else { throw invalid }
         return SubscriptionNode(
-            name: name ?? host,
+            name: name ?? nonEmpty(parameters["remarks"]) ?? nonEmpty(parameters["remark"]) ?? host,
             type: .socks,
             server: host,
             serverPort: port,
-            username: username.flatMap { $0.isEmpty ? nil : $0 },
-            password: password.flatMap { $0.isEmpty ? nil : $0 },
-            parameters: queryValues(components)
+            username: username,
+            password: password,
+            parameters: parameters
         )
+    }
+
+    private static func socksEndpoint(_ value: String) -> (String, Int)? {
+        let endpoint = value.hasSuffix("/") ? String(value.dropLast()) : value
+        guard let (host, port) = hostAndPort(endpoint),
+              !host.contains(where: { $0.isWhitespace || "/@?#".contains($0) }) else { return nil }
+        return (host, port)
     }
 
     /// `anytls://password@host:port?sni=example.com&insecure=1`。AnyTLS 总是走 TLS。

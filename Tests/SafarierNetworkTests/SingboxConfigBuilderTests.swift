@@ -267,6 +267,10 @@ final class SingboxConfigBuilderTests: XCTestCase {
             SubscriptionNode(name: "s", type: .shadowsocks, server: "s.example", serverPort: 8388, password: "secret", method: "aes-128-gcm"),
             try SubscriptionParser.parseLine("socks://Og%3D%3D@192.0.2.6:20001#lan-20001 edge-v6 20001"),
             try SubscriptionParser.parseLine("socks5://alice:pw@[2001:db8::1]:1080#v6"),
+            try SubscriptionParser.parseLine("socks://\(Data("user:pass@example.com:1080".utf8).base64EncodedString())?obfs=none&remarks=US-Node"),
+            try SubscriptionParser.parseLine("socks://\(Data("example.com:1080".utf8).base64EncodedString())?obfs=none"),
+            try SubscriptionParser.parseLine("socks://\(Data("user:???>x".utf8).base64EncodedString())@example.com:1080"),
+            try SubscriptionParser.parseLine("socks5h://user:p%40ss%3Aword@192.0.2.10:1080"),
             try SubscriptionParser.parseLine("anytls://pw@a.example:443?sni=a.example&insecure=1#a"),
             // SS2022：sing-box 会校验密钥长度（16 / 32 字节）。
             try SubscriptionParser.parseLine("ss://2022-blake3-aes-128-gcm:++++////AQIDBAUGBwgJCg==@ss.example.com:8388#ss2022-128"),

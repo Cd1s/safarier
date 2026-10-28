@@ -258,8 +258,10 @@ struct ProfileEditorView: View {
         .frame(width: 580, height: 600)
         .onChange(of: [name, languages, timeZone, startURL]) { errorText = nil }
         .onChange(of: subscriptionID) {
-            // 换了订阅：原来选的节点不在新订阅里就清掉。
-            if let nodeName, selectedSubscription?.nodes.contains(where: { $0.name == nodeName }) != true {
+            // 单节点订阅直接选中；多节点订阅保留仍然有效的原选择。
+            if let nodes = selectedSubscription?.nodes, nodes.count == 1 {
+                nodeName = nodes[0].name
+            } else if let nodeName, selectedSubscription?.nodes.contains(where: { $0.name == nodeName }) != true {
                 self.nodeName = nil
             }
             errorText = nil

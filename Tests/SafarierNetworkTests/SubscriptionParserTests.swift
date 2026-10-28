@@ -32,6 +32,114 @@ final class SubscriptionParserTests: XCTestCase {
         XCTAssertEqual(anonymous.name, "10.0.0.1")
     }
 
+    func testSOCKSWholeBase64Authority() throws {
+        for prefix in SubscriptionParser.socksPrefixes {
+            let token = Data("user:pass@192.0.2.10:1080".utf8).base64EncodedString()
+            let node = try SubscriptionParser.parseLine("\(prefix)\(token)?obfs=none#Example%20Node")
+            XCTAssertEqual(node.type, .socks)
+            XCTAssertEqual(node.server, "192.0.2.10")
+            XCTAssertEqual(node.serverPort, 1080)
+            XCTAssertEqual(node.username, "user")
+            XCTAssertEqual(node.password, "pass")
+            XCTAssertEqual(node.name, "Example Node")
+            XCTAssertEqual(node.parameters["obfs"], "none")
+            XCTAssertNoThrow(try node.validate())
+        }
+        let anonymousToken = Data("example.com:1081".utf8).base64EncodedString()
+        let anonymous = try SubscriptionParser.parseLine("socks://\(anonymousToken)?obfs=none")
+        XCTAssertEqual(anonymous.name, "example.com")
+        XCTAssertEqual(anonymous.serverPort, 1081)
+        XCTAssertNil(anonymous.username)
+        XCTAssertNil(anonymous.password)
+
+        let ipv6Token = Data("user:p@ss:word@[2001:db8::1]:1082".utf8).base64EncodedString()
+        let ipv6 = try SubscriptionParser.parseLine("socks://\(ipv6Token)")
+        XCTAssertEqual(ipv6.server, "2001:db8::1")
+        XCTAssertEqual(ipv6.password, "p@ss:word")
+    }
+
+    func testSOCKSNameFallsBackToQueryThenHost() throws {
+        let token = Data("user:pass@example.com:1080".utf8).base64EncodedString()
+        for (suffix, expected) in [
+            ("?obfs=none&remarks=US-Node", "US-Node"),
+            ("?remark=Example%20Node", "Example Node"),
+            ("?remarks=&remark=Fallback", "Fallback"),
+            ("?remarks=First&remark=Second", "First"),
+            ("?remarks=Query#Fragment", "Fragment"),
+            ("?remarks=", "example.com"),
+        ] {
+            XCTAssertEqual(try SubscriptionParser.parseLine("socks://\(token)\(suffix)").name, expected)
+        }
+    }
+
+    func testSOCKSBase64UserInfoPreservesSlashPlusAndPadding() throws {
+        let token = Data("user:???>x".utf8).base64EncodedString()
+        XCTAssertTrue(["/", "+", "="].allSatisfy(token.contains))
+        for value in [token, token.replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")] {
+            let node = try SubscriptionParser.parseLine("socks://\(value)@example.com:1080")
+            XCTAssertEqual(node.username, "user")
+            XCTAssertEqual(node.password, "???>x")
+        }
+        for value in ["Og==", "Og%3D%3D"] {
+            let node = try SubscriptionParser.parseLine("socks://\(value)@192.0.2.10:1080")
+            XCTAssertNil(node.username)
+            XCTAssertNil(node.password)
+        }
+    }
+
+    func testSOCKSPlainCredentialsUseLastAtAndFirstColon() throws {
+        for prefix in SubscriptionParser.socksPrefixes {
+            let node = try SubscriptionParser.parseLine("\(prefix)user:p@ss:word@example.com:1080")
+            XCTAssertEqual(node.username, "user")
+            XCTAssertEqual(node.password, "p@ss:word")
+            XCTAssertEqual(node.server, "example.com")
+            let anonymous = try SubscriptionParser.parseLine("\(prefix)example.com:1081")
+            XCTAssertNil(anonymous.username)
+            XCTAssertNil(anonymous.password)
+        }
+        let encoded = try SubscriptionParser.parseLine("socks5h://user%3Aname:p%40ss%3A%2541@example.com:1080")
+        XCTAssertEqual(encoded.username, "user:name")
+        XCTAssertEqual(encoded.password, "p@ss:%41")
+        let literal = Data("user:literal%41".utf8).base64EncodedString()
+        XCTAssertEqual(try SubscriptionParser.parseLine("socks://\(literal)@example.com:1080").password, "literal%41")
+    }
+
+    func testWrappedSOCKSLinkIsJoinedBeforeParsing() throws {
+        let token = Data("user:pass@example.com:1080".utf8).base64EncodedString()
+        let first = token.prefix(12)
+        let remainder = token.dropFirst(12)
+        let text = "# Example subscription\nsocks://\(first)\n  \(remainder.prefix(8)) \t\(remainder.dropFirst(8))?obfs=none&remarks=US-Node\nsocks5h://192.0.2.20:1081#Second"
+        let nodes = try SubscriptionParser.parse(text)
+        XCTAssertEqual(nodes.map(\.name), ["US-Node", "Second"])
+        XCTAssertEqual(nodes[0].server, "example.com")
+        XCTAssertEqual(nodes[0].username, "user")
+        XCTAssertEqual(nodes[0].password, "pass")
+        XCTAssertEqual(nodes[1].serverPort, 1081)
+    }
+
+    func testMalformedSOCKSEndpointsAreRejected() {
+        for authority in ["example.com", "example.com:0", "example.com:65536", "example.com:noport",
+                          "user:pass@2001:db8::1:1080", "user:pass@bad host:1080", "!!!notbase64"] {
+            XCTAssertThrowsError(try SubscriptionParser.parseLine("socks://\(authority)"))
+            let token = Data(authority.utf8).base64EncodedString()
+            XCTAssertThrowsError(try SubscriptionParser.parseLine("socks://\(token)"))
+        }
+    }
+
+    func testWholeBase64SOCKSBuildsValidatedConfiguration() throws {
+        let token = Data("user:pass@example.com:1080".utf8).base64EncodedString()
+        let node = try SubscriptionParser.parseLine("socks://\(token)?obfs=none&remarks=US-Node")
+        try node.validate()
+        let configuration = try SingboxConfigBuilder.makeConfiguration(inboundPort: 20_001, node: node)
+        let outbound = try XCTUnwrap(configuration.outbounds.first)
+        XCTAssertEqual(outbound["type"], .string("socks"))
+        XCTAssertEqual(outbound["server"], .string("example.com"))
+        XCTAssertEqual(outbound["server_port"], .number(1080))
+        XCTAssertEqual(outbound["username"], .string("user"))
+        XCTAssertEqual(outbound["password"], .string("pass"))
+        XCTAssertEqual(try JSONDecoder().decode(SingboxConfiguration.self, from: configuration.encoded()), configuration)
+    }
+
     func testIPv6HostDropsBrackets() throws {
         let node = try SubscriptionParser.parseLine("socks5://[2001:db8::1]:1080#v6")
         XCTAssertEqual(node.server, "2001:db8::1")

@@ -112,4 +112,19 @@ final class BrowserWindowTests: XCTestCase {
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: (url.absoluteString as NSString).length))
         window.close()
     }
+
+    func testToolbarPlacesPrivacyReportImmediatelyLeftOfAddress() {
+        let controller = session.openWindow(url: nil)
+        let identifiers = controller.toolbarDefaultItemIdentifiers(NSToolbar(identifier: "test"))
+        let privacy = NSToolbarItem.Identifier("privacyReport")
+        let address = NSToolbarItem.Identifier("address")
+        guard let privacyIndex = identifiers.firstIndex(of: privacy), let addressIndex = identifiers.firstIndex(of: address) else {
+            return XCTFail("隐私报告和地址栏工具栏项必须存在")
+        }
+        XCTAssertEqual(privacyIndex + 1, addressIndex)
+
+        let item = controller.toolbar(NSToolbar(identifier: "test"), itemForItemIdentifier: privacy, willBeInsertedIntoToolbar: true)
+        XCTAssertEqual(item?.label, "隐私报告")
+        XCTAssertEqual(item?.action, #selector(BrowserWindowController.showPrivacyReport(_:)))
+    }
 }

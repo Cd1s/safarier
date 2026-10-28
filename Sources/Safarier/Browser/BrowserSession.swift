@@ -11,6 +11,7 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
 
     let profile: Profile
     let workspace: SafarierWorkspace
+    let outboundDescription: String
     let configuration: WKWebViewConfiguration
     let extensionRuntime: (any WebExtensionRuntimeProtocol)?
     let device: MacDeviceModel?
@@ -40,6 +41,7 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     init(profile: Profile, output: WebViewConfigurationFactory.Output, outboundDescription: String, diagnostics: SPIDiagnostics, workspace: SafarierWorkspace? = nil) {
         self.profile = profile
         self.workspace = workspace ?? (try! SafarierWorkspace.default())
+        self.outboundDescription = outboundDescription
         self.configuration = output.configuration
         self.extensionRuntime = output.extensionRuntime
         self.report = output.report

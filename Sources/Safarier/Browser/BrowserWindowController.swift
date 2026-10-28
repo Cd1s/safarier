@@ -24,6 +24,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private let content = NSStackView()
     private var observations: [NSKeyValueObservation] = []
     private var downloadsPopover: NSPopover?
+    private var privacyReportPopover: NSPopover?
     /// 当前显示的是我们自己的出错页时，记下原本要打开的网址（重新载入时重试它）。
     private(set) var failedURL: URL?
     /// 主框架这次导航要去的网址（导航决策时记下，服务器重定向后更新，提交后清空）。
@@ -56,6 +57,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         static let profile = NSToolbarItem.Identifier("profile")
         static let back = NSToolbarItem.Identifier("back")
         static let forward = NSToolbarItem.Identifier("forward")
+        static let privacyReport = NSToolbarItem.Identifier("privacyReport")
         static let address = NSToolbarItem.Identifier("address")
         static let share = NSToolbarItem.Identifier("share")
         static let downloads = NSToolbarItem.Identifier("downloads")
@@ -555,6 +557,30 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         downloadsPopover = popover
     }
 
+    @objc func showPrivacyReport(_ sender: Any?) {
+        if let popover = privacyReportPopover, popover.isShown {
+            popover.performClose(sender)
+            privacyReportPopover = nil
+            return
+        }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = PrivacyReportPopover.makeViewController(
+            profile: session.profile,
+            currentURL: displayURL,
+            report: session.report,
+            outboundDescription: session.outboundDescription
+        )
+        if let view = sender as? NSView {
+            popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+        } else if let item = window.toolbar?.items.first(where: { $0.itemIdentifier == Item.privacyReport }) {
+            popover.show(relativeTo: item)
+        } else {
+            popover.show(relativeTo: addressBar.bounds, of: addressBar, preferredEdge: .minY)
+        }
+        privacyReportPopover = popover
+    }
+
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(goBack(_:)): return webView.canGoBack && !arrowKeyWhileEditing(item)
@@ -595,7 +621,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     // MARK: - NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Item.profile, Item.back, Item.forward, .flexibleSpace, Item.address, .flexibleSpace, Item.share, Item.newTab, Item.tabOverview]
+        [Item.profile, Item.back, Item.forward, .flexibleSpace, Item.privacyReport, Item.address, .flexibleSpace, Item.share, Item.newTab, Item.tabOverview]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -614,6 +640,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
             return button(identifier, symbol: "chevron.left", label: "后退", action: #selector(goBack(_:)))
         case Item.forward:
             return button(identifier, symbol: "chevron.right", label: "前进", action: #selector(goForward(_:)))
+        case Item.privacyReport:
+            return button(identifier, symbol: "shield.lefthalf.filled", label: "隐私报告", action: #selector(showPrivacyReport(_:)))
         case Item.address:
             let item = NSToolbarItem(itemIdentifier: identifier)
             item.view = addressBar

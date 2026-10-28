@@ -8,7 +8,7 @@ final class PrivacyReportPopoverTests: XCTestCase {
     func testSiteSubtitleUsesDomainOrStartPageFallback() {
         XCTAssertEqual(PrivacyReportPopover.siteSubtitle(for: nil), "当前环境隐私护盾已就绪")
         XCTAssertEqual(PrivacyReportPopover.siteSubtitle(for: URL(string: "about:blank")), "当前环境隐私护盾已就绪")
-        XCTAssertEqual(PrivacyReportPopover.siteSubtitle(for: URL(string: "https://www.ippure.com/check")), "ippure.com")
+        XCTAssertEqual(PrivacyReportPopover.siteSubtitle(for: URL(string: "https://www.example.com/check")), "example.com")
         XCTAssertEqual(PrivacyReportPopover.siteSubtitle(for: URL(string: "https://browserleaks.com/canvas")), "browserleaks.com")
     }
 
@@ -26,7 +26,7 @@ final class PrivacyReportPopoverTests: XCTestCase {
 
         let controller = PrivacyReportPopover.makeViewController(
             profile: profile,
-            currentURL: URL(string: "https://www.ippure.com/"),
+            currentURL: URL(string: "https://www.example.com/"),
             report: report,
             outboundDescription: "SOCKS5 127.0.0.1:1080"
         )
@@ -36,7 +36,7 @@ final class PrivacyReportPopoverTests: XCTestCase {
 
         let labels = collectTexts(in: controller.view)
         XCTAssertTrue(labels.contains("隐私报告"))
-        XCTAssertTrue(labels.contains("ippure.com"))
+        XCTAssertTrue(labels.contains("example.com"))
         XCTAssertTrue(labels.contains("当前环境：美区住宅环境"))
         XCTAssertTrue(labels.contains("Safari 原生防指纹保护"))
         XCTAssertTrue(labels.contains("独立网站数据沙盒"))

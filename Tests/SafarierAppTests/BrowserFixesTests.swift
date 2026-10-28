@@ -235,7 +235,7 @@ final class BrowserFixesTests: XCTestCase {
         typealias C = BrowserWindowController
         let failing = try XCTUnwrap(URL(string: "https://failing.example.invalid/"))
         let pending = try XCTUnwrap(URL(string: "https://pending.example.invalid/"))
-        let current = try XCTUnwrap(URL(string: "https://ippure.com/"))
+        let current = try XCTUnwrap(URL(string: "https://example.com/"))
         let bare = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL)
         let withURL = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL, userInfo: [NSURLErrorFailingURLErrorKey: failing])
         let withString = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL, userInfo: [NSURLErrorFailingURLStringErrorKey: failing.absoluteString])
@@ -260,9 +260,9 @@ final class BrowserFixesTests: XCTestCase {
     /// 页面已经正常打开时，一次不带失败网址的 bad URL（例如网址表示不出来）不能用出错页把它盖掉。
     func testProvisionalFailureWithoutURLKeepsCurrentPage() throws {
         let controller = session.openWindow(url: nil)
-        let page = try XCTUnwrap(URL(string: "https://ippure.example.invalid/"))
-        controller.webView.loadSimulatedRequest(URLRequest(url: page), responseHTML: "<title>IPPure</title><p>ok</p>")
-        spin(until: { controller.webView.url == page && !controller.webView.isLoading && controller.webView.title == "IPPure" })
+        let page = try XCTUnwrap(URL(string: "https://example.invalid/"))
+        controller.webView.loadSimulatedRequest(URLRequest(url: page), responseHTML: "<title>Example</title><p>ok</p>")
+        spin(until: { controller.webView.url == page && !controller.webView.isLoading && controller.webView.title == "Example" })
         XCTAssertNil(controller.pendingNavigationURL, "提交后清空")
 
         controller.webView(controller.webView, didFailProvisionalNavigation: nil, withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
@@ -270,7 +270,7 @@ final class BrowserFixesTests: XCTestCase {
         XCTAssertNil(controller.failedURL, "没有生成出错页")
         XCTAssertFalse(controller.isLoadingErrorPage)
         XCTAssertEqual(controller.webView.url, page)
-        XCTAssertEqual(controller.webView.title, "IPPure", "正常页面还在")
+        XCTAssertEqual(controller.webView.title, "Example", "正常页面还在")
 
         // 已提交的导航失败（didFail）才用当前网址。
         controller.webView(controller.webView, didFail: nil, withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost))

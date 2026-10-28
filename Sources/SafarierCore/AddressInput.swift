@@ -42,7 +42,7 @@ public enum AddressInput {
 
     /// 复制来的网址常夹着看不见的格式字符（零宽空格、方向标记、BOM、软连字符、连接符等）：先去掉
     /// （零宽连接符 U+200D 保留，它是组合表情的一部分）。全角的 `。．｡：／` 换成半角后，只有网址的主机部分全是 ASCII
-    /// 才采用（`ippure。com` → `ippure.com`），中文句子不会被当成网址。
+    /// 才采用（`example。com` → `example.com`），中文句子不会被当成网址。
     static func normalized(_ raw: String) -> String {
         let scalars = raw.unicodeScalars.filter { $0.properties.generalCategory != .format || $0 == "\u{200D}" }
         let text = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespacesAndNewlines)

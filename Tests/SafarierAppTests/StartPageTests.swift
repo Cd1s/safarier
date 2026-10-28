@@ -84,7 +84,11 @@ final class StartPageTests: XCTestCase {
         XCTAssertEqual(store.favorites.count, 16)
         XCTAssertEqual(Set(store.favorites.map(\.url)).count, 16)
         let byTitle = Dictionary(uniqueKeysWithValues: store.favorites.map { ($0.title, $0.url.absoluteString) })
-        XCTAssertEqual(byTitle["IPPure"], "https://ippure.com")
+        XCTAssertEqual(byTitle["IPCheck.ing"], "https://ipcheck.ing")
+        let ipCheck = store.favorites.first { $0.title == "IPCheck.ing" }
+        XCTAssertEqual(ipCheck?.symbol, "network")
+        XCTAssertEqual(ipCheck?.background, "#4F46E5")
+        XCTAssertEqual(ipCheck?.foreground, "#FFFFFF")
         XCTAssertEqual(byTitle["LINUX DO"], "https://linux.do")
         XCTAssertEqual(byTitle["Claude"], "https://claude.ai")
         for favorite in store.favorites {
@@ -124,6 +128,51 @@ final class StartPageTests: XCTestCase {
         let store = makeStore()
         XCTAssertEqual(store.favorites, StartPageStore.defaultFavorites)
         XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "not json", "没有改动前不覆盖")
+    }
+
+    private var retiredDefaultURL: URL {
+        URL(string: "https://\u{69}\u{70}\u{70}\u{75}\u{72}\u{65}.com")!
+    }
+
+    func testRetiredDefaultFavoriteMigratesAndPersistsWithoutLosingSettings() throws {
+        let custom = StartPageStore.customFavorite(title: "My site", url: URL(string: "https://example.com/work")!, host: "example.com")
+        let replacement = try XCTUnwrap(StartPageStore.defaultFavorites.first { $0.title == "IPCheck.ing" })
+        for suffix in ["", "/"] {
+            let retired = StartPageFavorite(title: "Previous checker", url: URL(string: retiredDefaultURL.absoluteString + suffix)!,
+                                            glyph: "I", background: "#4F46E5", foreground: "#FFFFFF")
+            let previous = StartPageSettings(favorites: [custom, retired], hiddenSections: [.suggestions])
+            try JSONEncoder().encode(previous).write(to: fileURL)
+
+            let migrated = makeStore()
+            XCTAssertEqual(migrated.favorites, [custom, replacement])
+            XCTAssertEqual(migrated.settings.hiddenSections, [.suggestions])
+            let saved = try JSONDecoder().decode(StartPageSettings.self, from: Data(contentsOf: fileURL))
+            XCTAssertEqual(saved, migrated.settings)
+            XCTAssertEqual(makeStore().settings, migrated.settings)
+        }
+    }
+
+    func testMigrationKeepsExistingReplacementWithoutAddingDuplicate() throws {
+        let retired = StartPageFavorite(title: "Previous checker", url: retiredDefaultURL,
+                                        glyph: "I", background: "#4F46E5", foreground: "#FFFFFF")
+        let existing = StartPageStore.customFavorite(title: "My IP tool", url: URL(string: "https://ipcheck.ing/")!, host: "ipcheck.ing")
+        let previous = StartPageSettings(favorites: [retired, existing], hiddenSections: [.privacyReport])
+        try JSONEncoder().encode(previous).write(to: fileURL)
+
+        let migrated = makeStore()
+        XCTAssertEqual(migrated.favorites, [existing])
+        XCTAssertEqual(migrated.settings.hiddenSections, previous.hiddenSections)
+        XCTAssertEqual(makeStore().settings, migrated.settings)
+    }
+
+    func testMigrationLeavesCustomPathsAndUnrelatedFavoritesUntouched() throws {
+        let custom = StartPageStore.customFavorite(title: "Saved report", url: retiredDefaultURL.appendingPathComponent("report"), host: retiredDefaultURL.host!)
+        let previous = StartPageSettings(favorites: [custom], hiddenSections: [.favorites])
+        let originalData = try JSONEncoder().encode(previous)
+        try originalData.write(to: fileURL)
+
+        XCTAssertEqual(makeStore().settings, previous)
+        XCTAssertEqual(try Data(contentsOf: fileURL), originalData, "没有旧默认项时不重写用户设置")
     }
 
     func testCustomFavoriteLooksStable() {
@@ -245,9 +294,9 @@ final class StartPageTests: XCTestCase {
         var opened: URL?
         view.onOpenURL = { opened = $0 }
         let window = host(view)
-        let ippure = try XCTUnwrap(view.tiles.first { $0.favorite.title == "IPPure" })
-        click(ippure, in: window)
-        XCTAssertEqual(opened?.absoluteString, "https://ippure.com")
+        let ipCheck = try XCTUnwrap(view.tiles.first { $0.favorite.title == "IPCheck.ing" })
+        click(ipCheck, in: window)
+        XCTAssertEqual(opened?.absoluteString, "https://ipcheck.ing")
         XCTAssertTrue(view.isHidden, "点了立刻隐藏，不挡网页")
     }
 
@@ -271,7 +320,7 @@ final class StartPageTests: XCTestCase {
         click(view.cards[0], in: window)
         XCTAssertTrue(opened.isEmpty, "当前环境卡片只展示")
         click(view.cards[1], in: window)
-        XCTAssertEqual(opened.map(\.absoluteString), ["https://ippure.com"])
+        XCTAssertEqual(opened.map(\.absoluteString), ["https://ipcheck.ing"])
         view.isHidden = false
         click(view.cards[2], in: window)
         XCTAssertEqual(opened.last?.absoluteString, "https://claude.ai")

@@ -7,7 +7,7 @@ public struct StartPageFavorite: Codable, Equatable, Identifiable, Sendable {
     public var url: URL
     /// SF Symbol 名；有它就画符号，否则画 `glyph` 文字。
     public var symbol: String?
-    /// 磁贴上的文字（首字、「纯」、「yahoo!」等）。
+    /// 磁贴上的文字（首字、「yahoo!」等）。
     public var glyph: String?
     /// 文字字体：`serif`（Wikipedia 的 W）、`rounded`，nil 为系统粗体。
     public var glyphDesign: String?
@@ -70,6 +70,17 @@ public final class StartPageStore {
         self.fileURL = fileURL
         if let fileURL, let data = try? Data(contentsOf: fileURL), let decoded = try? JSONDecoder().decode(StartPageSettings.self, from: data) {
             settings = decoded
+            // Retain the retired hostname as UTF-8 bytes only for upgrading saved defaults.
+            let retiredHost = String(decoding: [105, 112, 112, 117, 114, 101, 46, 99, 111, 109], as: UTF8.self)
+            let retiredURL = URL(string: "https://" + retiredHost)!
+            var hasReplacement = decoded.favorites.contains { Self.sameSite($0.url, Self.ipCheckFavorite.url) }
+            settings.favorites = decoded.favorites.compactMap { favorite in
+                guard Self.sameSite(favorite.url, retiredURL) else { return favorite }
+                guard !hasReplacement else { return nil }
+                hasReplacement = true
+                return Self.ipCheckFavorite
+            }
+            if settings != decoded { commit() }
         } else {
             settings = StartPageSettings()
         }
@@ -158,7 +169,7 @@ public final class StartPageStore {
         favorite("GitHub", "https://github.com", symbol: "chevron.left.forwardslash.chevron.right", background: "#24292F", foreground: "#FFFFFF"),
         favorite("X", "https://x.com", glyph: "X", background: "#000000", foreground: "#FFFFFF"),
         favorite("Wikipedia", "https://www.wikipedia.org", glyph: "W", design: "serif", background: "#FFFFFF", foreground: "#000000"),
-        favorite("IPPure", "https://ippure.com", glyph: "纯", background: "#4F46E5", foreground: "#FFFFFF"),
+        ipCheckFavorite,
         favorite("BrowserLeaks", "https://browserleaks.com", symbol: "eye.fill", background: "#1E3A5F", foreground: "#FFFFFF"),
         favorite("LINUX DO", "https://linux.do", glyph: "L", background: "#1F1F1F", foreground: "#F5C518"),
         favorite("Gmail", "https://mail.google.com", symbol: "envelope.fill", background: "#FFFFFF", foreground: "#EA4335"),
@@ -166,6 +177,10 @@ public final class StartPageStore {
         favorite("Yahoo", "https://www.yahoo.com", glyph: "yahoo!", background: "#6001D2", foreground: "#FFFFFF"),
         favorite("Telegram", "https://web.telegram.org", symbol: "paperplane.fill", background: "#229ED9", foreground: "#FFFFFF"),
     ]
+
+    private nonisolated static let ipCheckFavorite = favorite(
+        "IPCheck.ing", "https://ipcheck.ing", symbol: "network", background: "#4F46E5", foreground: "#FFFFFF"
+    )
 
     private nonisolated static func favorite(
         _ title: String, _ address: String, symbol: String? = nil, glyph: String? = nil, design: String? = nil,

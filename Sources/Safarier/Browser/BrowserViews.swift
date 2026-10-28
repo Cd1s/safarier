@@ -135,7 +135,7 @@ final class StartPageView: NSView {
     /// 深色 / 无痕环境的背景（近纯黑），浅色是 Safari 起始页的浅灰。
     static let darkBackground = NSColor(srgbRed: 0x0D / 255, green: 0x0D / 255, blue: 0x0F / 255, alpha: 1)
     static let lightBackground = NSColor(srgbRed: 0xF5 / 255, green: 0xF5 / 255, blue: 0xF7 / 255, alpha: 1)
-    static let exitIPCheckURL = URL(string: "https://ippure.com")!
+    static let exitIPCheckURL = URL(string: "https://ipcheck.ing")!
     static let claudeURL = URL(string: "https://claude.ai")!
 
     var onOpenURL: ((URL) -> Void)?

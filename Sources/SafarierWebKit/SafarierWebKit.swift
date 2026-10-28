@@ -23,11 +23,75 @@ public enum SafarierWebKitInfo {
         Bundle(url: safariStagedWebKitURL)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String
     }
 
-    /// 系统 WebKit 版本前缀 → 用同一内核的 Safari 版本。
-    /// 20621.3：本机 softwareupdate 记录里 Safari 26.2 与 macOS 15.7.3 同批安装（2026-01-19），系统 WebKit 即 20621.3.11。
-    public static let knownSafariVersions: [(webKitPrefix: String, safari: String)] = [
-        ("20621.3.", "26.2"),
-    ]
+    /// Release-family mappings, not exact patch-build equivalence.
+    /// Apple release notes: https://developer.apple.com/documentation/safari-release-notes
+    /// In particular, 621.1/2/3 are Safari 18.4/5/6, not Safari 26.
+    /// Expand each engine family for macOS 14, 15 and 26 bundle prefixes.
+    public static let knownSafariVersions: [(webKitPrefix: String, safari: String)] = {
+        let families: [(String, String)] = [
+            ("616.1.", "17.0"), ("616.2.", "17.1"),
+            ("617.1.", "17.2"), ("617.2.", "17.3"),
+            ("618.1.", "17.4"), ("618.2.", "17.5"), ("618.3.", "17.6"),
+            ("619.1.", "18.0"), ("619.2.", "18.1"),
+            ("620.1.", "18.2"), ("620.2.", "18.3"),
+            ("621.1.", "18.4"), ("621.2.", "18.5"), ("621.3.", "18.6"),
+            ("622.1.", "26.0"), ("622.2.", "26.1"),
+            ("623.1.", "26.2"), ("623.2.", "26.3"),
+            ("624.1.", "26.4"), ("624.2.", "26.5"), ("624.4.", "26.6"),
+            ("625.1.", "27.0"),
+        ]
+        return ["19", "20", "21"].flatMap { platform in
+            families.map { (webKitPrefix: platform + $0.0, safari: $0.1) }
+        }
+    }()
+
+    public static func engineBaseline(
+        loadedWebKit: String? = systemWebKitVersion,
+        installedSafari: String? = installedSafariVersion,
+        safariStagedWebKit: String? = safariStagedWebKitVersion
+    ) -> EngineBaselineDiagnostic {
+        func nonEmpty(_ value: String?) -> String? {
+            guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+        let loaded = nonEmpty(loadedWebKit)
+        let installed = nonEmpty(installedSafari)
+        let staged = nonEmpty(safariStagedWebKit)
+        func isBuild(_ value: String) -> Bool {
+            let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+            return parts.count >= 3 && parts.allSatisfy { !$0.isEmpty && $0.utf8.allSatisfy { (48...57).contains($0) } }
+        }
+        let mapped = loaded.flatMap { version in
+            isBuild(version) ? knownSafariVersions.first { version.hasPrefix($0.webKitPrefix) }?.safari : nil
+        }
+        let relationship: EngineBaselineDiagnostic.Relationship
+        if let loaded, let staged, isBuild(loaded), isBuild(staged) {
+            relationship = loaded == staged ? .sharedEngine : .stagedEngineMismatch
+        } else {
+            relationship = .unverified
+        }
+        let sharedVersion = relationship == .sharedEngine ? installed : nil
+        let selected = sharedVersion ?? mapped ?? installed
+        let matches = sharedVersion != nil || mapped != nil
+        let comparison: String
+        switch relationship {
+        case .sharedEngine:
+            comparison = "The loaded and staged engine builds match."
+        case .stagedEngineMismatch:
+            comparison = "Installed Safari uses a different staged engine; its version is not proof of the loaded engine's capabilities."
+        case .unverified:
+            comparison = "A loaded or staged engine build is missing; a shared engine has not been verified."
+        }
+        let selection = matches
+            ? "UA selects Safari \(selected ?? "unknown") using \(sharedVersion == nil ? "a verified release-family mapping, not exact patch-build equivalence" : "the shared engine build")."
+            : "No verified release mapping is available; any installed-version fallback remains unverified."
+        let note = "loadedWebKit=\(loaded ?? "unknown"), installedSafari=\(installed ?? "unknown"), safariStagedWebKit=\(staged ?? "unknown"). \(comparison) \(selection)"
+        return EngineBaselineDiagnostic(
+            loadedWebKit: loaded, installedSafari: installed, safariStagedWebKit: staged,
+            relationship: relationship, mappedSafariVersion: mapped, selectedSafariVersion: selected,
+            matchesEngine: matches, note: note
+        )
+    }
 
     public struct UserAgentVersion: Equatable, Sendable {
         public var version: String
@@ -43,26 +107,13 @@ public enum SafarierWebKitInfo {
         installedSafari: String? = installedSafariVersion,
         safariStagedWebKit: String? = safariStagedWebKitVersion
     ) -> UserAgentVersion? {
-        guard let installedSafari, !installedSafari.isEmpty else { return nil }
-        guard let staged = safariStagedWebKit, let loaded = loadedWebKit, staged != loaded else {
-            return UserAgentVersion(version: installedSafari, matchesEngine: true, note: "Safari \(installedSafari) 与本进程用同一个 WebKit")
-        }
-        if let known = knownSafariVersions.first(where: { loaded.hasPrefix($0.webKitPrefix) }) {
-            return UserAgentVersion(
-                version: known.safari,
-                matchesEngine: true,
-                note: "已装的 Safari \(installedSafari) 用的是它专用的 WebKit \(staged)，第三方应用加载不了；本进程是 WebKit \(loaded)，对应 Safari \(known.safari)"
-            )
-        }
-        return UserAgentVersion(
-            version: installedSafari,
-            matchesEngine: false,
-            note: "已装的 Safari \(installedSafari) 用 WebKit \(staged)，本进程是 WebKit \(loaded)，没有对应的 Safari 版本记录，UA 与内核可能不一致"
-        )
+        let baseline = engineBaseline(loadedWebKit: loadedWebKit, installedSafari: installedSafari, safariStagedWebKit: safariStagedWebKit)
+        guard let version = baseline.selectedSafariVersion else { return nil }
+        return UserAgentVersion(version: version, matchesEngine: baseline.matchesEngine, note: baseline.note)
     }
 
     /// Safari 的 UA 结尾是 `Version/<版本> Safari/605.1.15`（605.1.15 自 2017 年起冻结不变），
-    /// WKWebView 默认没有这一段。返回 nil 表示找不到本机 Safari，此时保持 WebKit 默认 UA。
+    /// WKWebView 默认没有这一段。没有可选版本时保持 WebKit 默认 UA。
     public static func safariApplicationNameForUserAgent(safariVersion: String? = userAgentSafariVersion()?.version) -> String? {
         guard let safariVersion, !safariVersion.isEmpty else { return nil }
         return "Version/\(safariVersion) Safari/605.1.15"

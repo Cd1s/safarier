@@ -63,6 +63,14 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         public var featureSetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60, 0x3C, 0x35, 0x28, 0x1C, 0x3F, 0x3B, 0x2E, 0x2F, 0x28, 0x3F, 0x60])
         public var featureGetter = SFRSymbolDecoder.decode([0x05, 0x33, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x1C, 0x35, 0x28, 0x1C, 0x3F, 0x3B, 0x2E, 0x2F, 0x28, 0x3F, 0x60])
         public var webGPUFeatureKeys = [SFRSymbolDecoder.decode([0x0D, 0x3F, 0x38, 0x1D, 0x0A, 0x0F, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]), SFRSymbolDecoder.decode([0x0D, 0x3F, 0x38, 0x1D, 0x0A, 0x0F, 0x12, 0x1E, 0x08, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E])]
+        /// Feature identifiers are decoded only for engine lookup, never diagnostics.
+        public var legacyEventFeatureKeys = [
+            SFRSymbolDecoder.decode([0x17, 0x2F, 0x2E, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x2C, 0x3F, 0x34, 0x2E, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
+        ]
+        public var authenticationFeatureKeys = [
+            SFRSymbolDecoder.decode([0x0D, 0x3F, 0x38, 0x1B, 0x2F, 0x2E, 0x32, 0x3F, 0x34, 0x2E, 0x33, 0x39, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
+            SFRSymbolDecoder.decode([0x0D, 0x3F, 0x38, 0x1B, 0x2F, 0x2E, 0x32, 0x3F, 0x34, 0x2E, 0x33, 0x39, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1B, 0x09, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
+        ]
         /// Safari 打开、普通 WKWebView 关着的嵌入方开关（getter, setter, 网页里多出来的接口）。
         public var safariAPISwitches: [(getter: String, setter: String, exposes: String)] = [
             (SFRSymbolDecoder.decode([0x05, 0x3B, 0x2A, 0x2A, 0x36, 0x3F, 0x0A, 0x3B, 0x23, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]), SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x1B, 0x2A, 0x2A, 0x36, 0x3F, 0x0A, 0x3B, 0x23, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]), "ApplePaySession"),
@@ -176,7 +184,14 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             features.contains(.disableWebRTC) ? disablePeerConnection(configuration) : .notRequested,
             for: .webRTCDisabled
         )
-        report.set(features.contains(.safariAPIs) ? enableSafariAPIs(configuration) : .notRequested, for: .safariAPIs)
+        if features.contains(.safariAPIs) {
+            let state = enableSafariAPIs(configuration, report: &report)
+            report.set(state, for: .safariAPIs)
+        } else {
+            report.set(.notRequested, for: .safariAPIs)
+            report.set(.notRequested, for: .legacyDOMEvents)
+            report.set(.unverified(PrivacyCapabilityReport.webAuthenticationBoundary), for: .webAuthentication)
+        }
         report.set(features.contains(.webGPU) ? enableWebGPU(configuration) : .notRequested, for: .webGPU)
         if features.contains(.engineTimeZone) {
             if let timeZone = profile.timeZoneIdentifier {
@@ -251,7 +266,78 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     /// 和内核版本无关。只让接口存在；真正支付、推送仍需要 Apple 的授权，调用会像没有配置 Wallet 的 Mac 一样失败。
     /// 字体同理（2026-10-25 实测）：同一台 Mac 上真 Safari 网页能探测到 24 个候选字体，WKWebView 默认 52 个，
     /// 关掉用户安装字体后和同一台 Mac 上的真 Safari 相同。
-    private func enableSafariAPIs(_ configuration: WKWebViewConfiguration) -> CapabilityState {
+    private func enableSafariAPIs(_ configuration: WKWebViewConfiguration, report: inout PrivacyCapabilityReport) -> CapabilityState {
+        let legacy = alignSafariFeatures(symbols.legacyEventFeatureKeys, enabled: false, label: "MutationEvent", configuration: configuration)
+        if case .active(let detail) = legacy {
+            // The local control stops legacy event dispatch, not constructor exposure.
+            // Asynchronous overflow scrolling is unrelated and must not be disabled.
+            report.set(.degraded(detail + "; MutationEvent and OverflowEvent constructor exposure is not removed on this engine; OverflowEvent has no verified independent control. Full removal requires a compatible engine."), for: .legacyDOMEvents)
+        } else {
+            report.set(legacy, for: .legacyDOMEvents)
+        }
+        let authentication = alignSafariFeatures(symbols.authenticationFeatureKeys, enabled: true, label: "WebAuthn", configuration: configuration)
+        let boundary = PrivacyCapabilityReport.webAuthenticationBoundary
+        switch authentication {
+        case .active(let detail):
+            report.set(.unverified(detail + "; " + boundary), for: .webAuthentication)
+        case .degraded(let detail):
+            report.set(.degraded(detail + "; " + boundary), for: .webAuthentication)
+        case .unavailable(let detail):
+            report.set(.unavailable(detail + "; " + boundary), for: .webAuthentication)
+        default:
+            report.set(.unverified(boundary), for: .webAuthentication)
+        }
+        return enableSafariPreferenceSwitches(configuration)
+    }
+
+    /// Preflight every feature before writing. Roll back on failure; report only public labels.
+    private func alignSafariFeatures(_ keys: [String], enabled: Bool, label: String, configuration: WKWebViewConfiguration) -> CapabilityState {
+        func finish(_ state: CapabilityState) -> CapabilityState {
+            diagnostics.record("safari.\(label): \(state.summary)")
+            return state
+        }
+        let target = preferences(configuration)
+        guard !keys.isEmpty,
+              let cls = (type(of: target) as AnyObject) as? NSObject,
+              case .success(let value?) = SPIRuntimeBridge.getObject(symbols.featuresGetter, on: cls),
+              let all = value as? [NSObject] else {
+            return finish(.unavailable("\(label) feature inventory is unavailable; defaults retained."))
+        }
+        var planned: [(feature: NSObject, before: Bool)] = []
+        for key in keys {
+            guard let item = all.first(where: { featureKey($0) == key }),
+                  case .success(let before) = SPIRuntimeBridge.getBool(symbols.featureGetter, with: item, on: target) else {
+                return finish(.unavailable("\(label) feature inventory/readback is incomplete; defaults retained."))
+            }
+            planned.append((item, before))
+        }
+        var changed: [(feature: NSObject, before: Bool)] = []
+        for item in planned {
+            if item.before != enabled {
+                changed.append(item)
+                guard case .success = SPIRuntimeBridge.setBool(enabled, symbols.featureSetter, with: item.feature, on: target) else {
+                    return finish(restoreSafariFeatures(changed, on: target, label: label))
+                }
+            }
+            guard case .success(let after) = SPIRuntimeBridge.getBool(symbols.featureGetter, with: item.feature, on: target), after == enabled else {
+                return finish(restoreSafariFeatures(changed, on: target, label: label))
+            }
+        }
+        return finish(.active("\(label) engine controls \(enabled ? "enabled" : "disabled") (readback verified); host services and page behavior are separate checks."))
+    }
+
+    private func restoreSafariFeatures(_ items: [(feature: NSObject, before: Bool)], on target: NSObject, label: String) -> CapabilityState {
+        var restored = true
+        for item in items.reversed() {
+            let write = SPIRuntimeBridge.setBool(item.before, symbols.featureSetter, with: item.feature, on: target)
+            let read = SPIRuntimeBridge.getBool(symbols.featureGetter, with: item.feature, on: target)
+            if case .success = write, case .success(let value) = read, value == item.before { continue }
+            restored = false
+        }
+        return .degraded("\(label) feature write/readback failed; \(restored ? "original values restored" : "rollback could not be verified").")
+    }
+
+    private func enableSafariPreferenceSwitches(_ configuration: WKWebViewConfiguration) -> CapabilityState {
         let feature = "safari"
         let preferences = preferences(configuration)
         var enabled: [String] = []
@@ -283,7 +369,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         case .success(false):
             break
         }
-        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体（回读一致）"
+        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体（回读一致）；preference readback only: window.safari, Web Push delivery and platform authenticator availability are not verified."
         diagnostics.record("\(feature)：\(text)")
         return .active(text)
     }

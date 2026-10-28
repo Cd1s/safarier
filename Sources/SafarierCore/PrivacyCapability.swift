@@ -18,6 +18,12 @@ public enum PrivacyFeature: String, CaseIterable, Codable, CodingKeyRepresentabl
     case safariUserAgent
     /// Safari 才有的网页接口（Apple Pay、Push、媒体设备）。
     case safariAPIs
+    /// The loaded engine, installed browser, and optional staged engine baseline.
+    case engineBaseline
+    /// Engine support is distinct from host/service availability for passkeys.
+    case webAuthentication
+    /// Legacy DOM event exposure and any engine-level limitations.
+    case legacyDOMEvents
     /// 模拟机型：视口尺寸和 devicePixelRatio。
     case deviceModel
     /// 模拟机型的屏幕：P3 色域、HDR（媒体查询 color-gamut / dynamic-range）。
@@ -64,11 +70,50 @@ public enum CapabilityState: Equatable, Codable, Sendable {
     }
 }
 
+public struct EngineBaselineDiagnostic: Equatable, Codable, Sendable {
+    public enum Relationship: String, Codable, Sendable {
+        case sharedEngine
+        case stagedEngineMismatch
+        case unverified
+    }
+
+    public let loadedWebKit: String?
+    public let installedSafari: String?
+    public let safariStagedWebKit: String?
+    public let relationship: Relationship
+    public let mappedSafariVersion: String?
+    public let selectedSafariVersion: String?
+    public let matchesEngine: Bool
+    public let note: String
+
+    public var hasStagedEngineMismatch: Bool { relationship == .stagedEngineMismatch }
+
+    public init(
+        loadedWebKit: String?, installedSafari: String?, safariStagedWebKit: String?,
+        relationship: Relationship, mappedSafariVersion: String?, selectedSafariVersion: String?,
+        matchesEngine: Bool, note: String
+    ) {
+        self.loadedWebKit = loadedWebKit
+        self.installedSafari = installedSafari
+        self.safariStagedWebKit = safariStagedWebKit
+        self.relationship = relationship
+        self.mappedSafariVersion = mappedSafariVersion
+        self.selectedSafariVersion = selectedSafariVersion
+        self.matchesEngine = matchesEngine
+        self.note = note
+    }
+}
+
 public struct PrivacyCapabilityReport: Equatable, Codable, Sendable {
     public private(set) var states: [PrivacyFeature: CapabilityState]
+    /// Optional so reports saved before engine diagnostics remain decodable.
+    public var engineBaseline: EngineBaselineDiagnostic?
 
-    public init(states: [PrivacyFeature: CapabilityState] = [:]) {
+    public static let webAuthenticationBoundary = "Engine support does not verify platform authenticator or conditional mediation availability. Host signing, authorization and system authentication services require a page-level check; no credentials were requested."
+
+    public init(states: [PrivacyFeature: CapabilityState] = [:], engineBaseline: EngineBaselineDiagnostic? = nil) {
         self.states = states
+        self.engineBaseline = engineBaseline
     }
 
     public subscript(feature: PrivacyFeature) -> CapabilityState {

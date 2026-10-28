@@ -179,6 +179,92 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         XCTAssertEqual(apply(adapter([]))[.safariAPIs], .notRequested)
     }
 
+    private var paritySymbols: SPIPrivacyAdapter.Symbols {
+        var symbols = mockSymbols
+        symbols.featuresGetter = "safarierParityFeatures"
+        symbols.featureKeyGetter = "safarierParityKey"
+        symbols.featureGetter = "safarierParityEnabled:"
+        symbols.featureSetter = "setSafarierParityEnabled:feature:"
+        symbols.legacyEventFeatureKeys = ["legacy"]
+        symbols.authenticationFeatureKeys = ["auth", "authServices"]
+        return symbols
+    }
+
+    func testParityControlsReadBackAndDoNotClaimSystemAuthentication() {
+        let preferences = SafariParityPreferences()
+        let report = apply(adapter(.safariAPIs, symbols: paritySymbols, preferences: preferences))
+        XCTAssertEqual(preferences.stored, ["legacy": false, "auth": true, "authServices": true])
+        XCTAssertEqual(report[.safariAPIs].name, "active")
+        XCTAssertEqual(report[.legacyDOMEvents].name, "degraded")
+        XCTAssertTrue(report[.legacyDOMEvents].detail?.contains("OverflowEvent") == true)
+        XCTAssertEqual(report[.webAuthentication].name, "unverified")
+        XCTAssertTrue(report[.webAuthentication].detail?.contains("platform authenticator") == true)
+        XCTAssertTrue(report[.safariAPIs].detail?.contains("Web Push delivery") == true)
+    }
+
+    func testMissingParityFeatureDoesNotMutateItsGroupOrLeakIdentifiers() {
+        let preferences = SafariParityPreferences()
+        let diagnostics = SPIDiagnostics()
+        var symbols = paritySymbols
+        symbols.authenticationFeatureKeys = ["auth", "safarierSensitiveMissingFeature"]
+        let report = apply(adapter(.safariAPIs, symbols: symbols, diagnostics: diagnostics, preferences: preferences))
+        XCTAssertEqual(report[.webAuthentication].name, "unavailable")
+        XCTAssertEqual(preferences.stored["auth"], false)
+        XCTAssertEqual(preferences.stored["authServices"], false)
+        XCTAssertFalse(preferences.writes.contains { $0.0 == "auth" })
+        XCTAssertFalse(diagnostics.entries.joined().contains("safarierSensitiveMissingFeature"))
+    }
+
+    func testFailedParityReadbackRestoresEarlierFeatureWrites() {
+        let preferences = SafariParityPreferences()
+        preferences.ignoredKeys = ["authServices"]
+        let report = apply(adapter(.safariAPIs, symbols: paritySymbols, preferences: preferences))
+        XCTAssertEqual(report[.webAuthentication].name, "degraded")
+        XCTAssertEqual(preferences.stored["auth"], false)
+        XCTAssertEqual(preferences.stored["authServices"], false)
+        XCTAssertTrue(report[.webAuthentication].detail?.contains("original values restored") == true)
+        XCTAssertEqual(preferences.stored["legacy"], false)
+    }
+
+    func testWrongParityFeatureKeySignatureLeavesDefaultsAndReportsUnsupported() {
+        let preferences = SafariParityPreferences()
+        var symbols = paritySymbols
+        symbols.featureKeyGetter = "safarierParityWrongKey"
+        let report = apply(adapter(.safariAPIs, symbols: symbols, preferences: preferences))
+        XCTAssertEqual(report[.legacyDOMEvents].name, "unavailable")
+        XCTAssertEqual(report[.webAuthentication].name, "unavailable")
+        XCTAssertTrue(preferences.writes.isEmpty)
+    }
+
+    func testParityFeatureControlsAreOptIn() {
+        let preferences = SafariParityPreferences()
+        let report = apply(adapter([], symbols: paritySymbols, preferences: preferences))
+        XCTAssertTrue(preferences.writes.isEmpty)
+        XCTAssertEqual(report[.legacyDOMEvents], .notRequested)
+        XCTAssertEqual(report[.webAuthentication].name, "unverified")
+    }
+
+    func testRealAuthenticationControlsAreEnabledButAvailabilityRemainsUnverified() throws {
+        let configuration = WKWebViewConfiguration()
+        var report = PrivacyCapabilityReport()
+        SPIPrivacyAdapter(features: .safariAPIs).apply(to: configuration, for: tokyo, report: &report)
+        XCTAssertNotEqual(report[.webAuthentication].name, "active")
+        let symbols = SPIPrivacyAdapter.Symbols.webKit
+        let cls = try XCTUnwrap((WKPreferences.self as AnyObject) as? NSObject)
+        guard case .success(let value?) = SPIRuntimeBridge.getObject(symbols.featuresGetter, on: cls),
+              let available = value as? [NSObject] else {
+            return XCTAssertEqual(report[.webAuthentication].name, "unavailable")
+        }
+        for key in symbols.authenticationFeatureKeys {
+            guard let feature = available.first(where: {
+                guard case .success(let value) = SPIRuntimeBridge.getObject(symbols.featureKeyGetter, on: $0) else { return false }
+                return value as? String == key
+            }) else { return XCTAssertEqual(report[.webAuthentication].name, "unavailable") }
+            XCTAssertTrue(try SPIRuntimeBridge.getBool(symbols.featureGetter, with: feature, on: configuration.preferences).get())
+        }
+        XCTAssertEqual(report[.webAuthentication].name, "unverified")
+    }
+
     // MARK: - webgpu
 
     func testWebGPUWithoutFeatureAPIIsUnavailable() {
@@ -265,7 +351,47 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         for feature in [PrivacyFeature.advancedPrivacyProtections, .webRTCDisabled, .timeZone, .safariAPIs, .webGPU] {
             XCTAssertEqual(report[feature].name, "unavailable", "\(feature): \(report[feature].summary)")
         }
-        XCTAssertEqual(diagnostics.entries.count, 5)
+        XCTAssertEqual(diagnostics.entries.count, 7)
         XCTAssertTrue(try SPIRuntimeBridge.getObject(SFRSymbolDecoder.decode([0x2A, 0x28, 0x35, 0x39, 0x3F, 0x29, 0x29, 0x0A, 0x35, 0x35, 0x36]), on: configuration).get() === poolBefore)
     }
+}
+
+@MainActor
+private final class SafariParityFeature: NSObject {
+    let identifier: String
+    init(_ identifier: String) { self.identifier = identifier }
+    @objc(safarierParityKey) var featureKey: NSString { identifier as NSString }
+    @objc(safarierParityWrongKey) var wrongKey: Bool { true }
+}
+
+@MainActor
+private final class SafariParityPreferences: NSObject {
+    var stored = ["legacy": true, "auth": false, "authServices": false]
+    var ignoredKeys: Set<String> = []
+    var writes: [(String, Bool)] = []
+    private var applePay = false
+    private var push = false
+    private var mediaDevices = false
+    private var userFonts = true
+
+    @objc(safarierParityFeatures) class var featureList: [NSObject] {
+        [SafariParityFeature("legacy"), SafariParityFeature("auth"), SafariParityFeature("authServices")]
+    }
+    @objc(safarierParityEnabled:) func featureEnabled(_ feature: NSObject) -> Bool {
+        guard let feature = feature as? SafariParityFeature else { return false }
+        return stored[feature.identifier] ?? false
+    }
+    @objc(setSafarierParityEnabled:feature:) func setFeatureEnabled(_ enabled: Bool, feature: NSObject) {
+        guard let feature = feature as? SafariParityFeature else { return }
+        writes.append((feature.identifier, enabled))
+        if !ignoredKeys.contains(feature.identifier) { stored[feature.identifier] = enabled }
+    }
+    @objc(safarierMockApplePay) var applePayEnabled: Bool { applePay }
+    @objc(setSafarierMockApplePay:) func setApplePay(_ value: Bool) { applePay = value }
+    @objc(safarierMockPushAPI) var pushAPIEnabled: Bool { push }
+    @objc(setSafarierMockPushAPI:) func setPush(_ value: Bool) { push = value }
+    @objc(safarierMockMediaDevices) var mediaDevicesEnabled: Bool { mediaDevices }
+    @objc(setSafarierMockMediaDevices:) func setMediaDevices(_ value: Bool) { mediaDevices = value }
+    @objc(safarierMockUserFonts) var userFontsEnabled: Bool { userFonts }
+    @objc(setSafarierMockUserFonts:) func setUserFonts(_ value: Bool) { userFonts = value }
 }

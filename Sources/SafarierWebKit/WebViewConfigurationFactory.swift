@@ -23,20 +23,23 @@ public struct WebViewConfigurationFactory {
     public let safariApplicationName: String?
     /// UA 里的 Safari 版本是怎么选出来的；nil 表示调用方直接给了 `safariApplicationName`。
     public let userAgentVersion: SafarierWebKitInfo.UserAgentVersion?
+    public let engineBaseline: EngineBaselineDiagnostic
 
     /// `dataStores`、`privacy` 传 nil 时用默认实现（默认参数里不能直接调 @MainActor 初始化器）。
     public init(
         dataStores: DataStoreManager? = nil,
         credentials: any CredentialStore,
         privacy: (any PrivacyProtectionAdapter)? = nil,
-        userAgentVersion: SafarierWebKitInfo.UserAgentVersion? = SafarierWebKitInfo.userAgentSafariVersion()
+        userAgentVersion: SafarierWebKitInfo.UserAgentVersion? = SafarierWebKitInfo.userAgentSafariVersion(),
+        engineBaseline: EngineBaselineDiagnostic = SafarierWebKitInfo.engineBaseline()
     ) {
         self.init(
             dataStores: dataStores,
             credentials: credentials,
             privacy: privacy,
             safariApplicationName: userAgentVersion.flatMap { SafarierWebKitInfo.safariApplicationNameForUserAgent(safariVersion: $0.version) },
-            userAgentVersion: userAgentVersion
+            userAgentVersion: userAgentVersion,
+            engineBaseline: engineBaseline
         )
     }
 
@@ -45,13 +48,15 @@ public struct WebViewConfigurationFactory {
         credentials: any CredentialStore,
         privacy: (any PrivacyProtectionAdapter)? = nil,
         safariApplicationName: String?,
-        userAgentVersion: SafarierWebKitInfo.UserAgentVersion? = nil
+        userAgentVersion: SafarierWebKitInfo.UserAgentVersion? = nil,
+        engineBaseline: EngineBaselineDiagnostic = SafarierWebKitInfo.engineBaseline()
     ) {
         self.dataStores = dataStores ?? DataStoreManager()
         self.credentials = credentials
         self.privacy = privacy ?? PublicAPIPrivacyAdapter()
         self.safariApplicationName = safariApplicationName
         self.userAgentVersion = userAgentVersion
+        self.engineBaseline = engineBaseline
     }
 
     /// - Parameters:
@@ -62,7 +67,20 @@ public struct WebViewConfigurationFactory {
         proxy: ProxySettings?,
         processLanguages: [String] = UserDefaults.standard.stringArray(forKey: "AppleLanguages") ?? []
     ) throws -> Output {
-        var report = PrivacyCapabilityReport()
+        var report = PrivacyCapabilityReport(engineBaseline: engineBaseline)
+        let baselineState: CapabilityState
+        if engineBaseline.loadedWebKit == nil {
+            baselineState = .unavailable(engineBaseline.note)
+        } else if !engineBaseline.matchesEngine || engineBaseline.relationship == .unverified {
+            baselineState = .unverified(engineBaseline.note)
+        } else if engineBaseline.hasStagedEngineMismatch {
+            baselineState = .degraded(engineBaseline.note)
+        } else {
+            baselineState = .active(engineBaseline.note)
+        }
+        report.set(baselineState, for: .engineBaseline)
+        report.set(.unverified(PrivacyCapabilityReport.webAuthenticationBoundary), for: .webAuthentication)
+        report.set(.notRequested, for: .legacyDOMEvents)
         let configuration = WKWebViewConfiguration()
 
         let store = dataStores.dataStore(for: profile)

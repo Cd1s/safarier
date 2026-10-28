@@ -232,7 +232,7 @@ public final class SingboxProcessManager: @unchecked Sendable {
             if process.isRunning {
                 Self.terminate(pid: process.processIdentifier, isRunning: { process.isRunning })
             }
-            removeStateFiles(for: profileID)
+            Self.removeStateFiles(for: profileID, in: stateDirectory)
             throw error
         }
         lock.lock()
@@ -267,7 +267,7 @@ public final class SingboxProcessManager: @unchecked Sendable {
         let process = processes.removeValue(forKey: profileID)
         ports.removeValue(forKey: profileID)
         lock.unlock()
-        defer { removeStateFiles(for: profileID) }
+        defer { Self.removeStateFiles(for: profileID, in: stateDirectory) }
         guard let process else { throw SingboxProcessError.notRunning(profileID) }
         Self.terminate(pid: process.processIdentifier, isRunning: { process.isRunning })
     }
@@ -296,11 +296,8 @@ public final class SingboxProcessManager: @unchecked Sendable {
     public static func reapOrphan(profileID: UUID, in directory: URL) -> Bool {
         let pidURL = pidFileURL(for: profileID, in: directory)
         guard let data = try? Data(contentsOf: pidURL) else { return false }
-        defer {
-            try? FileManager.default.removeItem(at: pidURL)
-            try? FileManager.default.removeItem(at: configurationFileURL(for: profileID, in: directory))
-        }
-        guard let record = try? JSONDecoder().decode(ProcessRecord.self, from: data), record.pid > 0,
+        defer { removeStateFiles(for: profileID, in: directory) }
+        guard let record = try? JSONDecoder().decode(ProcessRecord.self, from: data),
               record.configurationPath == configurationFileURL(for: profileID, in: directory).standardizedFileURL.path,
               processIdentity(of: record.pid) == record.identity else { return false }
         terminate(pid: record.pid, isRunning: { processIdentity(of: record.pid) == record.identity })
@@ -350,9 +347,9 @@ public final class SingboxProcessManager: @unchecked Sendable {
         return ProcessIdentity(executablePath: String(cString: buffer), startSeconds: info.pbi_start_tvsec, startMicroseconds: info.pbi_start_tvusec)
     }
 
-    private func removeStateFiles(for profileID: UUID) {
-        try? FileManager.default.removeItem(at: configurationFileURL(for: profileID))
-        try? FileManager.default.removeItem(at: pidFileURL(for: profileID))
+    private static func removeStateFiles(for profileID: UUID, in directory: URL) {
+        try? FileManager.default.removeItem(at: configurationFileURL(for: profileID, in: directory))
+        try? FileManager.default.removeItem(at: pidFileURL(for: profileID, in: directory))
     }
 
     /// 配置里有节点密码，只给自己读写。

@@ -3,6 +3,7 @@ import Foundation
 /// 本地元数据目录的布局。Manager 和 Runner 用同一个根目录（默认 Application Support，可用 SAFARIER_HOME 覆盖）。
 public struct SafarierWorkspace: Sendable {
     public let root: URL
+    public var rootDirectory: URL { root }
 
     public init(root: URL) {
         self.root = root
@@ -17,6 +18,8 @@ public struct SafarierWorkspace: Sendable {
     public var subscriptions: SubscriptionRepository { .subscriptions(in: root) }
     public var locksDirectory: URL { root.appendingPathComponent("locks", isDirectory: true) }
     public var logsDirectory: URL { root.appendingPathComponent("logs", isDirectory: true) }
+    /// AI Agent 自动化桥接的本地 Unix Domain Socket 目录（每个运行中的环境一个 `.sock`）。
+    public var agentSocketDirectory: URL { rootDirectory.appendingPathComponent("agent", isDirectory: true) }
     /// sing-box 的配置和 pid 文件（每个 profile 一份）。配置里有节点凭据，Runner 退出时删除。
     public var singboxDirectory: URL { root.appendingPathComponent("sing-box", isDirectory: true) }
     /// Imported WebExtension resources, kept outside profile metadata so the same resource can be enabled per Profile.
@@ -123,12 +126,18 @@ public struct SafarierWorkspace: Sendable {
         logsDirectory.appendingPathComponent("\(profileID.uuidString).log")
     }
 
-    /// 删除环境之后清掉它留下的文件：Runner 日志、锁文件、sing-box 的配置（含节点凭据）和 pid。只在环境没在运行时调用。
+    /// 指定环境的 AI Agent 本地自动化 socket 路径。
+    public func agentSocketURL(for profileID: UUID) -> URL {
+        agentSocketDirectory.appendingPathComponent("\(profileID.uuidString).sock")
+    }
+
+    /// 删除环境之后清掉它留下的文件：Runner 日志、锁文件、Agent socket、sing-box 的配置（含节点凭据）和 pid。只在环境没在运行时调用。
     public func removeRunnerArtifacts(for profileID: UUID) {
         let id = profileID.uuidString
         for url in [
             runnerLogURL(for: profileID),
             locksDirectory.appendingPathComponent("\(id).lock"),
+            agentSocketURL(for: profileID),
             singboxDirectory.appendingPathComponent("\(id).json"),
             singboxDirectory.appendingPathComponent("\(id).pid"),
         ] {
@@ -141,7 +150,8 @@ public struct SafarierWorkspace: Sendable {
         for profile: Profile,
         url: URL? = nil,
         probe: Bool = false,
-        spiOverride: SPIFeatures? = nil
+        spiOverride: SPIFeatures? = nil,
+        background: Bool = false
     ) -> RunnerLaunchSpec {
         RunnerLaunchSpec(
             profileID: profile.id,
@@ -149,7 +159,8 @@ public struct SafarierWorkspace: Sendable {
             languages: profile.languages,
             timeZoneIdentifier: profile.timeZoneIdentifier,
             probe: probe,
-            spiOverride: spiOverride
+            spiOverride: spiOverride,
+            background: background
         )
     }
 
@@ -160,11 +171,12 @@ public struct SafarierWorkspace: Sendable {
         _ profile: Profile,
         url: URL? = nil,
         spiOverride: SPIFeatures? = nil,
+        background: Bool = false,
         launcher: RunnerLauncher? = nil
     ) throws -> Int32 {
         guard !isRunning(profile.id) else { throw WorkspaceError.alreadyRunning(profile.id) }
         let launcher = launcher ?? RunnerLauncher(logDirectory: logsDirectory)
-        return try launcher.launch(runnerSpec(for: profile, url: url, spiOverride: spiOverride))
+        return try launcher.launch(runnerSpec(for: profile, url: url, spiOverride: spiOverride, background: background))
     }
 }
 

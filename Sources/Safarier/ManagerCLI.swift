@@ -24,8 +24,16 @@ enum ManagerCLI {
       safarier ext list
       safarier ext add PATH [--profile PROFILE_ID]
       safarier ext remove NAME
-      safarier launch PROFILE_ID [--url URL] [--spi LIST]
+      safarier launch PROFILE_ID [--url URL] [--spi LIST] [--background]
       safarier probe PROFILE_ID [--url URL] [--spi LIST]
+      safarier agent skill | install-skill | spaces
+      safarier agent open PROFILE_ID_OR_NAME [URL] [--background] [--new-tab]
+      safarier agent snapshot PROFILE_ID_OR_NAME [--tab N]
+      safarier agent click PROFILE_ID_OR_NAME REF_OR_SELECTOR [--tab N]
+      safarier agent fill PROFILE_ID_OR_NAME REF_OR_SELECTOR TEXT [--tab N]
+      safarier agent eval PROFILE_ID_OR_NAME JS_CODE [--tab N]
+      safarier agent screenshot PROFILE_ID_OR_NAME OUTPUT_PATH [--tab N]
+      safarier agent tab-list | tab-new | tab-close PROFILE_ID_OR_NAME [--tab N]
     --sub/--node：出站走订阅里的节点（按节点名匹配，名字带空格时加引号）；启动时自动起 sing-box 转成本地 SOCKS5。
            和 --proxy 二选一：设了一个就清掉另一个。
     --lang/--tz：proxy（或 auto）= 跟随代理，每次启动按代理出口 IP 的国家自动设置；system（或 none）= 跟随系统；
@@ -63,7 +71,8 @@ enum ManagerCLI {
             case ("ext", "list"): return try listExtensions(workspace)
             case ("ext", "add"): return try addExtension(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("ext", "remove"): return try removeExtension(workspace, try ParsedArguments(arguments.dropFirst(2)))
-            case ("launch", _): return try launch(workspace, try ParsedArguments(arguments.dropFirst()), probe: false)
+            case ("agent", let sub): return try runAgent(workspace, subcommand: sub, arguments: Array(arguments.dropFirst(2)))
+            case ("launch", _): return try launch(workspace, try ParsedArguments(arguments.dropFirst(), flags: ["--background"]), probe: false)
             case ("probe", _): return try launch(workspace, try ParsedArguments(arguments.dropFirst()), probe: true)
             case ("help", _), ("--help", _), ("-h", _), (nil, _):
                 print(usage)
@@ -473,9 +482,196 @@ enum ManagerCLI {
         if probe {
             return try runProbe(workspace.runnerSpec(for: profile, url: url, probe: true, spiOverride: spiOverride))
         }
-        let pid = try workspace.launch(profile, url: url, spiOverride: spiOverride)
+        let pid = try workspace.launch(profile, url: url, spiOverride: spiOverride, background: args.flag("--background"))
         print("已启动 \(profile.name)，pid \(pid)，日志 \(workspace.runnerLogURL(for: profile.id).path)")
         return 0
+    }
+
+    // MARK: - agent
+
+    private static func runAgent(_ workspace: SafarierWorkspace, subcommand: String?, arguments: [String]) throws -> Int32 {
+        switch subcommand {
+        case "skill":
+            print(AgentSkillGuide.markdown)
+            return 0
+        case "install-skill":
+            return try installAgentSkill()
+        case "spaces":
+            return try listAgentSpaces(workspace)
+        case "open":
+            let args = try ParsedArguments(arguments, flags: ["--background", "--new-tab"])
+            return try agentOpen(workspace, args)
+        case "snapshot":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let response = try sendAgentRequest(
+                workspace,
+                profile: profile,
+                request: AgentRequest(action: .snapshot, tab: try parseTabOption(args))
+            )
+            if let formatted = response.snapshot?.formatted {
+                print(formatted)
+            }
+            return 0
+        case "click":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let target = try args.positional(1, name: "REF_OR_SELECTOR")
+            let response = try sendAgentRequest(
+                workspace,
+                profile: profile,
+                request: AgentRequest(action: .click, tab: try parseTabOption(args), target: target)
+            )
+            print(response.message ?? "clicked \(target)")
+            return 0
+        case "fill":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let target = try args.positional(1, name: "REF_OR_SELECTOR")
+            let text = try args.positional(2, name: "TEXT")
+            let response = try sendAgentRequest(
+                workspace,
+                profile: profile,
+                request: AgentRequest(action: .fill, tab: try parseTabOption(args), target: target, value: text)
+            )
+            print(response.message ?? "filled \(target)")
+            return 0
+        case "eval":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let code = try args.positional(1, name: "JS_CODE")
+            let response = try sendAgentRequest(
+                workspace,
+                profile: profile,
+                request: AgentRequest(action: .eval, tab: try parseTabOption(args), script: code)
+            )
+            print(response.evalResultJSON ?? "null")
+            return 0
+        case "screenshot":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let outputPath = URL(fileURLWithPath: try args.positional(1, name: "OUTPUT_PATH")).standardizedFileURL.path
+            let response = try sendAgentRequest(
+                workspace,
+                profile: profile,
+                request: AgentRequest(action: .screenshot, tab: try parseTabOption(args), outputPath: outputPath)
+            )
+            print(response.screenshotPath ?? outputPath)
+            return 0
+        case "tab-list":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let response = try sendAgentRequest(workspace, profile: profile, request: AgentRequest(action: .tabs))
+            printAgentTabs(response.tabs ?? [])
+            return 0
+        case "tab-new":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let url = args.positionals.count > 1 ? args.positionals[1] : args.value("--url")
+            let response = try sendAgentRequest(workspace, profile: profile, request: AgentRequest(action: .tabNew, url: url))
+            printAgentTabs(response.tabs ?? [])
+            return 0
+        case "tab-close":
+            let args = try ParsedArguments(arguments)
+            let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+            let tab = try parseTabOption(args) ?? (args.positionals.count > 1 ? Int(args.positionals[1]) : nil)
+            let response = try sendAgentRequest(workspace, profile: profile, request: AgentRequest(action: .tabClose, tab: tab))
+            printAgentTabs(response.tabs ?? [])
+            return 0
+        default:
+            throw CLIError("未知 agent 子命令：\(subcommand ?? "(空)")（可用 skill、install-skill、spaces、open、snapshot、click、fill、eval、screenshot、tab-list、tab-new、tab-close）")
+        }
+    }
+
+    private static func installAgentSkill(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> Int32 {
+        let targets = [
+            homeDirectory.appendingPathComponent(".claude/skills/safarier-browser/SKILL.md"),
+            homeDirectory.appendingPathComponent(".agents/skills/safarier-browser/SKILL.md"),
+        ]
+        for target in targets {
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(AgentSkillGuide.markdown.utf8).write(to: target, options: .atomic)
+            print("已安装 Skill：\(target.path)")
+        }
+        return 0
+    }
+
+    private static func listAgentSpaces(_ workspace: SafarierWorkspace) throws -> Int32 {
+        let rows = try workspace.profiles.all().map { profile -> [String] in
+            let running = workspace.isRunning(profile.id)
+            var tabsSummary = "-"
+            if running,
+               let response = try? AgentIPCClient.send(AgentRequest(action: .tabs), to: workspace.agentSocketURL(for: profile.id), timeout: 1.5),
+               let tabs = response.tabs {
+                let activeTitle = tabs.first(where: \.isActive)?.title ?? tabs.first?.title ?? ""
+                tabsSummary = "\(tabs.count) tabs" + (activeTitle.isEmpty ? "" : " (\(activeTitle))")
+            }
+            return [
+                profile.id.uuidString,
+                profile.name,
+                profile.mode.rawValue,
+                running ? "running" : "stopped",
+                tabsSummary,
+            ]
+        }
+        printTable(["ID", "NAME", "MODE", "STATE", "TABS"], rows)
+        return 0
+    }
+
+    private static func agentOpen(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
+        let profile = try resolveProfile(workspace, try args.positional(0, name: "PROFILE_ID_OR_NAME"))
+        let urlString = args.positionals.count > 1 ? args.positionals[1] : args.value("--url")
+        let socketURL = workspace.agentSocketURL(for: profile.id)
+        if !workspace.isRunning(profile.id) {
+            let startURL = try urlString.map(parseURL)
+            _ = try workspace.launch(profile, url: startURL, background: true)
+            _ = try AgentIPCClient.waitUntilReady(socketURL: socketURL, timeout: 12)
+            print("已在后台启动环境「\(profile.name)」（\(profile.id.uuidString)）")
+            return 0
+        }
+        let response = try sendAgentRequest(
+            workspace,
+            profile: profile,
+            request: AgentRequest(action: .open, url: urlString, newTab: args.flag("--new-tab"))
+        )
+        print(response.message ?? "opened")
+        return 0
+    }
+
+    private static func resolveProfile(_ workspace: SafarierWorkspace, _ identifierOrName: String) throws -> Profile {
+        if let id = UUID(uuidString: identifierOrName), let profile = try workspace.profiles.record(id: id) {
+            return profile
+        }
+        let all = try workspace.profiles.all()
+        if let exact = all.first(where: { $0.name == identifierOrName }) {
+            return exact
+        }
+        if let insensitive = all.first(where: { $0.name.caseInsensitiveCompare(identifierOrName) == .orderedSame }) {
+            return insensitive
+        }
+        throw CLIError("找不到环境「\(identifierOrName)」（可传 Profile UUID 或环境名称）")
+    }
+
+    private static func parseTabOption(_ args: ParsedArguments) throws -> Int? {
+        guard let raw = args.value("--tab") else { return nil }
+        guard let tab = Int(raw), tab >= 1 else { throw CLIError("--tab 必须是大于等于 1 的整数：\(raw)") }
+        return tab
+    }
+
+    private static func sendAgentRequest(_ workspace: SafarierWorkspace, profile: Profile, request: AgentRequest) throws -> AgentResponse {
+        let socketURL = workspace.agentSocketURL(for: profile.id)
+        let response = try AgentIPCClient.send(request, to: socketURL)
+        guard response.ok else {
+            throw CLIError(response.error ?? "Agent 请求执行失败")
+        }
+        return response
+    }
+
+    private static func printAgentTabs(_ tabs: [AgentTabInfo]) {
+        let rows = tabs.map { tab in
+            ["\(tab.index)", tab.isActive ? "*" : "", tab.title, tab.url]
+        }
+        printTable(["TAB", "ACTIVE", "TITLE", "URL"], rows)
     }
 
     /// 探针要等结果，所以直接起子进程并转发它的 stdout/stderr。

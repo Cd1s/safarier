@@ -27,6 +27,7 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     private(set) var viewportFit: ViewportFit?
     private var controllers: [BrowserWindowController] = []
     private var sourceWindows: [PageSourceWindowController] = []
+    private(set) var agentBridge: AgentBridgeServer?
     private var reportPrinted = false
     /// 默认关闭：普通浏览时不向系统登记可远程检查的调试目标。「开发 → 允许检查网页元素」打开，
     /// ⌥⌘I / ⌥⌘C 打开检查器时也会自动打开（之后新开的窗口、网页弹窗都跟着这个值）。网页读不到它。
@@ -67,15 +68,32 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
 
     // MARK: - 窗口与标签
 
-    func start(url: URL?) {
-        let controller = openWindow(url: url)
+    @discardableResult
+    func startAgentBridge() throws -> AgentBridgeServer {
+        if let existing = agentBridge { return existing }
+        let server = AgentBridgeServer(session: self, socketURL: workspace.agentSocketURL(for: profile.id))
+        try server.start()
+        agentBridge = server
+        return server
+    }
+
+    func stopAgentBridge() {
+        agentBridge?.stop()
+        agentBridge = nil
+    }
+
+    func start(url: URL?, background: Bool = false) {
+        _ = try? startAgentBridge()
+        let controller = openWindow(url: url, background: background)
         controller.window.center()
-        NSApp.activate(ignoringOtherApps: true)
+        if !background {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     /// 新窗口。`configuration` 来自网页的 window.open（必须用它，opener 关系才在）；`contentSize` 是弹窗要求的尺寸。
     @discardableResult
-    func openWindow(url: URL?, configuration popupConfiguration: WKWebViewConfiguration? = nil, contentSize: NSSize? = nil) -> BrowserWindowController {
+    func openWindow(url: URL?, configuration popupConfiguration: WKWebViewConfiguration? = nil, contentSize: NSSize? = nil, background: Bool = false) -> BrowserWindowController {
         // 级联的参照窗口要在新窗口建出来之前取；当前是源代码窗口时退回最前面的浏览窗口，一个都没有就居中。
         let anchor = (keyController ?? frontmostController)?.window
         let controller = makeController(configuration: popupConfiguration, contentSize: contentSize ?? newWindowContentSize())
@@ -87,22 +105,30 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         // 系统设置「首选标签页打开文稿」为「始终」时，.automatic 会把新窗口并进当前窗口当标签：
         // 显示前临时禁止合并，显示后恢复（⌘T、拖动合并、合并所有窗口照常），⌘N 永远是独立窗口。
         controller.window.tabbingMode = .disallowed
-        controller.window.makeKeyAndOrderFront(nil)
+        if background {
+            controller.window.orderBack(nil)
+        } else {
+            controller.window.makeKeyAndOrderFront(nil)
+        }
         controller.window.tabbingMode = .automatic
-        show(controller, url: url, popup: popupConfiguration != nil, background: false)
+        show(controller, url: url, popup: popupConfiguration != nil, background: background)
         return controller
     }
 
     /// 在 `host` 所在窗口里加一个标签。`background` 为 true 时不切过去（⌘点按链接）。
     @discardableResult
     func openTab(in host: BrowserWindowController?, url: URL?, configuration popupConfiguration: WKWebViewConfiguration? = nil, background: Bool = false) -> BrowserWindowController {
-        guard let host else { return openWindow(url: url, configuration: popupConfiguration) }
+        guard let host else { return openWindow(url: url, configuration: popupConfiguration, background: background) }
         let controller = makeController(configuration: popupConfiguration, contentSize: host.window.contentLayoutRect.size)
         host.window.addTabbedWindow(controller.window, ordered: .above)
         // 显式设选中的标签：后台打开时留在原标签，前台打开时切到新标签。
         host.window.tabGroup?.selectedWindow = background ? host.window : controller.window
         if background {
-            host.window.makeKeyAndOrderFront(nil)
+            if host.window.isKeyWindow {
+                host.window.makeKeyAndOrderFront(nil)
+            } else {
+                host.window.orderBack(nil)
+            }
         } else {
             controller.window.makeKeyAndOrderFront(nil)
         }
@@ -329,6 +355,7 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        stopAgentBridge()
         RunnerMain.stopSingbox()
     }
 }

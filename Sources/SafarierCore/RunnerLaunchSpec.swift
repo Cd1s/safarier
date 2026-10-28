@@ -16,6 +16,8 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
     public var probe: Bool
     /// 只对这一次运行覆盖 profile.spi（例如探针做开/关对比）；nil 表示沿用 profile 的设置。
     public var spiOverride: SPIFeatures?
+    /// 后台模式启动：打开浏览窗口但不调用 `NSApp.activate` 抢占用户当前前台焦点。
+    public var background: Bool
 
     public init(
         profileID: UUID,
@@ -23,7 +25,8 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
         languages: [String] = [],
         timeZoneIdentifier: String? = nil,
         probe: Bool = false,
-        spiOverride: SPIFeatures? = nil
+        spiOverride: SPIFeatures? = nil,
+        background: Bool = false
     ) {
         self.profileID = profileID
         self.startURL = startURL
@@ -31,6 +34,7 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
         self.timeZoneIdentifier = timeZoneIdentifier
         self.probe = probe
         self.spiOverride = spiOverride
+        self.background = background
     }
 
     /// 不含可执行文件路径本身。
@@ -41,6 +45,9 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
         }
         if probe {
             args.append("--probe")
+        }
+        if background {
+            args.append("--background")
         }
         if let spiOverride {
             args += ["--spi", spiOverride.description]
@@ -72,6 +79,7 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
         var languages: [String] = []
         var probe = false
         var spiOverride: SPIFeatures?
+        var background = false
 
         var index = 1
         func value(after flag: String) throws -> String {
@@ -93,6 +101,8 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
                 startURL = url
             case "--probe":
                 probe = true
+            case "--background":
+                background = true
             case "--spi":
                 let raw = try value(after: arg)
                 do {
@@ -120,7 +130,8 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
             languages: languages,
             timeZoneIdentifier: tz,
             probe: probe,
-            spiOverride: spiOverride
+            spiOverride: spiOverride,
+            background: background
         )
     }
 

@@ -78,7 +78,7 @@ struct ProxyEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 460)
         .onChange(of: [name, host, port, username, password]) { errorText = nil }
     }
 

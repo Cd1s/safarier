@@ -168,7 +168,12 @@ struct ManagerSidebar: View {
                         }
                 }
                 if model.proxies.isEmpty { Text("还没有代理").foregroundStyle(.tertiary) }
-                Button("添加代理…") { model.sheet = .newProxy }
+                Button { model.sheet = .newProxy } label: {
+                    Label("添加代理…", systemImage: "plus")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             Section("订阅") {
                 ForEach(model.subscriptions) { subscription in

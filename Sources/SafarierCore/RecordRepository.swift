@@ -97,7 +97,7 @@ public extension RecordRepository where Record == Profile {
     /// 文件位于 `directory/profiles.json`。
     static func profiles(in directory: URL) -> ProfileRepository {
         RecordRepository(store: JSONDocumentStore<Profile>(
-            fileURL: directory.appendingPathComponent("profiles.json")
+            fileURL: directory.appendingPathComponent("profiles.json"), privateFile: true
         ))
     }
 }

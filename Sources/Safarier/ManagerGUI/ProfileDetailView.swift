@@ -197,6 +197,8 @@ struct ProfileDetailView: View {
     @ViewBuilder
     private var proxyDescription: some View {
         switch model.proxyBinding(for: profile) {
+        case .custom:
+            Text("自定义代理 · sing-box（编辑环境可修改配置）")
         case .direct:
             Text("直连（不经过代理）")
         case .proxy(let proxy):

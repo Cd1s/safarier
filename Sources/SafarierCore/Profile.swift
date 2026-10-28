@@ -8,8 +8,7 @@ public enum ProfileMode: String, Codable, Sendable, CaseIterable {
     case ephemeral
 }
 
-/// 本地元数据。不含任何凭据。出站二选一：`proxyID` 引用独立代理（`ProxySettings`），
-/// 或 `subscriptionID` + `nodeName` 引用订阅里的节点（Runner 启动时经 sing-box 转成本地 SOCKS5）。
+/// 本地环境配置。独立代理、订阅节点、自定义 sing-box 出站互斥。
 public struct Profile: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public var name: String
@@ -31,6 +30,8 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     /// 绑定的订阅。节点按名字找：订阅刷新后节点的 id 会变，名字通常不变；重名时取第一个。
     public var subscriptionID: UUID?
     public var nodeName: String?
+    /// 单个 sing-box 出站对象，可能包含认证信息；运行时配置的生命周期不影响它。
+    public var customOutboundJSON: String?
     /// `MacDeviceModel.id`；nil 表示跟随系统。
     public var deviceModel: String?
 
@@ -49,7 +50,8 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         spi: SPIFeatures = .defaultFeatures,
         subscriptionID: UUID? = nil,
         nodeName: String? = nil,
-        deviceModel: String? = nil
+        deviceModel: String? = nil,
+        customOutboundJSON: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -66,12 +68,14 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         self.subscriptionID = subscriptionID
         self.nodeName = nodeName
         self.deviceModel = deviceModel
+        self.customOutboundJSON = customOutboundJSON
     }
 
     /// 旧版 JSON 只有 id/name/mode/createdAt（及可选 proxyID），新增字段（含 spi）缺失时使用默认值。
     private enum CodingKeys: String, CodingKey {
         case id, name, mode, proxyID, createdAt, languages, timeZoneIdentifier, startURL, notes, spi
         case subscriptionID, nodeName, deviceModel, followProxyLanguages, followProxyTimeZone
+        case customOutboundJSON
     }
 
     public init(from decoder: Decoder) throws {
@@ -88,6 +92,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         spi = try container.decodeIfPresent(SPIFeatures.self, forKey: .spi) ?? []
         subscriptionID = try container.decodeIfPresent(UUID.self, forKey: .subscriptionID)
         nodeName = try container.decodeIfPresent(String.self, forKey: .nodeName)
+        customOutboundJSON = try container.decodeIfPresent(String.self, forKey: .customOutboundJSON)
         deviceModel = try container.decodeIfPresent(String.self, forKey: .deviceModel)
         followProxyLanguages = try container.decodeIfPresent(Bool.self, forKey: .followProxyLanguages) ?? false
         followProxyTimeZone = try container.decodeIfPresent(Bool.self, forKey: .followProxyTimeZone) ?? false
@@ -118,11 +123,15 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
             languages: languages, timeZoneIdentifier: timeZoneIdentifier,
             followProxyLanguages: followProxyLanguages, followProxyTimeZone: followProxyTimeZone,
             startURL: startURL, notes: notes, spi: spi,
-            subscriptionID: subscriptionID, nodeName: nodeName, deviceModel: deviceModel
+            subscriptionID: subscriptionID, nodeName: nodeName, deviceModel: deviceModel,
+            customOutboundJSON: customOutboundJSON
         )
     }
 
     public func validate() throws {
+        if customOutboundJSON != nil, proxyID != nil || subscriptionID != nil || nodeName != nil {
+            throw ProfileValidationError.conflictingOutbound
+        }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty {
             throw ProfileValidationError.emptyName

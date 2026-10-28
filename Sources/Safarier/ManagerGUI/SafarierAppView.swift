@@ -224,7 +224,7 @@ struct ProfileRow: View {
     private var proxySymbol: String {
         switch proxy {
         case .direct: return "arrow.up.right"
-        case .proxy: return "network"
+        case .proxy, .custom: return "network"
         case .node: return "antenna.radiowaves.left.and.right"
         case .missing, .missingNode: return "exclamationmark.triangle"
         }

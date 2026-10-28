@@ -14,6 +14,7 @@ enum RunState {
 /// profile 的出站：直连、独立代理，或订阅节点（启动时经 sing-box 转成本地 SOCKS5）。
 enum ProxyBinding {
     case direct
+    case custom
     case proxy(ProxySettings)
     /// proxyID 指向的代理已经被删除。
     case missing(UUID)
@@ -147,6 +148,7 @@ final class ManagerModel: ObservableObject {
     }
 
     func proxyBinding(for profile: Profile) -> ProxyBinding {
+        if profile.customOutboundJSON != nil { return .custom }
         if let subscriptionID = profile.subscriptionID {
             let name = profile.nodeName ?? ""
             guard let subscription = subscription(subscriptionID) else { return .missingNode(subscription: nil, node: name) }
@@ -165,7 +167,7 @@ final class ManagerModel: ObservableObject {
         guard runState(profile.id) == .stopped else { return }
         // Runner 找不到 sing-box 也会失败退出，这里先拦下来，提示更直接。
         let singbox = SingboxProcessManager.defaultExecutableURL
-        if profile.subscriptionID != nil, !FileManager.default.isExecutableFile(atPath: singbox.path) {
+        if profile.subscriptionID != nil || profile.customOutboundJSON != nil, !FileManager.default.isExecutableFile(atPath: singbox.path) {
             report("无法启动「\(profile.name)」", SingboxProcessError.executableNotFound(singbox))
             return
         }
@@ -223,6 +225,18 @@ final class ManagerModel: ObservableObject {
     }
 
     // MARK: - profile
+
+    /// 校验期间不修改磁盘记录；失败时旧配置仍然完整保留。
+    func saveValidated(_ profile: Profile, isNew: Bool, executableURL: URL = SingboxProcessManager.defaultExecutableURL) async throws {
+        try profile.validate()
+        var checkedProfile = profile
+        if let json = profile.customOutboundJSON {
+            checkedProfile.customOutboundJSON = try await Task.detached {
+                try CustomOutbound.checked(json, executableURL: executableURL)
+            }.value
+        }
+        try save(checkedProfile, isNew: isNew)
+    }
 
     func save(_ profile: Profile, isNew: Bool) throws {
         if isNew {

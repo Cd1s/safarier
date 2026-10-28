@@ -1,7 +1,8 @@
 import Foundation
+import Darwin
 
 /// 通用的本地 JSON 元数据存储：带版本号，原子写入，文件不存在时视为空列表。
-/// 只用于非敏感元数据（Profile、ProxySettings 引用信息），绝不用于保存密码。
+/// 含自定义出站等敏感字段的记录使用私有文件写入。
 public final class JSONDocumentStore<Record: Codable & Sendable>: @unchecked Sendable {
     public struct Document: Codable {
         public var version: Int
@@ -11,9 +12,11 @@ public final class JSONDocumentStore<Record: Codable & Sendable>: @unchecked Sen
     public static var currentVersion: Int { 1 }
 
     public let fileURL: URL
+    private let privateFile: Bool
 
-    public init(fileURL: URL) {
+    public init(fileURL: URL, privateFile: Bool = false) {
         self.fileURL = fileURL
+        self.privateFile = privateFile
     }
 
     public func load() throws -> [Record] {
@@ -28,7 +31,19 @@ public final class JSONDocumentStore<Record: Codable & Sendable>: @unchecked Sen
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try data.write(to: fileURL, options: .atomic)
+        if privateFile {
+            // 先以 0600 创建临时文件再原子替换，避免首次保存时短暂暴露认证信息。
+            let temporary = fileURL.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            guard rename(temporary.path, fileURL.path) == 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: fileURL.path])
+            }
+        } else {
+            try data.write(to: fileURL, options: .atomic)
+        }
     }
 
     public static func encode(_ records: [Record]) throws -> Data {

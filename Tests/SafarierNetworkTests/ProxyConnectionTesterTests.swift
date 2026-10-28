@@ -2,6 +2,7 @@ import XCTest
 import SafarierCore
 @testable import SafarierNetwork
 
+@MainActor
 final class ProxyConnectionTesterTests: XCTestCase {
     func testBothProtocolsUseAuthenticatedTunnelDespiteNoProxyEnvironment() async throws {
         let fixture = try HTTPSProxyFixture()
@@ -79,7 +80,8 @@ final class ProxyConnectionTesterTests: XCTestCase {
 }
 
 /// 只连接本机：临时 CA、HTTPS 目标及 HTTP/SOCKS5 认证代理，不修改系统证书或使用公网服务。
-private final class HTTPSProxyFixture: @unchecked Sendable {
+@MainActor
+private final class HTTPSProxyFixture {
     let root: URL
     let process = Process()
     let ports: [String: Int]

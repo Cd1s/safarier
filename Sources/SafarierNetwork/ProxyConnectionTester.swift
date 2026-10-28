@@ -46,10 +46,11 @@ public enum ProxyConnectionError: Error, LocalizedError {
 
 public enum ProxyConnectionTester {
     public static let endpoint = URL(string: "https://www.cloudflare.com/cdn-cgi/trace")!
+    public static let timeout: TimeInterval = 15
     public typealias Test = @Sendable (ProxySettings, String?) async throws -> ProxyConnectionResult
 
     public static func check(proxy: ProxySettings, password: String?) async throws -> ProxyConnectionResult {
-        try await check(proxy: proxy, password: password, target: endpoint, certificate: nil, timeout: 15)
+        try await check(proxy: proxy, password: password, target: endpoint, certificate: nil, timeout: timeout)
     }
 
     /// 测试可注入本地 HTTPS 服务和专用 CA；产品入口始终使用系统证书校验和固定测试目标。
@@ -111,11 +112,16 @@ public enum ProxyConnectionTester {
         }
         process.waitUntilExit()
         try Task.checkCancellation()
+        return try readResult(exitCode: process.terminationStatus, metricsURL: metricsURL, bodyURL: bodyURL)
+    }
+
+    /// 执行与结果判定分开，失败优先分类，只有 HTTPS 成功才读取并验证出口 IP。
+    private static func readResult(exitCode: Int32, metricsURL: URL, bodyURL: URL) throws -> ProxyConnectionResult {
         let metrics = try String(contentsOf: metricsURL, encoding: .utf8).split(separator: "\n")
         let status = metrics.first.flatMap { Int($0) } ?? 0
         let connectStatus = metrics.count > 1 ? Int(metrics[1]) ?? 0 : 0
         if connectStatus == 407 || status == 407 { throw ProxyConnectionError.authentication }
-        switch process.terminationStatus {
+        switch exitCode {
         case 0: break
         case 5: throw ProxyConnectionError.proxyDNS
         case 6: throw ProxyConnectionError.targetDNS
@@ -125,7 +131,7 @@ public enum ProxyConnectionTester {
         case 67: throw ProxyConnectionError.authentication
         case 97: throw ProxyConnectionError.handshake
         case 22: throw ProxyConnectionError.http(status)
-        default: throw ProxyConnectionError.transfer(process.terminationStatus)
+        default: throw ProxyConnectionError.transfer(exitCode)
         }
         guard status == 200 else { throw ProxyConnectionError.http(status) }
         guard metrics.count == 3, let duration = Double(metrics[2]), duration.isFinite, duration >= 0,

@@ -144,7 +144,7 @@ struct ProxyDetailView: View {
                     Text("尚未测试").foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("通过所选代理访问 Cloudflare HTTPS，最多等待 15 秒，不回退直连。结果仅代表此测试站点，不修改代理配置。")
+                Text("通过所选代理访问 Cloudflare HTTPS，最多等待 \(Int(ProxyConnectionTester.timeout)) 秒，不回退直连。结果仅代表此测试站点，不修改代理配置。")
             }
             Section("使用此代理的环境") {
                 if model.profiles(using: proxy).isEmpty {

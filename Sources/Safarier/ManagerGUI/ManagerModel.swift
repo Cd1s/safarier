@@ -175,22 +175,23 @@ final class ManagerModel: ObservableObject {
             let tester = proxyTester
             proxyTests[current.id] = .running
             proxyTestTasks[current.id] = Task { @MainActor [weak self] in
-                let outcome: ProxyTestState
+                let outcome: ProxyTestState?
                 do {
                     outcome = .success(try await tester(current, password))
                 } catch is CancellationError {
-                    return
+                    outcome = nil
                 } catch {
                     outcome = .failure(DisplayText.describe(error))
                 }
                 guard !Task.isCancelled, let self else { return }
+                // 仅当前未取消的任务负责收尾；旧任务不能清掉后来启动的测试。
+                defer { self.proxyTestTasks[current.id] = nil }
                 // CLI 或其它窗口在测试中修改了配置时，丢弃旧快照的结果。
                 guard (try? self.workspace.proxies.record(id: current.id)) == current else {
-                    self.cancelProxyTest(current.id)
+                    self.proxyTests[current.id] = nil
                     return
                 }
                 self.proxyTests[current.id] = outcome
-                self.proxyTestTasks[current.id] = nil
             }
         } catch {
             proxyTests[proxy.id] = .failure(DisplayText.describe(error))

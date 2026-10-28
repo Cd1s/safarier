@@ -106,4 +106,21 @@ final class ProxyConnectionModelTests: XCTestCase {
             XCTAssertNil(model.proxyTests[proxy.id])
         }
     }
+
+    func testExecutorCancellationClearsRunningStateAndAllowsRetry() async throws {
+        let proxy = try proxy()
+        let calls = expectation(description: "取消后可以再次测试")
+        calls.expectedFulfillmentCount = 2
+        let model = ManagerModel(workspace: workspace, credentials: credentials, proxyTester: { _, _ in
+            calls.fulfill()
+            throw CancellationError()
+        })
+        model.testProxy(proxy)
+        try await waitUntilFinished(model, proxy.id)
+        XCTAssertNil(model.proxyTests[proxy.id])
+        model.testProxy(proxy)
+        try await waitUntilFinished(model, proxy.id)
+        await fulfillment(of: [calls], timeout: 2)
+        XCTAssertNil(model.proxyTests[proxy.id])
+    }
 }

@@ -23,7 +23,8 @@ final class BrowserFixesTests: XCTestCase {
     }
 
     static func makeSession(_ profile: Profile) throws -> BrowserSession {
-        let factory = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), safariApplicationName: "Version/26.2 Safari/605.1.15")
+        let choice = SafarierWebKitInfo.userAgentSafariVersion(loadedWebKit: "20621.3.11.11.3", installedSafari: "27.0", safariStagedWebKit: "20625.1.29.18.28")
+        let factory = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), userAgentVersion: choice)
         let output = try factory.make(profile: profile, proxy: nil, processLanguages: [])
         return BrowserSession(profile: profile, output: output, outboundDescription: "直连", diagnostics: SPIDiagnostics())
     }
@@ -324,7 +325,7 @@ final class BrowserFixesTests: XCTestCase {
         XCTAssertEqual(environment["private"] as? Bool, true)
         XCTAssertEqual(environment["inspectable"] as? Bool, false)
         let engine = try XCTUnwrap(json["engine"] as? [String: Any])
-        XCTAssertEqual(engine["userAgentApplicationName"] as? String, "Version/26.2 Safari/605.1.15")
+        XCTAssertEqual(engine["userAgentApplicationName"] as? String, "Version/18.6 Safari/605.1.15")
         let capabilities = try XCTUnwrap(json["capabilities"] as? [String: [String: Any]])
         XCTAssertEqual(Set(capabilities.keys), Set(PrivacyFeature.allCases.map(\.rawValue)))
         XCTAssertTrue(capabilities.values.allSatisfy { $0["state"] is String })

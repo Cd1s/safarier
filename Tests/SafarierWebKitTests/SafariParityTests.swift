@@ -89,8 +89,8 @@ final class SafariParityTests: XCTestCase {
 
     @MainActor
     func testFactoryAppliesSafariDefaultsAndMarksDeviceModelPending() throws {
-        let factory = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), safariApplicationName: "Version/26.2 Safari/605.1.15",
-                                                  userAgentVersion: .init(version: "26.2", matchesEngine: false, note: "x"))
+        let factory = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), safariApplicationName: "Version/18.6 Safari/605.1.15",
+                                                  userAgentVersion: .init(version: "18.6", matchesEngine: false, note: "x"))
         let profile = Profile(name: "p", mode: .ephemeral, deviceModel: MacDeviceModel.macBookAir13M2.id)
         let output = try factory.make(profile: profile, proxy: nil, processLanguages: [])
 

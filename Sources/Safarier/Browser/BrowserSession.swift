@@ -142,7 +142,8 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     /// 新窗口内容区大小：选了机型就按机型视口（屏幕放不下等比缩小），否则沿用当前窗口或默认大小。
     private func newWindowContentSize() -> NSSize {
         if let device {
-            let screen = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.size ?? device.viewportSize
+            let host = DeviceSimulation.hostVisibleFrame.size
+            let screen = host.width > 0 && host.height > 0 ? host : device.viewportSize
             // 统一工具栏 52pt：和 Safari 实测一致（outerHeight − innerHeight = 52，单标签）。
             let available = CGSize(width: screen.width, height: screen.height - BrowserWindowController.chromeHeight)
             let viewport = device.viewport(fitting: available)

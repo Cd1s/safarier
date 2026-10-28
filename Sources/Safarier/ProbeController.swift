@@ -266,7 +266,8 @@ final class ProbeController: NSObject, WKNavigationDelegate, WKUIDelegate {
         let model = profile.deviceModel.flatMap(MacDeviceModel.preset)
         let fitted: CGSize = {
             guard let model else { return BrowserSession.defaultContentSize }
-            let screen = NSScreen.main?.visibleFrame.size ?? model.viewportSize
+            let host = DeviceSimulation.hostVisibleFrame.size
+            let screen = host.width > 0 && host.height > 0 ? host : model.viewportSize
             let available = CGSize(width: screen.width, height: screen.height - BrowserWindowController.chromeHeight)
             return model.viewport(fitting: available)
         }()

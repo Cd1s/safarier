@@ -13,7 +13,8 @@ final class BrowserWindowTests: XCTestCase {
     override func setUp() async throws {
         _ = NSApplication.shared
         let profile = Profile(name: "test", mode: .ephemeral)
-        let factory = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), safariApplicationName: "Version/26.2 Safari/605.1.15")
+        let choice = SafarierWebKitInfo.userAgentSafariVersion(loadedWebKit: "20621.3.11.11.3", installedSafari: "27.0", safariStagedWebKit: "20625.1.29.18.28")
+        let factory = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), userAgentVersion: choice)
         let output = try factory.make(profile: profile, proxy: nil, processLanguages: [])
         session = BrowserSession(profile: profile, output: output, outboundDescription: "直连", diagnostics: SPIDiagnostics())
     }

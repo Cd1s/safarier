@@ -33,6 +33,8 @@ public enum PrivacyFeature: String, CaseIterable, Codable, CodingKeyRepresentabl
     /// 按 Profile 语言收窄网页能按名字用的字体（原生引擎桥接 白名单），
     /// 让英文、泰语等环境的网页查不到宿主机按中日韩语言下载的字体资产。只影响之后新建的 WebContent 进程。
     case fontAllowlist
+    /// Native WebExtension controller and per-Profile extension contexts.
+    case webExtensions
 }
 
 public enum CapabilityState: Equatable, Codable, Sendable {

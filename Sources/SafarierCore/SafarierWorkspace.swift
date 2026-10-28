@@ -19,6 +19,95 @@ public struct SafarierWorkspace: Sendable {
     public var logsDirectory: URL { root.appendingPathComponent("logs", isDirectory: true) }
     /// sing-box 的配置和 pid 文件（每个 profile 一份）。配置里有节点凭据，Runner 退出时删除。
     public var singboxDirectory: URL { root.appendingPathComponent("sing-box", isDirectory: true) }
+    /// Imported WebExtension resources, kept outside profile metadata so the same resource can be enabled per Profile.
+    public var extensionsDirectory: URL { root.appendingPathComponent("extensions", isDirectory: true) }
+    public var extensionsStoreURL: URL { root.appendingPathComponent("extensions.json") }
+
+    public func extensionRecords() throws -> [SafarierExtensionRecord] {
+        try JSONDocumentStore<SafarierExtensionRecord>(fileURL: extensionsStoreURL).load()
+    }
+
+    /// Imports an unpacked extension directory or an app-extension bundle's Resources directory.
+    /// The copied resource is addressed by a generated ID; the source path is never persisted.
+    @discardableResult
+    public func importExtension(from source: URL) throws -> SafarierExtensionRecord {
+        let resourceRoot = try Self.extensionResourceRoot(source)
+        let manifestURL = resourceRoot.appendingPathComponent("manifest.json")
+        let data = try Data(contentsOf: manifestURL)
+        guard let manifest = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawName = manifest["name"] as? String, !rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let rawVersion = manifest["version"] as? String, !rawVersion.isEmpty,
+              let manifestVersion = manifest["manifest_version"] as? NSNumber else {
+            throw WorkspaceError.invalidExtensionManifest
+        }
+        guard manifestVersion.doubleValue == 2 || manifestVersion.doubleValue == 3 else {
+            throw WorkspaceError.unsupportedExtensionManifestVersion(manifestVersion.doubleValue)
+        }
+        var records = try extensionRecords()
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if records.contains(where: { $0.name == name && $0.version == rawVersion }) {
+            throw WorkspaceError.extensionAlreadyInstalled(name)
+        }
+        let id = UUID()
+        let destination = extensionsDirectory.appendingPathComponent(id.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: extensionsDirectory, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: resourceRoot, to: destination)
+        let record = SafarierExtensionRecord(id: id, name: name, version: rawVersion, manifestVersion: manifestVersion.doubleValue)
+        records.append(record)
+        do {
+            try JSONDocumentStore<SafarierExtensionRecord>(fileURL: extensionsStoreURL).save(records)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+        return record
+    }
+
+    public func enableExtension(_ id: UUID, for profileID: UUID) throws {
+        var records = try extensionRecords()
+        guard let index = records.firstIndex(where: { $0.id == id }) else { throw WorkspaceError.extensionNotFound(id) }
+        records[index].enabledProfileIDs.insert(profileID)
+        try JSONDocumentStore<SafarierExtensionRecord>(fileURL: extensionsStoreURL).save(records)
+    }
+
+    public func disableExtension(_ id: UUID, for profileID: UUID) throws {
+        var records = try extensionRecords()
+        guard let index = records.firstIndex(where: { $0.id == id }) else { throw WorkspaceError.extensionNotFound(id) }
+        records[index].enabledProfileIDs.remove(profileID)
+        try JSONDocumentStore<SafarierExtensionRecord>(fileURL: extensionsStoreURL).save(records)
+    }
+
+    public func enabledExtensions(for profileID: UUID) throws -> [SafarierExtensionRecord] {
+        try extensionRecords().filter { $0.enabledProfileIDs.contains(profileID) }
+    }
+
+    @discardableResult
+    public func removeExtension(name: String) throws -> SafarierExtensionRecord {
+        var records = try extensionRecords()
+        guard let index = records.firstIndex(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw WorkspaceError.extensionNameNotFound(name)
+        }
+        let removed = records.remove(at: index)
+        try JSONDocumentStore<SafarierExtensionRecord>(fileURL: extensionsStoreURL).save(records)
+        try? FileManager.default.removeItem(at: extensionsDirectory.appendingPathComponent(removed.id.uuidString, isDirectory: true))
+        return removed
+    }
+
+    private static func extensionResourceRoot(_ source: URL) throws -> URL {
+        var root = source.standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory) else {
+            throw WorkspaceError.extensionSourceNotFound(root.path)
+        }
+        if root.pathExtension.lowercased() == "appex" {
+            root.appendPathComponent("Contents/Resources", isDirectory: true)
+        }
+        let manifest = root.appendingPathComponent("manifest.json")
+        guard FileManager.default.fileExists(atPath: manifest.path) else {
+            throw WorkspaceError.invalidExtensionManifest
+        }
+        return root
+    }
 
     public func isRunning(_ profileID: UUID) -> Bool {
         ProfileLock.isHeld(profileID: profileID, in: locksDirectory)
@@ -98,4 +187,26 @@ public enum WorkspaceError: Error, Equatable {
     case alreadyRunning(UUID)
     case subscriptionNotFound(UUID)
     case nodeNotFound(subscription: String, node: String)
+    case extensionSourceNotFound(String)
+    case invalidExtensionManifest
+    case unsupportedExtensionManifestVersion(Double)
+    case extensionAlreadyInstalled(String)
+    case extensionNotFound(UUID)
+    case extensionNameNotFound(String)
+}
+
+public struct SafarierExtensionRecord: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public let name: String
+    public let version: String
+    public let manifestVersion: Double
+    public var enabledProfileIDs: Set<UUID>
+
+    public init(id: UUID = UUID(), name: String, version: String, manifestVersion: Double, enabledProfileIDs: Set<UUID> = []) {
+        self.id = id
+        self.name = name
+        self.version = version
+        self.manifestVersion = manifestVersion
+        self.enabledProfileIDs = enabledProfileIDs
+    }
 }

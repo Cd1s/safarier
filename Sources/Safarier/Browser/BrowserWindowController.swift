@@ -308,6 +308,53 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         operation.view?.frame = webView.bounds
         operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
     }
+
+    @objc func loadExtension(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.title = "加载扩展"
+        panel.message = "选择包含 manifest.json 的扩展目录或 .appex 扩展包"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            do {
+                let record = try self.session.workspace.importExtension(from: url)
+                try self.session.workspace.enableExtension(record.id, for: self.session.profile.id)
+                Task { @MainActor in
+                    if let runtime = self.session.extensionRuntime {
+                        await runtime.load(record)
+                        self.presentExtensionMessage("已加载扩展：\(record.name)")
+                    } else {
+                        self.presentExtensionMessage("已安装扩展：\(record.name)；当前 WebKit 不提供扩展运行时，重启环境后仍会保留。")
+                    }
+                }
+            } catch {
+                self.presentExtensionMessage("扩展加载失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    @objc func manageExtensions(_ sender: Any?) {
+        do {
+            let records = try session.workspace.extensionRecords()
+            let enabled = Set(try session.workspace.enabledExtensions(for: session.profile.id).map(\.id))
+            let text = records.isEmpty ? "当前没有已安装扩展。" : records.map { record in
+                "\(record.name) \(record.version) — \(enabled.contains(record.id) ? "已启用" : "未启用")"
+            }.joined(separator: "\n")
+            presentExtensionMessage(text)
+        } catch {
+            presentExtensionMessage("无法读取扩展列表：\(error.localizedDescription)")
+        }
+    }
+
+    private func presentExtensionMessage(_ text: String) {
+        let alert = NSAlert()
+        alert.messageText = "Safarier 扩展"
+        alert.informativeText = text
+        alert.addButton(withTitle: "好")
+        alert.beginSheetModal(for: window)
+    }
     @objc func showFind(_ sender: Any?) {
         findBar.isHidden = false
         window.makeFirstResponder(findBar.searchField)

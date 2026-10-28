@@ -40,7 +40,11 @@ public enum SafarierWebKitInfo {
             ("624.1.", "26.4"), ("624.2.", "26.5"), ("624.4.", "26.6"),
             ("625.1.", "27.0"),
         ]
-        return ["19", "20", "21"].flatMap { platform in
+        let stagedSafari27: [(webKitPrefix: String, safari: String)] = [
+            ("20625.1.", "27.0"),
+            ("20625.2.", "27.2"),
+        ]
+        return stagedSafari27 + ["19", "20", "21"].flatMap { platform in
             families.map { (webKitPrefix: platform + $0.0, safari: $0.1) }
         }
     }()

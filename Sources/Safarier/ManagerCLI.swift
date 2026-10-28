@@ -21,6 +21,9 @@ enum ManagerCLI {
       safarier sub update [SUBSCRIPTION_ID]
       safarier sub nodes SUBSCRIPTION_ID
       safarier device list
+      safarier ext list
+      safarier ext add PATH [--profile PROFILE_ID]
+      safarier ext remove NAME
       safarier launch PROFILE_ID [--url URL] [--spi LIST]
       safarier probe PROFILE_ID [--url URL] [--spi LIST]
     --sub/--node：出站走订阅里的节点（按节点名匹配，名字带空格时加引号）；启动时自动起 sing-box 转成本地 SOCKS5。
@@ -57,6 +60,9 @@ enum ManagerCLI {
             case ("sub", "update"): return try updateSubscriptions(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("sub", "nodes"): return try listNodes(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("device", "list"): return listDevices()
+            case ("ext", "list"): return try listExtensions(workspace)
+            case ("ext", "add"): return try addExtension(workspace, try ParsedArguments(arguments.dropFirst(2)))
+            case ("ext", "remove"): return try removeExtension(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("launch", _): return try launch(workspace, try ParsedArguments(arguments.dropFirst()), probe: false)
             case ("probe", _): return try launch(workspace, try ParsedArguments(arguments.dropFirst()), probe: true)
             case ("help", _), ("--help", _), ("-h", _), (nil, _):
@@ -429,6 +435,34 @@ enum ManagerCLI {
 
     // MARK: - launch / probe
 
+    private static func listExtensions(_ workspace: SafarierWorkspace) throws -> Int32 {
+        let records = try workspace.extensionRecords()
+        guard !records.isEmpty else { print("（空）"); return 0 }
+        printTable(["ID", "NAME", "VERSION", "MANIFEST", "PROFILES"], records.map {
+            [$0.id.uuidString, $0.name, $0.version, String($0.manifestVersion), String($0.enabledProfileIDs.count)]
+        })
+        return 0
+    }
+
+    private static func addExtension(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
+        let path = try args.positional(0, name: "PATH")
+        let record = try workspace.importExtension(from: URL(fileURLWithPath: path))
+        if let rawProfile = args.value("--profile") {
+            guard let profileID = UUID(uuidString: rawProfile) else { throw CLIError("--profile 不是合法 UUID：\(rawProfile)") }
+            guard try workspace.profiles.record(id: profileID) != nil else { throw CLIError("找不到 profile \(rawProfile)") }
+            try workspace.enableExtension(record.id, for: profileID)
+        }
+        print("已安装扩展 \(record.name) \(record.version)（\(record.id.uuidString)）")
+        return 0
+    }
+
+    private static func removeExtension(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
+        let name = try args.positional(0, name: "NAME")
+        let record = try workspace.removeExtension(name: name)
+        print("已删除扩展 \(record.name)")
+        return 0
+    }
+
     private static func launch(_ workspace: SafarierWorkspace, _ args: ParsedArguments, probe: Bool) throws -> Int32 {
         let id = try args.positionalUUID(0, name: "PROFILE_ID")
         guard let profile = try workspace.profiles.record(id: id) else { throw CLIError("找不到 profile \(id.uuidString)") }
@@ -542,5 +576,10 @@ struct ParsedArguments {
         guard positionals.indices.contains(index) else { throw CLIError("缺少 \(name)") }
         guard let id = UUID(uuidString: positionals[index]) else { throw CLIError("\(name) 不是合法 UUID：\(positionals[index])") }
         return id
+    }
+
+    func positional(_ index: Int, name: String) throws -> String {
+        guard positionals.indices.contains(index), !positionals[index].isEmpty else { throw CLIError("缺少 \(name)") }
+        return positionals[index]
     }
 }

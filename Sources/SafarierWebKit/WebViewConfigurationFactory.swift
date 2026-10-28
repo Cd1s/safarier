@@ -13,6 +13,7 @@ public enum WebViewConfigurationError: Error, Equatable {
 public struct WebViewConfigurationFactory {
     public struct Output {
         public let configuration: WKWebViewConfiguration
+        public let extensionRuntime: (any WebExtensionRuntimeProtocol)?
         /// Runner 在创建 WebView 之后还会补上每个 WebView 上才能设置的项（机型像素比）。
         public var report: PrivacyCapabilityReport
     }
@@ -24,6 +25,7 @@ public struct WebViewConfigurationFactory {
     /// UA 里的 Safari 版本是怎么选出来的；nil 表示调用方直接给了 `safariApplicationName`。
     public let userAgentVersion: SafarierWebKitInfo.UserAgentVersion?
     public let engineBaseline: EngineBaselineDiagnostic
+    public let extensionWorkspace: SafarierWorkspace?
 
     /// `dataStores`、`privacy` 传 nil 时用默认实现（默认参数里不能直接调 @MainActor 初始化器）。
     public init(
@@ -31,7 +33,8 @@ public struct WebViewConfigurationFactory {
         credentials: any CredentialStore,
         privacy: (any PrivacyProtectionAdapter)? = nil,
         userAgentVersion: SafarierWebKitInfo.UserAgentVersion? = SafarierWebKitInfo.userAgentSafariVersion(),
-        engineBaseline: EngineBaselineDiagnostic = SafarierWebKitInfo.engineBaseline()
+        engineBaseline: EngineBaselineDiagnostic = SafarierWebKitInfo.engineBaseline(),
+        extensionWorkspace: SafarierWorkspace? = nil
     ) {
         self.init(
             dataStores: dataStores,
@@ -39,7 +42,8 @@ public struct WebViewConfigurationFactory {
             privacy: privacy,
             safariApplicationName: userAgentVersion.flatMap { SafarierWebKitInfo.safariApplicationNameForUserAgent(safariVersion: $0.version) },
             userAgentVersion: userAgentVersion,
-            engineBaseline: engineBaseline
+            engineBaseline: engineBaseline,
+            extensionWorkspace: extensionWorkspace
         )
     }
 
@@ -49,7 +53,8 @@ public struct WebViewConfigurationFactory {
         privacy: (any PrivacyProtectionAdapter)? = nil,
         safariApplicationName: String?,
         userAgentVersion: SafarierWebKitInfo.UserAgentVersion? = nil,
-        engineBaseline: EngineBaselineDiagnostic = SafarierWebKitInfo.engineBaseline()
+        engineBaseline: EngineBaselineDiagnostic = SafarierWebKitInfo.engineBaseline(),
+        extensionWorkspace: SafarierWorkspace? = nil
     ) {
         self.dataStores = dataStores ?? DataStoreManager()
         self.credentials = credentials
@@ -57,6 +62,7 @@ public struct WebViewConfigurationFactory {
         self.safariApplicationName = safariApplicationName
         self.userAgentVersion = userAgentVersion
         self.engineBaseline = engineBaseline
+        self.extensionWorkspace = extensionWorkspace
     }
 
     /// - Parameters:
@@ -82,6 +88,13 @@ public struct WebViewConfigurationFactory {
         report.set(.unverified(PrivacyCapabilityReport.webAuthenticationBoundary), for: .webAuthentication)
         report.set(.notRequested, for: .legacyDOMEvents)
         let configuration = WKWebViewConfiguration()
+        let extensionMount: (runtime: (any WebExtensionRuntimeProtocol)?, state: CapabilityState)
+        if let extensionWorkspace {
+            extensionMount = WebExtensionSupport.attach(profile: profile, workspace: extensionWorkspace, to: configuration)
+        } else {
+            extensionMount = (nil, .notRequested)
+        }
+        report.set(extensionMount.state, for: .webExtensions)
 
         let store = dataStores.dataStore(for: profile)
         switch profile.mode {
@@ -147,7 +160,7 @@ public struct WebViewConfigurationFactory {
             for: .displayCapabilities
         )
         privacy.apply(to: configuration, for: profile, report: &report)
-        return Output(configuration: configuration, report: report)
+        return Output(configuration: configuration, extensionRuntime: extensionMount.runtime, report: report)
     }
 }
 

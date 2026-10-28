@@ -88,7 +88,7 @@ enum RunnerMain {
                 PublicAPIPrivacyAdapter(),
                 SPIPrivacyAdapter(features: spiFeatures, diagnostics: diagnostics),
             ])
-            let factory = WebViewConfigurationFactory(credentials: KeychainCredentialStore(), privacy: privacy)
+            let factory = WebViewConfigurationFactory(credentials: KeychainCredentialStore(), privacy: privacy, extensionWorkspace: workspace)
             var output = try factory.make(profile: effectiveProfile, proxy: proxy)
             if let displayState { output.report.set(displayState, for: .displayCapabilities) }
 
@@ -109,7 +109,7 @@ enum RunnerMain {
             } else {
                 app.setActivationPolicy(.regular)
                 app.mainMenu = BrowserMenu.make()
-                let session = BrowserSession(profile: effectiveProfile, output: output, outboundDescription: outboundDescription, diagnostics: diagnostics)
+                let session = BrowserSession(profile: effectiveProfile, output: output, outboundDescription: outboundDescription, diagnostics: diagnostics, workspace: workspace)
                 controller = session
                 app.delegate = session
                 session.start(url: spec.startURL)

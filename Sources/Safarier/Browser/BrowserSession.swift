@@ -10,7 +10,9 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     static let defaultContentSize = NSSize(width: 1280, height: 800)
 
     let profile: Profile
+    let workspace: SafarierWorkspace
     let configuration: WKWebViewConfiguration
+    let extensionRuntime: (any WebExtensionRuntimeProtocol)?
     let device: MacDeviceModel?
     let isPrivate: Bool
     let accent: NSColor
@@ -35,9 +37,11 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     /// 和管理器里环境头像一样的配色（按 id 固定），方便认出窗口属于哪个环境。
     private static let palette: [NSColor] = [.systemBlue, .systemPurple, .systemPink, .systemOrange, .systemTeal, .systemGreen, .systemIndigo, .systemMint, .systemBrown]
 
-    init(profile: Profile, output: WebViewConfigurationFactory.Output, outboundDescription: String, diagnostics: SPIDiagnostics) {
+    init(profile: Profile, output: WebViewConfigurationFactory.Output, outboundDescription: String, diagnostics: SPIDiagnostics, workspace: SafarierWorkspace? = nil) {
         self.profile = profile
+        self.workspace = workspace ?? (try! SafarierWorkspace.default())
         self.configuration = output.configuration
+        self.extensionRuntime = output.extensionRuntime
         self.report = output.report
         self.device = profile.deviceModel.flatMap(MacDeviceModel.preset)
         self.isPrivate = profile.mode == .ephemeral

@@ -211,6 +211,12 @@ enum DisplayText {
             case .alreadyRunning: return "这个环境已经在运行。"
             case .subscriptionNotFound: return "绑定的订阅已经不存在。"
             case .nodeNotFound(let subscription, let node): return "订阅「\(subscription)」里没有节点「\(node)」。"
+            case .extensionSourceNotFound(let path): return "扩展来源不存在：\(path)。"
+            case .invalidExtensionManifest: return "扩展的 manifest.json 无效或缺失。"
+            case .unsupportedExtensionManifestVersion(let version): return "不支持的扩展 manifest 版本：\(version)。"
+            case .extensionAlreadyInstalled(let name): return "扩展已经安装：\(name)。"
+            case .extensionNotFound(let id): return "扩展不存在：\(id.uuidString)。"
+            case .extensionNameNotFound(let name): return "找不到扩展：\(name)。"
             }
         case let error as SingboxProcessError:
             return error.description

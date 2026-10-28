@@ -44,6 +44,27 @@ final class SafariParityTests: XCTestCase {
         XCTAssertEqual(noSafari.selectedSafariVersion, "17.6")
     }
 
+    func testSafari272StagedWebKitMapping() {
+        let baseline = SafarierWebKitInfo.engineBaseline(
+            loadedWebKit: "20625.2.8.18.4",
+            installedSafari: "27.2",
+            safariStagedWebKit: "20625.2.8.18.4"
+        )
+        XCTAssertEqual(baseline.mappedSafariVersion, "27.2")
+        XCTAssertEqual(baseline.selectedSafariVersion, "27.2")
+        XCTAssertEqual(baseline.relationship, .sharedEngine)
+        XCTAssertTrue(baseline.matchesEngine)
+
+        let prior = SafarierWebKitInfo.engineBaseline(
+            loadedWebKit: "20625.1.29.18.28",
+            installedSafari: "27.2",
+            safariStagedWebKit: "20625.2.8.18.4"
+        )
+        XCTAssertEqual(prior.mappedSafariVersion, "27.0")
+        XCTAssertEqual(prior.selectedSafariVersion, "27.0")
+        XCTAssertEqual(prior.relationship, .stagedEngineMismatch)
+    }
+
     func testStructuredBaselineRoundTripsAndOldReportsStillDecode() throws {
         let baseline = SafarierWebKitInfo.engineBaseline(loadedWebKit: "20621.3.11.11.3", installedSafari: "27.0", safariStagedWebKit: "20625.1.29.18.28")
         XCTAssertTrue(baseline.hasStagedEngineMismatch)

@@ -843,6 +843,300 @@ final class StartPageEditor: NSViewController {
     }
 }
 
+// MARK: - 历史记录
+
+/// ⌘Y 的「历史记录」视图：和起始页一样是原生视图，不是网页，网站看不到。
+/// 顶部搜索框按标题和网址过滤，记录按「今天 / 更早」分组显示标题、网址和时间；点一下（或双击、回车）在当前标签打开，
+/// 右键可以删掉单条，右上角「清除历史记录…」交给 `onClearRequested`（由标签控制器先确认）。
+@MainActor
+final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuItemValidation {
+    enum Row: Equatable {
+        case header(String)
+        case entry(BrowsingHistoryEntry)
+    }
+
+    static let headerHeight: CGFloat = 30
+    static let rowHeight: CGFloat = 46
+
+    let store: BrowsingHistoryStore
+    let isPrivate: Bool
+    let titleLabel = NSTextField(labelWithString: "历史记录")
+    let searchField = NSSearchField()
+    let clearButton = NSButton(title: "清除历史记录…", target: nil, action: nil)
+    let tableView = HistoryTableView()
+    let emptyLabel = NSTextField(labelWithString: "")
+    private let scrollView = NSScrollView()
+    private(set) var rows: [Row] = []
+    var onOpenURL: ((URL) -> Void)?
+    var onClearRequested: (() -> Void)?
+    /// 分组用的「现在」（测试固定它）。
+    var now: () -> Date = { Date() }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日 HH:mm"
+        return formatter
+    }()
+
+    init(store: BrowsingHistoryStore, isPrivate: Bool) {
+        self.store = store
+        self.isPrivate = isPrivate
+        super.init(frame: .zero)
+        wantsLayer = true
+        // 无痕环境和起始页一样总是深色。
+        if isPrivate { appearance = NSAppearance(named: .darkAqua) }
+
+        titleLabel.font = .systemFont(ofSize: 26, weight: .bold)
+        searchField.placeholderString = "搜索历史记录"
+        searchField.delegate = self
+        searchField.target = self
+        searchField.action = #selector(searchChanged(_:))
+        searchField.sendsSearchStringImmediately = true
+        clearButton.target = self
+        clearButton.action = #selector(clearClicked(_:))
+        clearButton.bezelStyle = .rounded
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("entry"))
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+        tableView.headerView = nil
+        tableView.style = .inset
+        tableView.backgroundColor = .clear
+        tableView.usesAutomaticRowHeights = false
+        tableView.intercellSpacing = NSSize(width: 0, height: 2)
+        tableView.floatsGroupRows = false
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.target = self
+        tableView.action = #selector(rowClicked(_:))
+        tableView.doubleAction = #selector(rowClicked(_:))
+        tableView.onOpenSelected = { [weak self] in self.map { $0.open(row: $0.tableView.selectedRow) } }
+        tableView.onDeleteSelected = { [weak self] in self.map { $0.delete(row: $0.tableView.selectedRow) } }
+        tableView.menu = makeContextMenu()
+        tableView.setAccessibilityLabel("历史记录")
+
+        scrollView.documentView = tableView
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+
+        emptyLabel.font = .systemFont(ofSize: 15)
+        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.alignment = .center
+
+        for view in [titleLabel, searchField, clearButton, scrollView, emptyLabel] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        let content = NSLayoutGuide()
+        addLayoutGuide(content)
+        let preferredWidth = content.widthAnchor.constraint(equalToConstant: StartPageView.maxContentWidth)
+        preferredWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            content.centerXAnchor.constraint(equalTo: centerXAnchor),
+            content.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
+            preferredWidth,
+            content.topAnchor.constraint(equalTo: topAnchor, constant: 28),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            titleLabel.topAnchor.constraint(equalTo: content.topAnchor),
+            clearButton.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            clearButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            searchField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -12),
+            searchField.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            searchField.widthAnchor.constraint(equalToConstant: 260),
+            searchField.leadingAnchor.constraint(greaterThanOrEqualTo: titleLabel.trailingAnchor, constant: 16),
+            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 18),
+            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            emptyLabel.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            emptyLabel.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 48),
+        ])
+
+        NotificationCenter.default.addObserver(self, selector: #selector(storeDidChange(_:)), name: BrowsingHistoryStore.didChangeNotification, object: store)
+        reload()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isOpaque: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        let dark = isPrivate || effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        layer?.backgroundColor = (dark ? StartPageView.darkBackground : StartPageView.lightBackground).cgColor
+    }
+
+    /// 隐藏后不接点击，下面的网页照常可点。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden else { return nil }
+        return super.hitTest(point)
+    }
+
+    // MARK: 内容
+
+    @objc private func storeDidChange(_ notification: Notification) { reload() }
+    @objc private func searchChanged(_ sender: Any?) { reload() }
+
+    func controlTextDidChange(_ notification: Notification) { reload() }
+
+    /// 按搜索框的内容重新分组。
+    func reload() {
+        let query = searchField.stringValue
+        let sections = BrowsingHistoryStore.sections(for: store.entries(matching: query), now: now())
+        rows = sections.flatMap { [Row.header($0.title)] + $0.entries.map(Row.entry) }
+        tableView.reloadData()
+        clearButton.isEnabled = !store.entries.isEmpty || !store.lastSessionTabURLs.isEmpty
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        emptyLabel.stringValue = trimmed.isEmpty ? "还没有历史记录" : "没有找到与「\(trimmed)」相符的历史记录"
+        emptyLabel.isHidden = !rows.isEmpty
+    }
+
+    func entry(at row: Int) -> BrowsingHistoryEntry? {
+        guard rows.indices.contains(row), case .entry(let entry) = rows[row] else { return nil }
+        return entry
+    }
+
+    func open(row: Int) {
+        guard let entry = entry(at: row) else { return }
+        onOpenURL?(entry.url)
+    }
+
+    func delete(row: Int) {
+        guard let entry = entry(at: row) else { return }
+        store.remove(entry.id)
+    }
+
+    @objc private func rowClicked(_ sender: Any?) { open(row: tableView.clickedRow) }
+    @objc private func clearClicked(_ sender: Any?) { onClearRequested?() }
+
+    // MARK: 右键菜单
+
+    func makeContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        for (title, action) in [("打开", #selector(openFromMenu(_:))), ("拷贝网址", #selector(copyFromMenu(_:))), ("删除", #selector(deleteFromMenu(_:)))] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    /// 右键点在分组标题或空白处时菜单项都不可用。
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        entry(at: tableView.clickedRow) != nil
+    }
+
+    @objc private func openFromMenu(_ sender: Any?) { open(row: tableView.clickedRow) }
+    @objc private func deleteFromMenu(_ sender: Any?) { delete(row: tableView.clickedRow) }
+    @objc private func copyFromMenu(_ sender: Any?) {
+        guard let entry = entry(at: tableView.clickedRow) else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([entry.url as NSURL])
+        pasteboard.setString(entry.url.absoluteString, forType: .string)
+    }
+
+    // MARK: NSTableViewDataSource / Delegate
+
+    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
+        if case .header = rows[row] { return true }
+        return false
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { entry(at: row) != nil }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        entry(at: row) == nil ? Self.headerHeight : Self.rowHeight
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        switch rows[row] {
+        case .header(let title):
+            let label = NSTextField(labelWithString: title)
+            label.font = .systemFont(ofSize: 13, weight: .semibold)
+            label.textColor = .secondaryLabelColor
+            return label
+        case .entry(let entry):
+            let calendar = Calendar.current
+            let time = calendar.isDate(entry.visitedAt, inSameDayAs: now()) ? Self.timeFormatter : Self.dateFormatter
+            return HistoryRowView(entry: entry, time: time.string(from: entry.visitedAt))
+        }
+    }
+}
+
+/// 历史记录列表：回车打开选中的记录，Delete 删掉它。
+@MainActor
+final class HistoryTableView: NSTableView {
+    var onOpenSelected: (() -> Void)?
+    var onDeleteSelected: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 36, 76: onOpenSelected?()
+        case 51, 117: onDeleteSelected?()
+        default: super.keyDown(with: event)
+        }
+    }
+}
+
+/// 一条历史记录：标题、网址，右侧是访问时间。
+@MainActor
+final class HistoryRowView: NSTableCellView {
+    let titleLabel: NSTextField
+    let urlLabel: NSTextField
+    let timeLabel: NSTextField
+
+    init(entry: BrowsingHistoryEntry, time: String) {
+        titleLabel = NSTextField(labelWithString: entry.displayTitle)
+        urlLabel = NSTextField(labelWithString: entry.url.absoluteString)
+        timeLabel = NSTextField(labelWithString: time)
+        super.init(frame: .zero)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        urlLabel.font = .systemFont(ofSize: 11)
+        urlLabel.textColor = .secondaryLabelColor
+        timeLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        timeLabel.textColor = .tertiaryLabelColor
+        timeLabel.alignment = .right
+        for label in [titleLabel, urlLabel] {
+            label.lineBreakMode = .byTruncatingTail
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
+        timeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        for label in [titleLabel, urlLabel, timeLabel] {
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label)
+        }
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -12),
+            urlLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            urlLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            urlLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -12),
+            timeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            timeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        textField = titleLabel
+        setAccessibilityLabel("\(entry.displayTitle)，\(entry.url.absoluteString)")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 /// 浏览窗口里的 WKWebView：右键菜单照 Safari 改（见 BrowserContextMenu），记下下一次网页打开新视图时要开成窗口还是后台标签。
 @MainActor
 final class BrowserWebView: WKWebView {

@@ -1,4 +1,5 @@
 import AppKit
+import SafarierCore
 
 /// 浏览窗口的菜单栏，结构和快捷键照 Safari。动作沿响应链发给当前标签（BrowserWindowController），
 /// 没有窗口时由 BrowserSession（应用代理）接住新建窗口 / 标签 / 恢复关闭的标签。
@@ -29,6 +30,7 @@ enum BrowserMenu {
             item("关闭标签页", #selector(BrowserActions.closeTab(_:)), "w"),
             item("关闭其他标签页", #selector(BrowserActions.closeOtherTabs(_:)), "w", [.command, .option]),
             item("关闭窗口", #selector(BrowserActions.closeWindow(_:)), "w", [.command, .shift]),
+            item("关闭窗口前询问", #selector(BrowserActions.toggleConfirmBeforeClose(_:))),
             .separator(),
             item("存储为…", #selector(BrowserActions.savePageAs(_:)), "s"),
             item("导出为 PDF…", #selector(BrowserActions.exportPDF(_:))),
@@ -71,15 +73,23 @@ enum BrowserMenu {
             item("进入全屏幕", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ]))
 
-        main.addItem(submenu("历史记录", [
+        let history = submenu("历史记录", [
             item("后退", #selector(BrowserActions.goBack(_:)), "["),
             hidden(item("后退", #selector(BrowserActions.goBack(_:)), leftArrow)),
             item("前进", #selector(BrowserActions.goForward(_:)), "]"),
             hidden(item("前进", #selector(BrowserActions.goForward(_:)), rightArrow)),
             item("起始页面", #selector(BrowserActions.goHome(_:)), "h", [.command, .shift]),
             .separator(),
+            item("显示所有历史记录", #selector(BrowserActions.showHistory(_:)), "y"),
+            .separator(),
             item("重新打开上次关闭的标签页", #selector(BrowserActions.reopenClosedTab(_:))),
-        ]))
+            item("重新打开上次会话的所有标签页", #selector(BrowserActions.restoreLastSession(_:))),
+            .separator(),
+            item("清除历史记录…", #selector(BrowserActions.clearHistory(_:))),
+        ])
+        // 最近访问的网页在菜单打开前按当前环境的历史记录填进去。
+        history.submenu?.delegate = HistoryMenuDelegate.shared
+        main.addItem(history)
 
         main.addItem(submenu("开发", [
             item("显示网页检查器", #selector(BrowserActions.showWebInspector(_:)), "i", [.command, .option]),
@@ -133,6 +143,33 @@ enum BrowserMenu {
         NSApp.windowsMenu = windowMenu
 
         return main
+    }
+
+    // MARK: - 最近访问
+
+    /// 历史记录菜单底部列出几条最近访问的网页。
+    static let recentHistoryLimit = 15
+    /// 动态加进去的菜单项（最近访问和它们下面的分隔线）用这个 tag 认出来，刷新时先删掉。
+    static let recentHistoryTag = 7_311
+
+    /// 把最近访问的网页填进「历史记录」菜单（放在「清除历史记录…」上面），点了交给响应链上的 `openHistoryEntry(_:)`。
+    static func updateRecentHistory(in menu: NSMenu, entries: [BrowsingHistoryEntry]) {
+        for item in menu.items where item.tag == recentHistoryTag { menu.removeItem(item) }
+        let recent = entries.prefix(recentHistoryLimit)
+        guard !recent.isEmpty, let clearIndex = menu.items.firstIndex(where: { $0.action == #selector(BrowserActions.clearHistory(_:)) }) else { return }
+        var index = clearIndex
+        for entry in recent {
+            let title = entry.displayTitle.count > 60 ? String(entry.displayTitle.prefix(59)) + "…" : entry.displayTitle
+            let item = NSMenuItem(title: title, action: #selector(BrowserActions.openHistoryEntry(_:)), keyEquivalent: "")
+            item.representedObject = entry.url
+            item.toolTip = entry.url.absoluteString
+            item.tag = recentHistoryTag
+            menu.insertItem(item, at: index)
+            index += 1
+        }
+        let separator = NSMenuItem.separator()
+        separator.tag = recentHistoryTag
+        menu.insertItem(separator, at: index)
     }
 
     /// 同一动作的备用快捷键（美式键盘上 ⌘+ 实际按的是 ⌘=、中文输入法下的 ⌘· 等）：菜单里不显示，快捷键照样生效（Safari 也是这样）。
@@ -198,4 +235,20 @@ enum BrowserMenu {
     @objc optional func duplicateTab(_ sender: Any?)
     @objc optional func selectTabByNumber(_ sender: Any?)
     @objc optional func toggleDownloads(_ sender: Any?)
+    @objc optional func showHistory(_ sender: Any?)
+    @objc optional func restoreLastSession(_ sender: Any?)
+    @objc optional func openHistoryEntry(_ sender: Any?)
+    @objc optional func clearHistory(_ sender: Any?)
+    @objc optional func toggleConfirmBeforeClose(_ sender: Any?)
+}
+
+/// 「历史记录」菜单打开前，按当前环境（应用代理 BrowserSession）的历史记录刷新最近访问。
+@MainActor
+final class HistoryMenuDelegate: NSObject, NSMenuDelegate {
+    static let shared = HistoryMenuDelegate()
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let session = NSApp.delegate as? BrowserSession else { return }
+        BrowserMenu.updateRecentHistory(in: menu, entries: session.history.recentEntries(BrowserMenu.recentHistoryLimit))
+    }
 }

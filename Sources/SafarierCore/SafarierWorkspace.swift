@@ -131,11 +131,20 @@ public struct SafarierWorkspace: Sendable {
         agentSocketDirectory.appendingPathComponent("\(profileID.uuidString).sock")
     }
 
-    /// 删除环境之后清掉它留下的文件：Runner 日志、锁文件、Agent socket、sing-box 的配置（含节点凭据）和 pid。只在环境没在运行时调用。
+    /// 持久环境的浏览历史和上次会话的标签（每个环境一个文件，见 `BrowsingHistoryStore`）。
+    public var historyDirectory: URL { root.appendingPathComponent("history", isDirectory: true) }
+
+    public func historyURL(for profileID: UUID) -> URL {
+        historyDirectory.appendingPathComponent("\(profileID.uuidString).json")
+    }
+
+    /// 删除环境之后清掉它留下的文件：Runner 日志、锁文件、Agent socket、sing-box 的配置（含节点凭据）和 pid、浏览历史。
+    /// 只在环境没在运行时调用。
     public func removeRunnerArtifacts(for profileID: UUID) {
         let id = profileID.uuidString
         for url in [
             runnerLogURL(for: profileID),
+            historyURL(for: profileID),
             locksDirectory.appendingPathComponent("\(id).lock"),
             agentSocketURL(for: profileID),
             singboxDirectory.appendingPathComponent("\(id).json"),

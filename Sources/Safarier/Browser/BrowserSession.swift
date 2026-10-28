@@ -35,13 +35,31 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     /// 最近关闭的标签的网址（最新的在最后），⇧⌘T 依次恢复。
     private(set) var closedTabURLs: [URL] = []
     static let closedTabLimit = 20
+    /// 本环境的浏览历史：持久环境落盘（history/<PROFILE_ID>.json），临时环境只在内存里。
+    let history: BrowsingHistoryStore
+    /// 「关闭窗口前询问」等浏览器偏好（测试换成独立的 suite）。
+    let preferences: UserDefaults
+    static let confirmBeforeCloseKey = "SafarierConfirmBeforeClosingWindows"
+    /// ⌘Q 确认后回复 AppKit（测试换掉它，不真的退出测试进程）。
+    var replyToTermination: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
 
     /// 和管理器里环境头像一样的配色（按 id 固定），方便认出窗口属于哪个环境。
     private static let palette: [NSColor] = [.systemBlue, .systemPurple, .systemPink, .systemOrange, .systemTeal, .systemGreen, .systemIndigo, .systemMint, .systemBrown]
 
-    init(profile: Profile, output: WebViewConfigurationFactory.Output, outboundDescription: String, diagnostics: SPIDiagnostics, workspace: SafarierWorkspace? = nil) {
+    init(
+        profile: Profile,
+        output: WebViewConfigurationFactory.Output,
+        outboundDescription: String,
+        diagnostics: SPIDiagnostics,
+        workspace: SafarierWorkspace? = nil,
+        history: BrowsingHistoryStore? = nil,
+        preferences: UserDefaults = .standard
+    ) {
         self.profile = profile
-        self.workspace = workspace ?? (try! SafarierWorkspace.default())
+        let workspace = workspace ?? (try! SafarierWorkspace.default())
+        self.workspace = workspace
+        self.history = history ?? BrowsingHistoryStore.store(for: profile, in: workspace)
+        self.preferences = preferences
         self.outboundDescription = outboundDescription
         self.configuration = output.configuration
         self.extensionRuntime = output.extensionRuntime
@@ -250,6 +268,115 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         return openWindow(url: url)
     }
 
+    // MARK: - 历史记录与上次会话
+
+    /// 所有开着的标签要恢复的网址：按窗口、窗口里按标签顺序；起始页和非网页不算。
+    var openTabURLs: [URL] {
+        var seen = Set<ObjectIdentifier>()
+        var urls: [URL] = []
+        for controller in controllers {
+            for window in controller.tabs where seen.insert(ObjectIdentifier(window)).inserted {
+                if let url = controllers.first(where: { $0.window === window })?.sessionURL { urls.append(url) }
+            }
+        }
+        return urls
+    }
+
+    /// 环境关闭时记下开着的标签，下次「重新打开上次会话的所有标签页」用。临时环境不留。
+    func saveLastSession(_ urls: [URL]) {
+        guard !isPrivate else { return }
+        history.setLastSessionTabURLs(urls)
+    }
+
+    /// 在 `host` 所在窗口（没有就是当前窗口，再没有就新建窗口）恢复上次会话的标签。
+    /// 当前标签还是空白起始页时第一个网址就开在它里面。
+    @discardableResult
+    func restoreLastSession(in host: BrowserWindowController?) -> [BrowserWindowController] {
+        let urls = history.lastSessionTabURLs
+        guard let first = urls.first else { return [] }
+        var opened: [BrowserWindowController] = []
+        var anchor: BrowserWindowController
+        if let host = host ?? keyController ?? frontmostController {
+            if host.isBlankStartPage {
+                host.openURL(first)
+                opened.append(host)
+            } else {
+                opened.append(openTab(in: host, url: first))
+            }
+            anchor = host
+        } else {
+            anchor = openWindow(url: first)
+            opened.append(anchor)
+        }
+        for url in urls.dropFirst() {
+            let tab = openTab(in: anchor, url: url, background: true)
+            opened.append(tab)
+            anchor = tab
+        }
+        return opened
+    }
+
+    /// 「清除历史记录…」的确认框。
+    func makeClearHistoryAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "确定要清除环境「\(profile.name)」的所有历史记录吗？"
+        alert.informativeText = "浏览记录和上次会话的标签页都会删除，网站数据和登录状态不受影响。"
+        alert.addButton(withTitle: "清除历史记录")
+        alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    // MARK: - 关闭前确认
+
+    /// 「关闭窗口前询问」，默认开启。
+    var confirmsBeforeClose: Bool {
+        get { preferences.object(forKey: Self.confirmBeforeCloseKey) as? Bool ?? true }
+        set { preferences.set(newValue, forKey: Self.confirmBeforeCloseKey) }
+    }
+
+    /// 用户主动关窗口 / 退出时要不要先确认：开关打开时，关掉的是环境的最后一个窗口（或 ⌘Q），
+    /// 或窗口里有多个标签，或正在浏览网页（不是空白起始页）就问；只关多标签窗口里的一个标签不问（和 Safari 一样）。
+    static func shouldConfirmBeforeClose(enabled: Bool, tabCount: Int, browsingPage: Bool, closesEnvironment: Bool) -> Bool {
+        guard enabled, tabCount > 0 else { return false }
+        return closesEnvironment || tabCount > 1 || browsingPage
+    }
+
+    /// 确认框的标题和说明。
+    static func closeConfirmationText(profileName: String, isPrivate: Bool, tabCount: Int, closesEnvironment: Bool) -> (message: String, informative: String) {
+        var lines: [String] = []
+        if tabCount > 1 { lines.append("当前共有 \(tabCount) 个打开的标签页。") }
+        switch (closesEnvironment, isPrivate) {
+        case (true, false): lines.append("已自动保存当前打开的标签页与登录状态，下次可在「历史记录」中一键恢复。")
+        case (true, true): lines.append("这是临时无痕环境，关闭后所有网站数据将立即销毁。")
+        case (false, false): lines.append("网站数据和登录状态保留在这个环境里，关掉的网页可在「历史记录」中找到。")
+        case (false, true): lines.append("环境的其他窗口还开着，网站数据保留到环境关闭为止。")
+        }
+        return ("确认关闭环境「\(profileName)」的浏览窗口吗？", lines.joined(separator: "\n"))
+    }
+
+    /// Safari 风格的确认框：「关闭」是默认按钮（回车），「取消」接 Esc，附「不再询问（直接关闭）」。
+    func makeCloseConfirmationAlert(tabCount: Int, closesEnvironment: Bool) -> NSAlert {
+        let text = Self.closeConfirmationText(profileName: profile.name, isPrivate: isPrivate, tabCount: tabCount, closesEnvironment: closesEnvironment)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text.message
+        alert.informativeText = text.informative
+        alert.addButton(withTitle: "关闭")
+        alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "不再询问（直接关闭）"
+        return alert
+    }
+
+    /// 确认框的结果：选了「关闭」返回 true；同时勾了「不再询问」就关掉开关。
+    func acceptCloseConfirmation(_ alert: NSAlert, response: NSApplication.ModalResponse) -> Bool {
+        guard response == .alertFirstButtonReturn else { return false }
+        if alert.suppressionButton?.state == .on { confirmsBeforeClose = false }
+        return true
+    }
+
+    @objc func toggleConfirmBeforeClose(_ sender: Any?) { confirmsBeforeClose.toggle() }
+
     private var keyController: BrowserWindowController? {
         guard let key = NSApp.keyWindow else { return nil }
         return controllers.first { $0.window === key }
@@ -312,6 +439,23 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         }
     }
     @objc func reopenClosedTab(_ sender: Any?) { reopenClosedTab(in: nil) }
+    @objc func restoreLastSession(_ sender: Any?) { restoreLastSession(in: nil) }
+    /// 没有浏览窗口时：⌘Y 新开一个窗口显示历史记录，最近访问在新窗口里打开。
+    @objc func showHistory(_ sender: Any?) {
+        (frontmostController ?? openWindow(url: nil)).displayHistory()
+    }
+    @objc func openHistoryEntry(_ sender: Any?) {
+        guard let url = (sender as? NSMenuItem)?.representedObject as? URL else { return }
+        if let host = frontmostController {
+            host.openURL(url)
+        } else {
+            openWindow(url: url)
+        }
+    }
+    @objc func clearHistory(_ sender: Any?) {
+        if let host = frontmostController { return host.clearHistory(sender) }
+        if makeClearHistoryAlert().runModal() == .alertFirstButtonReturn { history.clear() }
+    }
     @objc func cycleWindowsForward(_ sender: Any?) { cycleWindows(forward: true) }
     @objc func cycleWindowsBackward(_ sender: Any?) { cycleWindows(forward: false) }
 
@@ -337,8 +481,15 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
             return true
         case #selector(reopenClosedTab(_:)):
             return !closedTabURLs.isEmpty
+        case #selector(restoreLastSession(_:)):
+            return !history.lastSessionTabURLs.isEmpty
+        case #selector(clearHistory(_:)):
+            return !history.entries.isEmpty || !history.lastSessionTabURLs.isEmpty
+        case #selector(toggleConfirmBeforeClose(_:)):
+            item.state = confirmsBeforeClose ? .on : .off
+            return true
         case #selector(newWindow(_:)), #selector(newTab(_:)), #selector(focusLocation(_:)),
-             #selector(cycleWindowsForward(_:)), #selector(cycleWindowsBackward(_:)):
+             #selector(cycleWindowsForward(_:)), #selector(cycleWindowsBackward(_:)), #selector(showHistory(_:)), #selector(openHistoryEntry(_:)):
             return true
         default:
             return false
@@ -354,7 +505,27 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         return true
     }
 
+    /// ⌘Q（菜单、Dock）：开关打开且还有浏览窗口时，在最前面的窗口上先确认。
+    /// 注销、重启、关机发来的退出不问；管理器结束环境用信号，不经过这里。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let browsing = controllers.contains { $0.displayURL != nil }
+        guard Self.shouldConfirmBeforeClose(enabled: confirmsBeforeClose, tabCount: controllers.count, browsingPage: browsing, closesEnvironment: true),
+              !Self.isSystemInitiatedQuit, let host = keyController ?? frontmostController else { return .terminateNow }
+        guard host.window.attachedSheet == nil else { return .terminateCancel }
+        host.presentCloseConfirmation(tabCount: controllers.count, closesEnvironment: true) { [weak self] confirmed in
+            self?.replyToTermination(confirmed)
+        }
+        return .terminateLater
+    }
+
+    /// 退出是不是注销 / 重启 / 关机带来的（Apple 事件里带着退出原因）。
+    private static var isSystemInitiatedQuit: Bool {
+        NSAppleEventManager.shared().currentAppleEvent?.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) != nil
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        // ⌘Q 时窗口都还开着：记下全部标签。关掉最后一个窗口时已经在关窗口那里记过了。
+        if !controllers.isEmpty { saveLastSession(openTabURLs) }
         stopAgentBridge()
         RunnerMain.stopSingbox()
     }

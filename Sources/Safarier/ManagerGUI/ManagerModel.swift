@@ -276,7 +276,8 @@ final class ManagerModel: ObservableObject {
             defer { purging.remove(profile.id) }
             do {
                 try await DataStoreManager().removePersistentData(for: profile.id)
-                message = Message(title: "已清理「\(profile.name)」", detail: "Cookie、登录状态、本地存储和缓存都已删除，环境配置保留。")
+                try? FileManager.default.removeItem(at: workspace.historyURL(for: profile.id))
+                message = Message(title: "已清理「\(profile.name)」", detail: "Cookie、登录状态、本地存储、缓存和浏览历史都已删除，环境配置保留。")
             } catch {
                 report("清理「\(profile.name)」的数据失败", error)
             }

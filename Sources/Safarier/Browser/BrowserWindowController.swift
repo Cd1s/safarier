@@ -44,6 +44,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private var inspectorDismissedStartPage = false
     /// 脱敏的导航诊断（「开发 → 拷贝环境诊断摘要」用）。只有状态码、次数和错误码，不记网址、Cookie、账号。
     private(set) var navigationDiagnostics = NavigationDiagnostics()
+    /// ⌘Y 的历史记录视图，第一次显示时才建。
+    private(set) var historyPage: HistoryPageView?
+    /// 当前标签正显示历史记录（盖在网页上，下面的网页保留）。
+    private(set) var showingHistory = false
+    /// 正在显示的关闭确认 / 清除历史确认（测试用）。
+    private(set) var closeConfirmation: NSAlert?
+    private(set) var clearHistoryConfirmation: NSAlert?
 
     struct NavigationDiagnostics: Equatable {
         /// 最近一次主框架响应的 HTTP 状态码；新导航开始时清空，非 HTTP 响应（about:、出错页）没有。
@@ -160,7 +167,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private func observe() {
         observations = [
             webView.observe(\.url, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.updateState() } },
-            webView.observe(\.title, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.updateTitle() } },
+            webView.observe(\.title, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.titleChanged() } },
             webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.updateState() } },
             webView.observe(\.estimatedProgress, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.updateState() } },
             webView.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] _, _ in MainActor.assumeIsolated { self?.updateState() } },
@@ -172,9 +179,19 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     /// 起始页是不是正显示着（测试和诊断用）。
     var isShowingStartPage: Bool { !startPage.isHidden }
 
-    /// 地址栏、标题、菜单用的当前网址：起始页（新标签或 ⇧⌘H）时为 nil。
+    /// 地址栏、标题、菜单用的当前网址：起始页（新标签或 ⇧⌘H）和历史记录视图时为 nil。
     var displayURL: URL? {
-        showingHome ? nil : webView.url
+        showingHome || showingHistory ? nil : webView.url
+    }
+
+    /// 还是没打开过网页的空白起始页（恢复上次会话时第一个网址直接开在这里）。
+    var isBlankStartPage: Bool {
+        isShowingStartPage && !showingHistory && !webView.isLoading && failedURL == nil
+    }
+
+    /// 环境关闭时要记下、下次恢复的网址：出错页记原本要打开的网址；起始页、about: 等不算。
+    var sessionURL: URL? {
+        (failedURL ?? webView.url).flatMap { BrowsingHistoryStore.isRecordable($0) ? $0 : nil }
     }
 
     func updateState() {
@@ -184,14 +201,16 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
             showingHome = !isPopup && !inspectorDismissedStartPage && url.absoluteString == "about:blank"
         }
         let url = displayURL
-        startPage.isHidden = isPopup || inspectorDismissedStartPage || url != nil || (webView.isLoading && !showingHome)
+        startPage.isHidden = showingHistory || isPopup || inspectorDismissedStartPage || url != nil || (webView.isLoading && !showingHome)
         addressBar.update(url: url, isLoading: webView.isLoading && !showingHome, progress: webView.estimatedProgress, secure: webView.hasOnlySecureContent)
         updateTitle()
     }
 
     /// 标签上显示网页标题；没有标题时显示域名，和 Safari 一样。
     private func updateTitle() {
-        if showingHome {
+        if showingHistory {
+            window.title = "历史记录"
+        } else if showingHome {
             window.title = "起始页面"
         } else if let title = webView.title, !title.isEmpty {
             window.title = title
@@ -214,12 +233,22 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         }
     }
 
+    /// 网页改了标题（单页应用常在载入完之后才改）：历史记录跟着更新。
+    private func titleChanged() {
+        updateTitle()
+        if failedURL == nil, let url = webView.url, let title = webView.title { session.history.updateTitle(title, for: url) }
+    }
+
     private func navigate(to text: String) {
         guard let url = AddressInput.url(for: text) else { return }
         open(url)
     }
 
+    /// 在这个标签里打开网址（历史记录、恢复上次会话用）。
+    func openURL(_ url: URL) { open(url) }
+
     private func open(_ url: URL) {
+        hideHistory()
         failedURL = nil
         showingHome = false
         webView.load(URLRequest(url: url))
@@ -268,8 +297,60 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     @objc func closeOtherTabs(_ sender: Any?) {
         for tab in tabs where tab !== window { tab.performClose(sender) }
     }
-    @objc func closeWindow(_ sender: Any?) {
-        for tab in window.tabbedWindows ?? [window] { tab.performClose(sender) }
+    /// ⇧⌘W：关掉整个窗口（所有标签），需要时先确认。
+    @objc func closeWindow(_ sender: Any?) { requestCloseWindow() }
+
+    /// 这次关闭是不是用户用鼠标点了窗口左上角的红叉（而不是 ⌘W、标签栏上的 ×、标签的右键菜单）。
+    /// 红叉、⌘W 和 performClose 在 AppKit 里走的是同一个动作，只能看触发它的事件落在哪里。
+    static func isCloseButtonClick(_ event: NSEvent?, in window: NSWindow) -> Bool {
+        guard let event, event.type == .leftMouseUp || event.type == .leftMouseDown, event.windowNumber == window.windowNumber,
+              let button = window.standardWindowButton(.closeButton), let superview = button.superview, !button.isHidden else { return false }
+        return button.frame.contains(superview.convert(event.locationInWindow, from: nil))
+    }
+
+    /// 窗口里的标签控制器，按标签顺序。
+    private var tabControllers: [BrowserWindowController] {
+        tabs.compactMap { tab in session.openControllers.first { $0.window === tab } }
+    }
+
+    /// 环境的标签是不是全在这个窗口里：关掉它就关掉了整个环境。
+    private var closingWindowEndsEnvironment: Bool {
+        let mine = Set(tabs.map(ObjectIdentifier.init))
+        return session.openControllers.allSatisfy { mine.contains(ObjectIdentifier($0.window)) }
+    }
+
+    /// 红叉、⇧⌘W：像 Safari 一样关掉整个窗口。按 `shouldConfirmBeforeClose` 需要时先在窗口上弹确认。
+    func requestCloseWindow() {
+        guard window.attachedSheet == nil else { return NSSound.beep() }
+        let group = tabControllers
+        let endsEnvironment = closingWindowEndsEnvironment
+        let browsing = group.contains { $0.displayURL != nil }
+        guard BrowserSession.shouldConfirmBeforeClose(enabled: session.confirmsBeforeClose, tabCount: group.count,
+                                                      browsingPage: browsing, closesEnvironment: endsEnvironment) else {
+            return closeAllTabs(savingSession: endsEnvironment)
+        }
+        presentCloseConfirmation(tabCount: group.count, closesEnvironment: endsEnvironment) { [weak self] confirmed in
+            if confirmed { self?.closeAllTabs(savingSession: endsEnvironment) }
+        }
+    }
+
+    /// 直接关掉窗口里的所有标签（不再经过 windowShouldClose）。关掉的是环境的最后一个窗口时先记下上次会话。
+    private func closeAllTabs(savingSession: Bool) {
+        if savingSession { session.saveLastSession(session.openTabURLs) }
+        for tab in tabs where tab !== window { tab.close() }
+        window.close()
+    }
+
+    /// 在这个窗口上弹关闭确认（sheet）。`completion` 收到用户是不是选了「关闭」。
+    func presentCloseConfirmation(tabCount: Int, closesEnvironment: Bool, completion: @escaping (Bool) -> Void) {
+        let alert = session.makeCloseConfirmationAlert(tabCount: tabCount, closesEnvironment: closesEnvironment)
+        closeConfirmation = alert
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            self.closeConfirmation = nil
+            completion(self.session.acceptCloseConfirmation(alert, response: response))
+        }
     }
 
     /// ⌘S：把当前页面（DOM）存成 .html。
@@ -385,6 +466,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     }
     @objc func stopLoading(_ sender: Any?) { webView.stopLoading() }
     @objc func reloadPage(_ sender: Any?) {
+        hideHistory()
         if let failedURL {
             self.failedURL = nil
             webView.load(URLRequest(url: failedURL))
@@ -428,15 +510,18 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     }
 
     @objc func goBack(_ sender: Any?) {
+        hideHistory()
         failedURL = nil
         webView.goBack()
     }
     @objc func goForward(_ sender: Any?) {
+        hideHistory()
         failedURL = nil
         webView.goForward()
     }
     /// ⇧⌘H：打开环境的起始网址；没设时回到起始页。
     @objc func goHome(_ sender: Any?) {
+        hideHistory()
         if let start = session.profile.startURL {
             open(start)
         } else {
@@ -455,6 +540,70 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         pasteboard.setString(url.absoluteString, forType: .string)
     }
     @objc func toggleInspectable(_ sender: Any?) { session.toggleInspectable(sender) }
+
+    // MARK: 历史记录
+
+    /// ⌘Y：在当前标签显示历史记录，再按一次回到网页。
+    @objc func showHistory(_ sender: Any?) {
+        showingHistory ? hideHistory() : displayHistory()
+    }
+
+    func displayHistory() {
+        let page = historyPage ?? makeHistoryPage()
+        showingHistory = true
+        page.reload()
+        page.isHidden = false
+        updateState()
+        window.makeFirstResponder(page.searchField)
+    }
+
+    func hideHistory() {
+        guard showingHistory else { return }
+        showingHistory = false
+        historyPage?.isHidden = true
+        updateState()
+        if displayURL != nil { window.makeFirstResponder(webView) }
+    }
+
+    /// 和起始页一样叠在网页上（跟着 webView 的边，停靠的网页检查器不会被盖住）。
+    private func makeHistoryPage() -> HistoryPageView {
+        let page = HistoryPageView(store: session.history, isPrivate: session.isPrivate)
+        page.onOpenURL = { [weak self] url in self?.openURL(url) }
+        page.onClearRequested = { [weak self] in self?.clearHistory(nil) }
+        page.translatesAutoresizingMaskIntoConstraints = false
+        page.isHidden = true
+        window.contentView?.addSubview(page)
+        NSLayoutConstraint.activate([
+            page.leadingAnchor.constraint(equalTo: webView.leadingAnchor),
+            page.trailingAnchor.constraint(equalTo: webView.trailingAnchor),
+            page.topAnchor.constraint(equalTo: webView.topAnchor),
+            page.bottomAnchor.constraint(equalTo: webView.bottomAnchor),
+        ])
+        historyPage = page
+        return page
+    }
+
+    @objc func restoreLastSession(_ sender: Any?) { session.restoreLastSession(in: self) }
+
+    /// 历史记录菜单底部的最近访问：在当前标签打开。
+    @objc func openHistoryEntry(_ sender: Any?) {
+        guard let url = (sender as? NSMenuItem)?.representedObject as? URL else { return }
+        openURL(url)
+    }
+
+    /// 清除历史记录…：先在窗口上确认。
+    @objc func clearHistory(_ sender: Any?) {
+        guard window.attachedSheet == nil else { return NSSound.beep() }
+        let alert = session.makeClearHistoryAlert()
+        clearHistoryConfirmation = alert
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            self.clearHistoryConfirmation = nil
+            if response == .alertFirstButtonReturn { self.session.history.clear() }
+        }
+    }
+
+    @objc func toggleConfirmBeforeClose(_ sender: Any?) { session.toggleConfirmBeforeClose(sender) }
 
     // MARK: 开发
 
@@ -627,7 +776,12 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
             item.title = WebViewSPI.isInspectorVisible(webView) ? "关闭网页检查器" : "显示网页检查器"
             return WebViewSPI.hasInspector(webView)
         case #selector(showJavaScriptConsole(_:)): return WebViewSPI.hasInspector(webView)
-        case #selector(toggleInspectable(_:)): return session.validateMenuItem(item)
+        case #selector(toggleInspectable(_:)), #selector(restoreLastSession(_:)), #selector(clearHistory(_:)),
+             #selector(toggleConfirmBeforeClose(_:)):
+            return session.validateMenuItem(item)
+        case #selector(showHistory(_:)):
+            item.title = showingHistory ? "隐藏历史记录" : "显示所有历史记录"
+            return true
         default: return true
         }
     }
@@ -726,6 +880,34 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
             self.wantsAddressFocus = false
             self.addressBar.focus()
         }
+    }
+
+    /// 用户关窗口 / 标签（红叉、⌘W、标签栏上的 ×）。代码直接调 close() 不经过这里（Agent、测试）。
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        shouldClose(fromCloseButton: Self.isCloseButtonClick(NSApp.currentEvent, in: window))
+    }
+
+    /// 返回 AppKit 要不要接着关这个标签：
+    /// - ⌘W、标签栏上的 ×：多标签窗口里只关这一个标签，不问（和 Safari 一样）；
+    /// - 红叉，或者窗口里只剩这一个标签：等于关窗口，按 `shouldConfirmBeforeClose` 需要时先确认；
+    ///   多标签窗口由 `requestCloseWindow` 自己关掉所有标签，这里返回 false。
+    func shouldClose(fromCloseButton: Bool) -> Bool {
+        guard fromCloseButton || tabs.count == 1 else { return true }
+        guard window.attachedSheet == nil else { return false }
+        guard tabs.count == 1 else {
+            requestCloseWindow()
+            return false
+        }
+        let endsEnvironment = closingWindowEndsEnvironment
+        guard BrowserSession.shouldConfirmBeforeClose(enabled: session.confirmsBeforeClose, tabCount: 1,
+                                                      browsingPage: displayURL != nil, closesEnvironment: endsEnvironment) else {
+            if endsEnvironment { session.saveLastSession(session.openTabURLs) }
+            return true
+        }
+        presentCloseConfirmation(tabCount: 1, closesEnvironment: endsEnvironment) { [weak self] confirmed in
+            if confirmed { self?.closeAllTabs(savingSession: endsEnvironment) }
+        }
+        return false
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -955,6 +1137,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         pendingNavigationURL = nil
+        // 出错页不记（failedURL 指着它）；起始页、about: 等由历史记录自己过滤掉。
+        if failedURL == nil, let url = webView.url { session.history.recordVisit(url, title: webView.title) }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

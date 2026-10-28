@@ -19,19 +19,22 @@ public struct DeviceSimulation {
         self.diagnostics = diagnostics
     }
 
-    /// 屏幕能力（进程级）：让 WebKit 收集到的 ScreenProperties 是这款机型内建屏的样子——
-    /// MacBook 的 P3 色域、MacBook Pro 的 XDR（HDR）。网页的 `color-gamut` / `dynamic-range` 媒体查询由 WebKit 原生算出，
-    /// 不注入脚本。必须在第一个 WKWebView 创建前调用。机型不支持的项按机型报（sRGB / SDR），
-    /// 不沿用宿主机：在 XDR 宿主机上选非 HDR 机型，网页读到的也是 SDR。
+    /// 屏幕能力（进程级）：让 WebKit 收集到的 ScreenProperties 是这款机型显示器的样子——
+    /// 分辨率与可用区域、P3 色域、XDR（HDR）。网页的 `screen` 尺寸（关闭高级隐私保护时）和
+    /// `color-gamut` / `dynamic-range` 媒体查询由 WebKit 原生算出，不注入脚本。必须在第一个 WKWebView 创建前调用。
+    /// 机型不支持的项按机型报（sRGB / SDR），不沿用宿主机：在 XDR 宿主机上选非 HDR 机型，网页读到的也是 SDR。
+    /// 窗口布局（AppKit、主程序）仍然用宿主机的真实屏幕，见 `hostVisibleFrame`。
     public static func installDisplayOverride(for model: MacDeviceModel, diagnostics: SPIDiagnostics) -> CapabilityState {
         switch SPIRuntimeBridge.installDisplayOverride(
             p3: model.displayP3, hdr: model.displayHDR,
-            maxHeadroom: model.maxEDRHeadroom, currentHeadroom: model.currentEDRHeadroom
+            maxHeadroom: model.maxEDRHeadroom, currentHeadroom: model.currentEDRHeadroom,
+            screenWidth: Double(model.screenWidth), screenHeight: Double(model.screenHeight), availHeight: Double(model.availHeight)
         ) {
         case .success:
             let gamut = model.displayP3 ? "P3 色域" : "sRGB"
             let range = model.displayHDR ? "HDR（EDR 余量 \(Self.format(model.maxEDRHeadroom))）" : "SDR"
-            let text = "\(model.name)：\(gamut)、\(range)（替换 NSScreen / AVPlayer 的屏幕查询，WebKit 原生算出媒体查询）"
+            let geometry = "屏幕 \(model.screenWidth)×\(model.screenHeight)（可用 \(model.availWidth)×\(model.availHeight)）"
+            let text = "\(model.name)：\(geometry)、\(gamut)、\(range)（替换 NSScreen / AVPlayer 的屏幕查询，WebKit 原生算出 screen 与媒体查询）"
             diagnostics.record("display：\(text)")
             return .active(text)
         case .failure(let failure):
@@ -42,6 +45,11 @@ public struct DeviceSimulation {
 
     public static func removeDisplayOverride() {
         SPIRuntimeBridge.removeDisplayOverride()
+    }
+
+    /// 宿主机主屏幕真实的可用区域：显示器模拟期间也不变，给窗口布局（初始窗口能放多大）用。
+    public static var hostVisibleFrame: CGRect {
+        SPIRuntimeBridge.hostVisibleFrame()
     }
 
     private static func format(_ value: Double) -> String {

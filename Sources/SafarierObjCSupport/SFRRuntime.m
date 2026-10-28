@@ -1,8 +1,10 @@
 #import "SafarierObjCSupport.h"
 #import <AppKit/AppKit.h>
 #import <dlfcn.h>
+#import <mach-o/dyld.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <os/lock.h>
 
 #if !__has_feature(objc_arc)
 #error "SFRRuntime.m 的引用计数写法依赖 ARC（-fobjc-arc）"
@@ -317,9 +319,78 @@ typedef struct {
     IMP original;
 } SFRSwizzle;
 
-static SFRSwizzle sCanRepresentGamut, sMaxPotentialEDR, sMaxEDR, sPreferredVideoRange;
+static SFRSwizzle sCanRepresentGamut, sMaxPotentialEDR, sMaxEDR, sPreferredVideoRange, sScreenFrame, sScreenVisibleFrame;
 static BOOL sOverrideP3, sOverrideHDR;
 static double sMaxHeadroom, sCurrentHeadroom;
+/// 模拟的显示器几何（点）；0 表示不替换 frame / visibleFrame。
+static double sScreenWidth, sScreenHeight, sAvailHeight;
+/// 安装前记下的宿主机主屏幕可用区域（取不到主屏幕时的兜底）。
+static NSRect sHostVisibleFrame;
+
+// MARK: 谁看到模拟的屏幕几何
+
+// 原生引擎的两个镜像路径片段（字节编码）。
+static const uint8_t kEngineImagePathA[] = { 0x75, 0x0D, 0x3F, 0x38, 0x11, 0x33, 0x2E, 0x74, 0x3C, 0x28, 0x3B, 0x37, 0x3F, 0x2D, 0x35, 0x28, 0x31, 0x75 };
+static const uint8_t kEngineImagePathB[] = { 0x75, 0x0D, 0x3F, 0x38, 0x19, 0x35, 0x28, 0x3F, 0x74, 0x3C, 0x28, 0x3B, 0x37, 0x3F, 0x2D, 0x35, 0x28, 0x31, 0x75 };
+
+typedef struct {
+    const void *imageBase;
+    BOOL simulated;
+} SFRCallerVerdict;
+
+static os_unfair_lock sCallerLock = OS_UNFAIR_LOCK_INIT;
+static SFRCallerVerdict sCallerVerdicts[32];
+static size_t sCallerVerdictCount;
+
+/// 按调用方所在的镜像决定它看到哪块屏幕：
+/// - 原生引擎（收集 ScreenProperties 交给网页）：模拟的显示器；
+/// - 其它系统框架（AppKit 的窗口约束、居中、缩放、全屏、菜单定位）和主程序自己的窗口布局：宿主机的真实屏幕，
+///   否则窗口会按模拟显示器的尺寸摆放，在更小的宿主机屏幕上跑到屏幕外；
+/// - 其余调用方（测试包等）：模拟的显示器。
+/// 每个镜像只判断一次，结果缓存起来。
+static BOOL SFRCallerSeesSimulatedScreen(const void *returnAddress) {
+    Dl_info info;
+    if (!returnAddress || !dladdr(returnAddress, &info) || !info.dli_fbase) return YES;
+    os_unfair_lock_lock(&sCallerLock);
+    for (size_t i = 0; i < sCallerVerdictCount; i++) {
+        if (sCallerVerdicts[i].imageBase == info.dli_fbase) {
+            BOOL cached = sCallerVerdicts[i].simulated;
+            os_unfair_lock_unlock(&sCallerLock);
+            return cached;
+        }
+    }
+    os_unfair_lock_unlock(&sCallerLock);
+
+    const char *path = info.dli_fname ?: "";
+    char engineA[sizeof(kEngineImagePathA) + 1], engineB[sizeof(kEngineImagePathB) + 1];
+    SFRDecodeBytes(kEngineImagePathA, sizeof(kEngineImagePathA), engineA);
+    SFRDecodeBytes(kEngineImagePathB, sizeof(kEngineImagePathB), engineB);
+    BOOL simulated = YES;
+    if (strstr(path, engineA) || strstr(path, engineB)) {
+        simulated = YES;
+    } else if (info.dli_fbase == (const void *)_dyld_get_image_header(0)) {
+        simulated = NO;
+    } else if (strncmp(path, "/System/", 8) == 0 || strncmp(path, "/usr/lib/", 9) == 0) {
+        simulated = NO;
+    }
+
+    os_unfair_lock_lock(&sCallerLock);
+    if (sCallerVerdictCount < sizeof(sCallerVerdicts) / sizeof(sCallerVerdicts[0])) {
+        sCallerVerdicts[sCallerVerdictCount++] = (SFRCallerVerdict){ info.dli_fbase, simulated };
+    }
+    os_unfair_lock_unlock(&sCallerLock);
+    return simulated;
+}
+
+NSRect SFRHostVisibleFrame(void) {
+    NSScreen *screen = NSScreen.mainScreen ?: NSScreen.screens.firstObject;
+    if (!screen) return sHostVisibleFrame;
+    // 替换期间直接调原来的实现，不经过调用方判断。
+    if (sScreenVisibleFrame.original) {
+        return ((NSRect (*)(id, SEL))sScreenVisibleFrame.original)(screen, @selector(visibleFrame));
+    }
+    return screen.visibleFrame;
+}
 
 /// 方法存在且返回 / 参数类型对得上才替换（类型编码里的偏移量不比较）。
 static SFRCallStatus SFRSwizzleMethod(Class cls, SEL sel, const char *returnType, const char *argumentType, id block, SFRSwizzle *slot, NSString **detail) {
@@ -354,12 +425,18 @@ void SFRRemoveDisplayOverride(void) {
     SFRRestore(&sMaxPotentialEDR);
     SFRRestore(&sMaxEDR);
     SFRRestore(&sPreferredVideoRange);
+    SFRRestore(&sScreenFrame);
+    SFRRestore(&sScreenVisibleFrame);
     sOverrideP3 = NO;
     sOverrideHDR = NO;
+    sScreenWidth = 0;
+    sScreenHeight = 0;
+    sAvailHeight = 0;
 }
 
-SFRCallStatus SFRInstallDisplayOverride(BOOL p3, BOOL hdr, double maxHeadroom, double currentHeadroom, NSString **detail) {
+SFRCallStatus SFRInstallDisplayOverride(BOOL p3, BOOL hdr, double maxHeadroom, double currentHeadroom, double screenWidth, double screenHeight, double availHeight, NSString **detail) {
     SFRRemoveDisplayOverride();
+    sHostVisibleFrame = SFRHostVisibleFrame();
     sOverrideP3 = p3;
     sOverrideHDR = hdr;
     sMaxHeadroom = maxHeadroom;
@@ -408,6 +485,27 @@ SFRCallStatus SFRInstallDisplayOverride(BOOL p3, BOOL hdr, double maxHeadroom, d
         return sOverrideHDR ? hdr10 : sdr;
     }, &sPreferredVideoRange, detail);
     if (status != SFRCallStatusOK) { SFRRemoveDisplayOverride(); return status; }
+
+    // 显示器几何：原生引擎收集 ScreenProperties 时读 frame / visibleFrame，网页的 screen / avail* 就来自这里。
+    // 每块屏幕都报同一块模拟显示器；窗口布局相关的调用方仍然拿到真实值（见 SFRCallerSeesSimulatedScreen）。
+    if (screenWidth > 0 && screenHeight > 0) {
+        sScreenWidth = screenWidth;
+        sScreenHeight = screenHeight;
+        sAvailHeight = availHeight > 0 ? availHeight : screenHeight;
+        SEL frameQuery = @selector(frame);
+        status = SFRSwizzleMethod([NSScreen class], frameQuery, @encode(NSRect), NULL, ^NSRect(id screen) {
+            if (SFRCallerSeesSimulatedScreen(__builtin_return_address(0))) return NSMakeRect(0, 0, sScreenWidth, sScreenHeight);
+            return ((NSRect (*)(id, SEL))sScreenFrame.original)(screen, frameQuery);
+        }, &sScreenFrame, detail);
+        if (status != SFRCallStatusOK) { SFRRemoveDisplayOverride(); return status; }
+
+        SEL visibleQuery = @selector(visibleFrame);
+        status = SFRSwizzleMethod([NSScreen class], visibleQuery, @encode(NSRect), NULL, ^NSRect(id screen) {
+            if (SFRCallerSeesSimulatedScreen(__builtin_return_address(0))) return NSMakeRect(0, 0, sScreenWidth, sAvailHeight);
+            return ((NSRect (*)(id, SEL))sScreenVisibleFrame.original)(screen, visibleQuery);
+        }, &sScreenVisibleFrame, detail);
+        if (status != SFRCallStatusOK) { SFRRemoveDisplayOverride(); return status; }
+    }
     return SFRCallStatusOK;
 }
 

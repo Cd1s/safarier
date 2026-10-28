@@ -35,7 +35,8 @@ final class MacDeviceModelTests: XCTestCase {
             XCTAssertEqual(model.scale, 2, model.name)
         }
         let studio = MacDeviceModel.macStudioM2Ultra
-        XCTAssertEqual([studio.viewportWidth, studio.viewportHeight, studio.scale], [1680, 1050, 2])
+        XCTAssertEqual([studio.screenWidth, studio.screenHeight, studio.scale], [2560, 1440, 2], "Studio Display 5K 默认「看起来像」2560×1440")
+        XCTAssertEqual([studio.viewportWidth, studio.viewportHeight], [1600, 960])
         XCTAssertTrue(studio.displayP3)
         XCTAssertFalse(studio.displayHDR)
         XCTAssertEqual([studio.cpuCores, studio.gpuCores], [24, 76])
@@ -47,7 +48,7 @@ final class MacDeviceModelTests: XCTestCase {
         XCTAssertTrue(macPro.displayP3 && macPro.displayHDR)
     }
 
-    /// M4 / M5 世代：MacBook Pro 是 XDR，MacBook Air 是 P3 + SDR，Mac Studio 按 Studio Display（1680×1050 @2x，P3，SDR）。
+    /// M4 / M5 世代：MacBook Pro 是 XDR，MacBook Air 是 P3 + SDR，Mac Studio 按 Studio Display（2560×1440 @2x，P3，SDR，初始窗口 1600×960）。
     func testLatestGenerationPresets() throws {
         let expected: [(id: String, name: String, chip: String, cpu: Int, gpu: Int, size: CGSize)] = [
             ("macbook-pro-16-m5-max", "MacBook Pro 16\" (M5 Max)", "Apple M5 Max", 16, 40, CGSize(width: 1728, height: 1117)),
@@ -57,8 +58,8 @@ final class MacDeviceModelTests: XCTestCase {
             ("macbook-pro-14-m5", "MacBook Pro 14\" (M5)", "Apple M5", 10, 10, CGSize(width: 1512, height: 982)),
             ("macbook-air-15-m4", "MacBook Air 15\" (M4)", "Apple M4", 10, 10, CGSize(width: 1710, height: 1107)),
             ("macbook-air-13-m4", "MacBook Air 13\" (M4)", "Apple M4", 10, 10, CGSize(width: 1470, height: 956)),
-            ("mac-studio-m3-ultra", "Mac Studio (M3 Ultra · Studio Display)", "Apple M3 Ultra", 28, 60, CGSize(width: 1680, height: 1050)),
-            ("mac-studio-m4-max", "Mac Studio (M4 Max · Studio Display)", "Apple M4 Max", 16, 40, CGSize(width: 1680, height: 1050)),
+            ("mac-studio-m3-ultra", "Mac Studio (M3 Ultra · Studio Display)", "Apple M3 Ultra", 28, 60, CGSize(width: 1600, height: 960)),
+            ("mac-studio-m4-max", "Mac Studio (M4 Max · Studio Display)", "Apple M4 Max", 16, 40, CGSize(width: 1600, height: 960)),
         ]
         for item in expected {
             let model = try XCTUnwrap(MacDeviceModel.preset(item.id), item.id)
@@ -85,6 +86,69 @@ final class MacDeviceModelTests: XCTestCase {
     }
 
     /// 旧 JSON 里没有 category 字段也能解码。
+    // MARK: - 显示器几何（Issue #1）
+
+    /// 笔记本：显示器就是内建屏，屏幕等于初始视口；刘海屏菜单栏 37（M1 款 Air 没有刘海，25）。
+    func testLaptopScreenGeometry() {
+        let laptops = MacDeviceModel.presets.filter { $0.id.hasPrefix("macbook") }
+        XCTAssertEqual(laptops.count, 23)
+        for model in laptops {
+            XCTAssertEqual(model.screenSize, model.viewportSize, model.id)
+            XCTAssertEqual(model.menuBarHeight, model.id == "macbook-air-13-m1" ? 25 : 37, model.id)
+            XCTAssertEqual(model.availWidth, model.screenWidth, model.id)
+            XCTAssertEqual(model.availHeight, model.screenHeight - model.menuBarHeight, model.id)
+        }
+        let mbp16 = MacDeviceModel.macBookPro16M3Max
+        XCTAssertEqual([mbp16.screenWidth, mbp16.screenHeight, mbp16.availWidth, mbp16.availHeight], [1728, 1117, 1728, 1080])
+        let air = MacDeviceModel.macBookAir13M2
+        XCTAssertEqual([air.screenWidth, air.screenHeight, air.availHeight], [1470, 956, 919])
+    }
+
+    /// 台式机和 iMac：屏幕是搭配的显示器的「看起来像」分辨率，初始窗口比屏幕小，菜单栏 25。
+    func testDesktopScreenGeometry() throws {
+        let expected: [(prefix: String, screen: [Int], viewport: [Int])] = [
+            ("mac-mini-m4", [1920, 1080], [1440, 820]),
+            ("mac-mini-m4-pro", [1920, 1080], [1440, 820]),
+            ("mac-mini-m2", [1920, 1080], [1440, 810]),
+            ("mac-studio-", [2560, 1440], [1600, 960]),
+            ("mac-pro-m2-ultra", [3008, 1692], [1680, 1000]),
+            ("imac-24-", [2240, 1260], [1600, 900]),
+        ]
+        var covered = Set<String>()
+        for item in expected {
+            let models = MacDeviceModel.presets.filter { item.prefix.hasSuffix("-") ? $0.id.hasPrefix(item.prefix) : $0.id == item.prefix }
+            XCTAssertFalse(models.isEmpty, item.prefix)
+            for model in models {
+                covered.insert(model.id)
+                XCTAssertEqual([model.screenWidth, model.screenHeight], item.screen, model.id)
+                XCTAssertEqual([model.viewportWidth, model.viewportHeight], item.viewport, model.id)
+                XCTAssertEqual(model.menuBarHeight, 25, model.id)
+                XCTAssertEqual(model.availHeight, model.screenHeight - 25, model.id)
+                // 关闭高级隐私保护时 outer（视口 + 52pt 工具栏）不能比可用区域还大，否则真机上不可能出现。
+                XCTAssertLessThanOrEqual(model.viewportWidth, model.availWidth, model.id)
+                XCTAssertLessThanOrEqual(model.viewportHeight + 52, model.availHeight, model.id)
+            }
+        }
+        let desktops = MacDeviceModel.presets.filter { $0.category == "台式主机" || $0.category == "iMac 24\"" }
+        XCTAssertEqual(Set(desktops.map(\.id)), covered, "每台台式机 / iMac 都有显示器几何")
+        XCTAssertEqual(try XCTUnwrap(MacDeviceModel.preset("mac-studio-m4-max")).screenSize, CGSize(width: 2560, height: 1440))
+    }
+
+    /// 旧 JSON 没有屏幕几何：屏幕退回视口尺寸，菜单栏 25；新字段能原样读回。
+    func testDecodesModelWithoutScreenGeometry() throws {
+        let json = #"{"id":"x","name":"X","chip":"Apple M1","cpuCores":8,"gpuCores":8,"viewportWidth":1440,"viewportHeight":900,"scale":2}"#
+        let model = try JSONDecoder().decode(MacDeviceModel.self, from: Data(json.utf8))
+        XCTAssertEqual([model.screenWidth, model.screenHeight, model.menuBarHeight], [1440, 900, 25])
+        XCTAssertEqual(model.availHeight, 875)
+
+        let studio = try XCTUnwrap(MacDeviceModel.preset("mac-studio-m3-ultra"))
+        let decoded = try JSONDecoder().decode(MacDeviceModel.self, from: JSONEncoder().encode(studio))
+        XCTAssertEqual(decoded, studio)
+        XCTAssertEqual([decoded.screenWidth, decoded.screenHeight, decoded.menuBarHeight], [2560, 1440, 25])
+        XCTAssertEqual(MacDeviceModel(id: "y", name: "Y", chip: "c", cpuCores: 1, gpuCores: 1, viewportWidth: 10, viewportHeight: 10, scale: 1,
+                                      menuBarHeight: 40).availHeight, 0, "不会是负数")
+    }
+
     func testDecodesModelWithoutCategory() throws {
         let json = #"{"id":"x","name":"X","chip":"Apple M1","cpuCores":8,"gpuCores":8,"viewportWidth":1440,"viewportHeight":900,"scale":2}"#
         let model = try JSONDecoder().decode(MacDeviceModel.self, from: Data(json.utf8))

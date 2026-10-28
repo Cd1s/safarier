@@ -75,9 +75,17 @@ enum SPIRuntimeBridge {
         return result(status, detail) { value.boolValue }
     }
 
-    static func installDisplayOverride(p3: Bool, hdr: Bool, maxHeadroom: Double, currentHeadroom: Double) -> Result<Void, SPICallFailure> {
+    static func installDisplayOverride(
+        p3: Bool, hdr: Bool, maxHeadroom: Double, currentHeadroom: Double,
+        screenWidth: Double, screenHeight: Double, availHeight: Double
+    ) -> Result<Void, SPICallFailure> {
         var detail: NSString?
-        return result(SFRInstallDisplayOverride(p3, hdr, maxHeadroom, currentHeadroom, &detail), detail) { () }
+        let status = SFRInstallDisplayOverride(p3, hdr, maxHeadroom, currentHeadroom, screenWidth, screenHeight, availHeight, &detail)
+        return result(status, detail) { () }
+    }
+
+    static func hostVisibleFrame() -> CGRect {
+        SFRHostVisibleFrame()
     }
 
     static func removeDisplayOverride() {

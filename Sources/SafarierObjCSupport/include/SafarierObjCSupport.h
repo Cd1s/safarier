@@ -52,9 +52,17 @@ FOUNDATION_EXPORT SFRCallStatus SFRAllocInitWithObject(NSString *className, NSSt
 /// 再把结果发给 WebContent / GPU 进程，所以必须在第一个 WKWebView 创建之前安装。
 /// 四个查询始终替换：p3 为 NO 时 P3 查询报不支持，hdr 为 NO 时 EDR 余量报 1.0、视频范围报 SDR，宿主机屏幕再好也不漏出来。
 /// `maxHeadroom`/`currentHeadroom` 只在 `hdr` 为 YES 时生效，直接作为两个 EDR 余量返回（不混入宿主机屏幕的值）。重复调用会先撤销上一次。
-FOUNDATION_EXPORT SFRCallStatus SFRInstallDisplayOverride(BOOL p3, BOOL hdr, double maxHeadroom, double currentHeadroom, NSString * _Nullable * _Nullable detail);
-/// 撤销 `SFRInstallDisplayOverride`，恢复原来的实现。
+///
+/// `screenWidth` / `screenHeight` 都大于 0 时，同时替换 `-[NSScreen frame]`（返回 `0, 0, screenWidth, screenHeight`）
+/// 和 `-[NSScreen visibleFrame]`（返回 `0, 0, screenWidth, availHeight`；`availHeight` 不大于 0 时用 `screenHeight`）：
+/// WebKit 收集 ScreenProperties 时读这两个方法，关闭高级隐私保护时网页的 `screen` / `avail*` 就是目标机型的显示器。
+/// 只有 WebKit（以及测试等不在系统框架里的调用方）看到模拟的几何；AppKit 等系统框架和主程序自己的窗口布局
+/// 仍然拿到宿主机的真实屏幕，窗口居中、缩放、全屏、菜单定位不受影响。
+FOUNDATION_EXPORT SFRCallStatus SFRInstallDisplayOverride(BOOL p3, BOOL hdr, double maxHeadroom, double currentHeadroom, double screenWidth, double screenHeight, double availHeight, NSString * _Nullable * _Nullable detail);
+/// 撤销 `SFRInstallDisplayOverride`，恢复原来的实现（包括 `frame` / `visibleFrame`）。
 FOUNDATION_EXPORT void SFRRemoveDisplayOverride(void);
+/// 宿主机主屏幕真实的可用区域（不受显示器模拟影响），给窗口布局用。
+FOUNDATION_EXPORT NSRect SFRHostVisibleFrame(void);
 
 /// 通过原生引擎桥接设置字体允许集合，网页只能按名字使用集合内的字体。
 /// 先确认引擎导出、对象类、访问能力和类型标识全部匹配，

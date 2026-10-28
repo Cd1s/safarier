@@ -88,12 +88,15 @@ enum DisplayText {
     }
 
     /// 内建屏能力：P3 色域、HDR。
+    /// `2560×1440 pt（可用 2560×1415）· P3 色域 · SDR`
     static func screen(_ model: MacDeviceModel) -> String {
+        let traits: String
         switch (model.displayP3, model.displayHDR) {
-        case (true, true): return "P3 色域 · HDR（XDR）"
-        case (true, false): return "P3 色域 · SDR"
-        default: return "sRGB · SDR（普通显示器）"
+        case (true, true): traits = "P3 色域 · HDR（XDR）"
+        case (true, false): traits = "P3 色域 · SDR"
+        default: traits = "sRGB · SDR（普通显示器）"
         }
+        return "\(model.screenWidth)×\(model.screenHeight) pt（可用 \(model.availWidth)×\(model.availHeight)）· \(traits)"
     }
 
     /// 网页实际读到的值（和这款机型上的真 Safari 一致）。
@@ -102,7 +105,7 @@ enum DisplayText {
     }
 
     /// 机型模拟实际做了什么（2026-10-24 本机与真 Safari 对比实测）。
-    static let deviceModelNote = "视口尺寸和纵横比、devicePixelRatio、屏幕的 P3 色域和 HDR（网页的 color-gamut / dynamic-range 媒体查询）按机型设置，屏幕放不下时等比缩小；开启高级隐私保护时，网页里的 screen 和 outer 尺寸都等于视口，和真 Safari 无痕窗口一样。CPU 核数和 GPU 名称按真 Safari 的规则给：WebKit 只报 4 或 8 核、GPU 一律写「Apple GPU」，所以这几款机型在真 Safari 里都是 8 核 · Apple GPU，写成芯片规格反而露馅。"
+    static let deviceModelNote = "视口尺寸和纵横比、devicePixelRatio、显示器分辨率与可用区域、P3 色域和 HDR（网页的 color-gamut / dynamic-range 媒体查询）按机型设置，宿主机屏幕放不下时初始窗口等比缩小。高级隐私保护和机型互不影响：开启时网页的 screen 和 outer 尺寸随视口收敛，和真 Safari 无痕窗口一样；关闭时网页的 screen 报目标机型显示器的分辨率（台式机按搭配的显示器算），可用高度扣掉菜单栏。CPU 核数和 GPU 名称按真 Safari 的规则给：WebKit 只报 4 或 8 核、GPU 一律写「Apple GPU」，所以这几款机型在真 Safari 里都是 8 核 · Apple GPU，写成芯片规格反而露馅。"
 
     static let followProxy = "跟随代理（按出口 IP 自动匹配）"
 

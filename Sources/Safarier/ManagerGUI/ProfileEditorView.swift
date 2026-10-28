@@ -278,10 +278,6 @@ struct ProfileEditorView: View {
         .onChange(of: mode) {
             if original == nil { spi = Self.defaultSPI(for: mode) }
         }
-        .onChange(of: deviceModel) {
-            // 选了机型就一起打开高级隐私保护，网页里的 screen 尺寸才会跟着模拟的视口走（可以再手动关掉）。
-            if deviceModel != nil { spi.insert(.fingerprintingProtections) }
-        }
     }
 
     private var selectedSubscription: Subscription? {

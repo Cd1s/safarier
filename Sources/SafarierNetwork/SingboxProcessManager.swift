@@ -12,6 +12,7 @@ public enum SingboxProcessError: Error, Equatable {
     /// sing-box 在本地端口就绪前就退出了（多半是配置或节点参数有问题，原因在它的日志里）。
     case exitedEarly(status: Int32)
     case startTimeout(port: Int)
+    case processIdentityUnavailable(Int32)
 }
 
 extension SingboxProcessError: CustomStringConvertible {
@@ -29,13 +30,14 @@ extension SingboxProcessError: CustomStringConvertible {
         case .noFreePort: return "127.0.0.1 上没有空闲端口给 sing-box。"
         case .exitedEarly(let status): return "sing-box 启动后马上退出了（退出码 \(status)），多半是节点参数有问题，详情见日志。"
         case .startTimeout(let port): return "sing-box 没有在规定时间内监听 127.0.0.1:\(port)。"
+        case .processIdentityUnavailable(let pid): return "无法核验 sing-box 进程 \(pid) 的身份，已停止启动。"
         }
     }
 }
 
 /// 每个 profile 一个 sing-box 子进程：节点出站 → `127.0.0.1:<port>` 的 SOCKS5 入站，交给 WebKit。
 ///
-/// 状态目录里每个 profile 两个文件：`<id>.json`（配置，含节点凭据，权限 0600）和 `<id>.pid`。
+/// 状态目录里每个 profile 两个文件：`<id>.json`（配置，含节点凭据，权限 0600）和 `<id>.pid`（JSON 进程身份）。
 /// 正常停止时两个都删掉；Runner 被 SIGKILL 或崩溃时会留下来，下次启动同一 profile、
 /// 或图形管理器发现该 profile 没在运行时，用 `reapOrphan` 按 pid 文件清理。
 public final class SingboxProcessManager: @unchecked Sendable {
@@ -220,11 +222,19 @@ public final class SingboxProcessManager: @unchecked Sendable {
         process.standardError = logHandle ?? FileHandle.nullDevice
         do {
             try process.run()
+            if let identity = Self.processIdentity(of: process.processIdentifier) {
+                let record = ProcessRecord(pid: process.processIdentifier, identity: identity, configurationPath: configURL.standardizedFileURL.path)
+                try Self.writePrivate(JSONEncoder().encode(record), to: pidFileURL(for: profileID))
+            } else if process.isRunning {
+                throw SingboxProcessError.processIdentityUnavailable(process.processIdentifier)
+            }
         } catch {
-            try? FileManager.default.removeItem(at: configURL)
+            if process.isRunning {
+                Self.terminate(pid: process.processIdentifier, isRunning: { process.isRunning })
+            }
+            Self.removeStateFiles(for: profileID, in: stateDirectory)
             throw error
         }
-        try? Self.writePrivate(Data("\(process.processIdentifier)\n".utf8), to: pidFileURL(for: profileID))
         lock.lock()
         processes[profileID] = process
         lock.unlock()
@@ -257,7 +267,7 @@ public final class SingboxProcessManager: @unchecked Sendable {
         let process = processes.removeValue(forKey: profileID)
         ports.removeValue(forKey: profileID)
         lock.unlock()
-        defer { removeStateFiles(for: profileID) }
+        defer { Self.removeStateFiles(for: profileID, in: stateDirectory) }
         guard let process else { throw SingboxProcessError.notRunning(profileID) }
         Self.terminate(pid: process.processIdentifier, isRunning: { process.isRunning })
     }
@@ -281,18 +291,16 @@ public final class SingboxProcessManager: @unchecked Sendable {
     }
 
     /// 按 pid 文件结束遗留的 sing-box。只有该 profile 没有 Runner 在跑时才能调用（Runner 拿着 profile 锁时调用是安全的，
-    /// 因为那时遗留进程一定不是它自己的）。pid 对应的进程不是 sing-box（pid 被复用）时不动它。返回是否结束了进程。
+    /// 因为那时遗留进程一定不是它自己的）。每次发信号前核验启动时间和路径，拒绝旧版纯 PID 或身份不匹配的记录。
     @discardableResult
     public static func reapOrphan(profileID: UUID, in directory: URL) -> Bool {
         let pidURL = pidFileURL(for: profileID, in: directory)
-        guard let text = try? String(contentsOf: pidURL, encoding: .utf8) else { return false }
-        defer {
-            try? FileManager.default.removeItem(at: pidURL)
-            try? FileManager.default.removeItem(at: configurationFileURL(for: profileID, in: directory))
-        }
-        guard let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0,
-              kill(pid, 0) == 0, executableName(of: pid) == "sing-box" else { return false }
-        terminate(pid: pid, isRunning: { kill(pid, 0) == 0 && executableName(of: pid) == "sing-box" })
+        guard let data = try? Data(contentsOf: pidURL) else { return false }
+        defer { removeStateFiles(for: profileID, in: directory) }
+        guard let record = try? JSONDecoder().decode(ProcessRecord.self, from: data),
+              record.configurationPath == configurationFileURL(for: profileID, in: directory).standardizedFileURL.path,
+              processIdentity(of: record.pid) == record.identity else { return false }
+        terminate(pid: record.pid, isRunning: { processIdentity(of: record.pid) == record.identity })
         return true
     }
 
@@ -315,15 +323,33 @@ public final class SingboxProcessManager: @unchecked Sendable {
         if isRunning() { kill(pid, SIGKILL) }
     }
 
-    private static func executableName(of pid: Int32) -> String? {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return URL(fileURLWithPath: String(cString: buffer)).lastPathComponent
+    struct ProcessIdentity: Codable, Equatable {
+        var executablePath: String
+        var startSeconds: UInt64
+        var startMicroseconds: UInt64
     }
 
-    private func removeStateFiles(for profileID: UUID) {
-        try? FileManager.default.removeItem(at: configurationFileURL(for: profileID))
-        try? FileManager.default.removeItem(at: pidFileURL(for: profileID))
+    struct ProcessRecord: Codable {
+        var pid: Int32
+        var identity: ProcessIdentity
+        var configurationPath: String
+    }
+
+    /// 同名程序也可能是 PID 复用后的另一进程；使用内核启动时间区分。
+    static func processIdentity(of pid: Int32) -> ProcessIdentity? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
+              info.pbi_status != SZOMB else { return nil }
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return ProcessIdentity(executablePath: String(cString: buffer), startSeconds: info.pbi_start_tvsec, startMicroseconds: info.pbi_start_tvusec)
+    }
+
+    private static func removeStateFiles(for profileID: UUID, in directory: URL) {
+        try? FileManager.default.removeItem(at: configurationFileURL(for: profileID, in: directory))
+        try? FileManager.default.removeItem(at: pidFileURL(for: profileID, in: directory))
     }
 
     /// 配置里有节点密码，只给自己读写。

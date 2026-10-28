@@ -95,4 +95,35 @@ final class RecordRepositoryTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("proxies.json").path))
         XCTAssertEqual(try ProxyRepository.proxies(in: directory).all(), [proxy])
     }
+
+    func testConcurrentRepositoriesPreserveEveryMutation() throws {
+        let root = try XCTUnwrap(directory)
+        let profiles = (0..<80).map { Profile(name: "Profile \($0)", mode: .ephemeral) }
+        DispatchQueue.concurrentPerform(iterations: profiles.count) { index in
+            do { try ProfileRepository.profiles(in: root).insert(profiles[index]) }
+            catch { XCTFail("并发插入失败：\(error)") }
+        }
+        XCTAssertEqual(Set(try ProfileRepository.profiles(in: root).all().map(\.id)), Set(profiles.map(\.id)))
+
+        DispatchQueue.concurrentPerform(iterations: profiles.count) { index in
+            var profile = profiles[index]
+            profile.name = "Updated \(index)"
+            do { try ProfileRepository.profiles(in: root).update(profile) }
+            catch { XCTFail("并发更新失败：\(error)") }
+        }
+        XCTAssertEqual(Set(try ProfileRepository.profiles(in: root).all().map(\.name)), Set((0..<80).map { "Updated \($0)" }))
+
+        DispatchQueue.concurrentPerform(iterations: profiles.count) { index in
+            do { try ProfileRepository.profiles(in: root).delete(id: profiles[index].id) }
+            catch { XCTFail("并发删除失败：\(error)") }
+        }
+        XCTAssertTrue(try ProfileRepository.profiles(in: root).all().isEmpty)
+    }
+
+    func testFailedMutationReleasesFileLock() throws {
+        XCTAssertThrowsError(try ProfileRepository.profiles(in: directory).delete(id: UUID()))
+        let profile = Profile(name: "After failure", mode: .ephemeral)
+        try ProfileRepository.profiles(in: directory).insert(profile)
+        XCTAssertEqual(try ProfileRepository.profiles(in: directory).all(), [profile])
+    }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// 可落盘、可校验的记录。
 public protocol ValidatableRecord: Codable, Identifiable, Sendable where ID == UUID {
@@ -33,38 +34,52 @@ public final class RecordRepository<Record: ValidatableRecord>: @unchecked Senda
 
     public func insert(_ record: Record) throws {
         try record.validate()
-        try locked {
-            var records = try store.load()
+        try mutate { records in
             guard !records.contains(where: { $0.id == record.id }) else {
                 throw RepositoryError.duplicateID(record.id)
             }
             records.append(record)
-            try store.save(records)
         }
     }
 
     public func update(_ record: Record) throws {
         try record.validate()
-        try locked {
-            var records = try store.load()
+        try mutate { records in
             guard let index = records.firstIndex(where: { $0.id == record.id }) else {
                 throw RepositoryError.notFound(record.id)
             }
             records[index] = record
-            try store.save(records)
         }
     }
 
     @discardableResult
     public func delete(id: UUID) throws -> Record {
-        try locked {
-            var records = try store.load()
+        try mutate { records in
             guard let index = records.firstIndex(where: { $0.id == id }) else {
                 throw RepositoryError.notFound(id)
             }
-            let removed = records.remove(at: index)
+            return records.remove(at: index)
+        }
+    }
+
+    /// 在同一把文件锁内完成读取、修改和保存；修改失败不写回。
+    /// JSON 原子替换会改变 inode，因此锁独立文件，且不在解锁后删除它。
+    private func mutate<T>(_ body: (inout [Record]) throws -> T) throws -> T {
+        try locked {
+            let url = store.fileURL.appendingPathExtension("lock")
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let fd = open(url.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+            guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: url.path]) }
+            defer { close(fd) }
+            while flock(fd, LOCK_EX) != 0 {
+                if errno == EINTR { continue }
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: url.path])
+            }
+            defer { flock(fd, LOCK_UN) }
+            var records = try store.load()
+            let result = try body(&records)
             try store.save(records)
-            return removed
+            return result
         }
     }
 

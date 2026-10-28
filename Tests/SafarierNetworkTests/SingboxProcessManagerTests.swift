@@ -34,7 +34,9 @@ final class SingboxProcessManagerTests: XCTestCase {
         XCTAssertEqual(try manager.port(for: id), port)
         let attributes = try FileManager.default.attributesOfItem(atPath: manager.configurationFileURL(for: id).path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
-        XCTAssertEqual(try String(contentsOf: manager.pidFileURL(for: id), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), "\(pid)")
+        let record = try JSONDecoder().decode(SingboxProcessManager.ProcessRecord.self, from: Data(contentsOf: manager.pidFileURL(for: id)))
+        XCTAssertEqual(record.pid, pid)
+        XCTAssertEqual(record.identity, SingboxProcessManager.processIdentity(of: pid))
         XCTAssertThrowsError(try manager.start(profileID: id, node: node)) {
             XCTAssertEqual($0 as? SingboxProcessError, .alreadyRunning(id))
         }
@@ -74,6 +76,63 @@ final class SingboxProcessManagerTests: XCTestCase {
         try "\(getpid())\n".write(to: SingboxProcessManager.pidFileURL(for: id, in: root), atomically: true, encoding: .utf8)
         XCTAssertFalse(SingboxProcessManager.reapOrphan(profileID: id, in: root))
         XCTAssertFalse(FileManager.default.fileExists(atPath: SingboxProcessManager.pidFileURL(for: id, in: root).path))
+    }
+
+    /// 用本次测试创建的休眠进程核验身份，不依赖本机安装 sing-box，也不触碰已有进程。
+    private func withRecordedProcess(_ body: (Process, UUID, SingboxProcessManager.ProcessRecord) throws -> Void) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+        }
+        let id = UUID()
+        let identity = try XCTUnwrap(SingboxProcessManager.processIdentity(of: process.processIdentifier))
+        let record = SingboxProcessManager.ProcessRecord(
+            pid: process.processIdentifier, identity: identity,
+            configurationPath: SingboxProcessManager.configurationFileURL(for: id, in: root).standardizedFileURL.path
+        )
+        try body(process, id, record)
+    }
+
+    func testMatchingProcessIdentityIsReaped() throws {
+        try withRecordedProcess { process, id, record in
+            try JSONEncoder().encode(record).write(to: SingboxProcessManager.pidFileURL(for: id, in: root))
+            try Data().write(to: SingboxProcessManager.configurationFileURL(for: id, in: root))
+            XCTAssertTrue(SingboxProcessManager.reapOrphan(profileID: id, in: root))
+            process.waitUntilExit()
+            XCTAssertFalse(process.isRunning)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: record.configurationPath))
+        }
+    }
+
+    func testReusedPIDAndMismatchedPathsAreNotReaped() throws {
+        try withRecordedProcess { process, id, record in
+            var reused = record
+            reused.identity.startMicroseconds += 1
+            var wrongExecutable = record
+            wrongExecutable.identity.executablePath += ".other"
+            var wrongConfiguration = record
+            wrongConfiguration.configurationPath += ".other"
+            for stale in [reused, wrongExecutable, wrongConfiguration] {
+                try JSONEncoder().encode(stale).write(to: SingboxProcessManager.pidFileURL(for: id, in: root))
+                XCTAssertFalse(SingboxProcessManager.reapOrphan(profileID: id, in: root))
+                XCTAssertTrue(process.isRunning)
+            }
+        }
+    }
+
+    func testLegacyAndMalformedRecordsNeverSignalLiveProcess() throws {
+        try withRecordedProcess { process, id, _ in
+            for text in ["\(process.processIdentifier)\n", "{\"pid\":\(process.processIdentifier)}", "invalid"] {
+                try Data(text.utf8).write(to: SingboxProcessManager.pidFileURL(for: id, in: root))
+                XCTAssertFalse(SingboxProcessManager.reapOrphan(profileID: id, in: root))
+                XCTAssertTrue(process.isRunning)
+            }
+        }
     }
 
     func testEarlyExitIsReported() throws {

@@ -18,11 +18,16 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     let downloads = DownloadsController()
     private(set) var report: PrivacyCapabilityReport
     private let deviceSimulation: DeviceSimulation?
+    /// 第一次给 WebView 套机型模拟的结果；和 `viewportFit` 合起来决定能力报告里的 deviceModel。
+    private var deviceSimulationState: CapabilityState?
+    /// 选了机型时，最近一次新窗口的目标视口和实际视口（屏幕放不下时等比缩小）。
+    private(set) var viewportFit: ViewportFit?
     private var controllers: [BrowserWindowController] = []
     private var sourceWindows: [PageSourceWindowController] = []
     private var reportPrinted = false
-    /// 默认打开：右键菜单直接有「检查元素」，和开了「开发」菜单的真 Safari 一样。只登记到本机的 Web Inspector，网页读不到。
-    private(set) var inspectable = true
+    /// 默认关闭：普通浏览时不向系统登记可远程检查的调试目标。「开发 → 允许检查网页元素」打开，
+    /// ⌥⌘I / ⌥⌘C 打开检查器时也会自动打开（之后新开的窗口、网页弹窗都跟着这个值）。网页读不到它。
+    private(set) var inspectable = false
     /// 最近关闭的标签的网址（最新的在最后），⇧⌘T 依次恢复。
     private(set) var closedTabURLs: [URL] = []
     static let closedTabLimit = 20
@@ -112,7 +117,10 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         let controller = BrowserWindowController(session: self, webView: webView, contentSize: contentSize, isPopup: popupConfiguration != nil)
         if let deviceSimulation {
             let state = deviceSimulation.apply(to: webView)
-            if !reportPrinted { report.set(state, for: .deviceModel) }
+            if deviceSimulationState == nil {
+                deviceSimulationState = state
+                refreshDeviceModelState()
+            }
         }
         if !reportPrinted {
             reportPrinted = true
@@ -140,12 +148,46 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
             let viewport = device.viewport(fitting: available)
             let scaled = viewport == device.viewportSize ? "" : "（屏幕放不下，按比例缩小）"
             print("[device] \(device.name)：视口 \(Int(viewport.width))×\(Int(viewport.height))\(scaled)")
+            recordViewportFit(ViewportFit(target: device.viewportSize, actual: viewport))
             return viewport
         }
         if let key = NSApp.keyWindow, let controller = controllers.first(where: { $0.window === key }) {
             return controller.window.contentLayoutRect.size
         }
         return Self.defaultContentSize
+    }
+
+    // MARK: - 机型视口
+
+    struct ViewportFit: Equatable {
+        var target: CGSize
+        var actual: CGSize
+        var isScaled: Bool { actual != target }
+    }
+
+    /// 记下新窗口实际用的视口，并立刻更新能力报告：缩小过就把 deviceModel 标成 degraded，
+    /// 报告已经打印过时再补打一行，日志不会停在旧结论上。
+    func recordViewportFit(_ fit: ViewportFit) {
+        viewportFit = fit
+        refreshDeviceModelState()
+    }
+
+    private func refreshDeviceModelState() {
+        guard device != nil, let state = Self.deviceModelState(simulation: deviceSimulationState, fit: viewportFit),
+              report[.deviceModel] != state else { return }
+        report.set(state, for: .deviceModel)
+        if reportPrinted { print("[capability] \(PrivacyFeature.deviceModel.rawValue): \(state.summary)") }
+    }
+
+    /// 机型模拟本身的结论 + 视口缩放：没缩放时原样返回；缩放过时 active 降为 degraded，并写明目标与实际视口。
+    static func deviceModelState(simulation: CapabilityState?, fit: ViewportFit?) -> CapabilityState? {
+        guard let fit, fit.isScaled else { return simulation }
+        let scaling = "目标视口 \(Int(fit.target.width))×\(Int(fit.target.height))，屏幕放不下，实际视口缩小为 \(Int(fit.actual.width))×\(Int(fit.actual.height))"
+        switch simulation {
+        case .unavailable(let text)?: return .unavailable("\(text)；\(scaling)")
+        case .active(let text)?, .degraded(let text)?, .unverified(let text)?: return .degraded("\(text)；\(scaling)")
+        case .notRequested?, nil: return .degraded(scaling)
+        }
     }
 
     /// 还开着的标签（测试和诊断用）。
@@ -241,8 +283,13 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
 
     /// 打开后右键菜单里有「检查元素」。对网页不可见。
     @objc func toggleInspectable(_ sender: Any?) {
-        inspectable.toggle()
-        controllers.forEach { $0.webView.isInspectable = inspectable }
+        setInspectable(!inspectable)
+    }
+
+    /// 改所有已开标签的 isInspectable；之后新开的窗口在 makeWebView 里跟着这个值。
+    func setInspectable(_ value: Bool) {
+        inspectable = value
+        controllers.forEach { $0.webView.isInspectable = value }
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

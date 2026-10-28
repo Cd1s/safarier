@@ -87,6 +87,8 @@ enum BrowserMenu {
             item("显示页面源代码", #selector(BrowserActions.showPageSource(_:)), "u", [.command, .option]),
             .separator(),
             item("允许检查网页元素", #selector(BrowserActions.toggleInspectable(_:))),
+            .separator(),
+            item("拷贝环境诊断摘要", #selector(BrowserActions.copyDiagnostics(_:)), "d", [.command, .option, .shift]),
         ]))
 
         let windowMenu = NSMenu(title: "窗口")
@@ -186,6 +188,7 @@ enum BrowserMenu {
     @objc optional func showJavaScriptConsole(_ sender: Any?)
     @objc optional func showPageSource(_ sender: Any?)
     @objc optional func toggleInspectable(_ sender: Any?)
+    @objc optional func copyDiagnostics(_ sender: Any?)
     @objc optional func cycleWindowsForward(_ sender: Any?)
     @objc optional func cycleWindowsBackward(_ sender: Any?)
     @objc optional func duplicateTab(_ sender: Any?)

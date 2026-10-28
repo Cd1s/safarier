@@ -30,6 +30,18 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private(set) var wantsAddressFocus = false
     /// ⇧⌘H 回到起始页（环境没设起始网址时）：载入 about:blank 并显示起始页，直到导航到别的网址。
     private var showingHome = false
+    /// 脱敏的导航诊断（「开发 → 拷贝环境诊断摘要」用）。只有状态码、次数和错误码，不记网址、Cookie、账号。
+    private(set) var navigationDiagnostics = NavigationDiagnostics()
+
+    struct NavigationDiagnostics: Equatable {
+        /// 最近一次主框架响应的 HTTP 状态码；新导航开始时清空，非 HTTP 响应（about:、出错页）没有。
+        var lastMainFrameStatusCode: Int?
+        /// 当前（最近一次）主框架导航经历的服务器重定向次数。
+        var redirectCount = 0
+        /// 最近一次显示了出错页的加载错误。
+        var lastErrorDomain: String?
+        var lastErrorCode: Int?
+    }
 
     private enum Item {
         static let profile = NSToolbarItem.Identifier("profile")
@@ -381,12 +393,23 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     @objc func showJavaScriptConsole(_ sender: Any?) { openInspector(.showConsole) }
 
     private func openInspector(_ action: WebViewSPI.InspectorAction) {
-        if !session.inspectable { session.toggleInspectable(nil) }
+        // inspectable 默认关闭：打开检查器时自动打开（所有标签一起），菜单里的勾选也跟着变。
+        if !session.inspectable { session.setInspectable(true) }
         webView.isInspectable = true
         if case .failure(let failure) = WebViewSPI.inspector(action, on: webView) {
             FileHandle.standardError.write(Data("[inspector] \(action.rawValue) 失败：\(failure)\n".utf8))
             NSSound.beep()
         }
+    }
+
+    /// 诊断摘要写到哪个剪贴板（测试换成私有剪贴板，不碰用户的系统剪贴板）。
+    var diagnosticsPasteboard: NSPasteboard = .general
+
+    /// ⌥⇧⌘D：把当前窗口的脱敏诊断摘要（JSON）拷到剪贴板，方便贴进问题报告。
+    @objc func copyDiagnostics(_ sender: Any?) {
+        let pasteboard = diagnosticsPasteboard
+        pasteboard.clearContents()
+        pasteboard.setString(sanitizedDiagnosticsSummary(), forType: .string)
     }
 
     /// ⌥⌘U：显示服务器发来的页面原文（取不到时退回当前 DOM）。
@@ -731,6 +754,9 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if navigationResponse.isForMainFrame {
+            navigationDiagnostics.lastMainFrameStatusCode = (navigationResponse.response as? HTTPURLResponse)?.statusCode
+        }
         let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
         if !navigationResponse.canShowMIMEType || (navigationResponse.isForMainFrame && disposition.hasPrefix("attachment")) {
             decisionHandler(.download)
@@ -781,6 +807,15 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         }
     }
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        navigationDiagnostics.lastMainFrameStatusCode = nil
+        navigationDiagnostics.redirectCount = 0
+    }
+
+    func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        navigationDiagnostics.redirectCount += 1
+    }
+
     /// 真正打开了别的网页（点链接、手势后退等）：出错页记下的网址作废，⌘R 重新载入的是当前页。
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if let failedURL, webView.url != failedURL { self.failedURL = nil }
@@ -805,6 +840,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
         // 102 = 下载等策略变化打断了这次载入。
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 { return }
+        navigationDiagnostics.lastErrorDomain = nsError.domain
+        navigationDiagnostics.lastErrorCode = nsError.code
         FileHandle.standardError.write(Data("[load-error] \(nsError.domain) \(nsError.code) \(nsError.localizedDescription)\n".utf8))
         guard let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? webView.url else { return }
         failedURL = url
@@ -824,6 +861,102 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 
     private static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    // MARK: - 脱敏诊断
+
+    /// 当前窗口的环境诊断摘要（JSON）。只含环境模式、内核 / UA 版本、各项能力状态、机型目标视口与实际视口、
+    /// 是否网页弹窗和脱敏的导航状态；不含环境名、环境 id、出站描述、网址的 query / fragment、Cookie、账号或令牌。
+    func sanitizedDiagnosticsSummary() -> String {
+        let report = session.report
+        let capabilities = Dictionary(uniqueKeysWithValues: PrivacyFeature.allCases.map { feature -> (String, Any) in
+            let state = report[feature]
+            // 代理的说明里有服务器地址，只给状态。
+            let detail = feature == .proxy ? nil : state.detail.map(Self.redact)
+            return (feature.rawValue, ["state": state.name, "detail": detail as Any? ?? NSNull()])
+        })
+        let device: Any = session.device.map { model -> [String: Any] in
+            [
+                "model": model.id,
+                "targetViewport": Self.sizeJSON(model.viewportSize),
+                "newWindowViewport": session.viewportFit.map { Self.sizeJSON($0.actual) } as Any? ?? NSNull(),
+                "scaledToFitScreen": session.viewportFit?.isScaled ?? false,
+            ]
+        } ?? NSNull()
+        let summary: [String: Any] = [
+            "environment": [
+                "mode": session.profile.mode.rawValue,
+                "private": session.isPrivate,
+                "inspectable": session.inspectable,
+                "openTabs": session.openControllers.count,
+            ],
+            "engine": [
+                "webKit": SafarierWebKitInfo.systemWebKitVersion as Any? ?? NSNull(),
+                "safari": SafarierWebKitInfo.installedSafariVersion as Any? ?? NSNull(),
+                "userAgentApplicationName": webView.configuration.applicationNameForUserAgent as Any? ?? NSNull(),
+                "customUserAgent": webView.customUserAgent.flatMap { $0.isEmpty ? nil : $0 } as Any? ?? NSNull(),
+            ],
+            "capabilities": capabilities,
+            "device": device,
+            "window": [
+                "isPopup": isPopup,
+                "tabsInWindow": tabs.count,
+                "frameSize": Self.sizeJSON(window.frame.size),
+                "webViewViewport": Self.sizeJSON(webView.bounds.size),
+            ],
+            "navigation": [
+                "page": Self.sanitizeURL(displayURL) as Any? ?? NSNull(),
+                "isLoading": webView.isLoading,
+                "showingErrorPage": failedURL != nil,
+                "lastMainFrameStatusCode": navigationDiagnostics.lastMainFrameStatusCode as Any? ?? NSNull(),
+                "redirectCount": navigationDiagnostics.redirectCount,
+                "lastError": navigationDiagnostics.lastErrorDomain.map { domain -> [String: Any] in
+                    ["domain": domain, "code": navigationDiagnostics.lastErrorCode ?? 0]
+                } as Any? ?? NSNull(),
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) else {
+            return "{}"
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// 只留 `scheme://host/path`：去掉用户名密码、端口、query 和 fragment，host 转小写。
+    /// 没有 host 的网址（about:、data:、blob:、file: 等）只留 scheme；about: 保留页面名（about:blank）。
+    static func sanitizeURL(_ url: URL?) -> String? {
+        guard let url, let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return nil }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        guard let host = components?.percentEncodedHost, !host.isEmpty else {
+            guard scheme == "about" else { return "\(scheme):" }
+            // 新版 Foundation 把 about:blank#x 的 # 编码进路径（blank%23x），所以只取开头的页面名。
+            let page = (components?.percentEncodedPath ?? "").prefix { $0.isLetter || $0.isNumber || $0 == "-" }
+            return "about:\(page)"
+        }
+        var clean = URLComponents()
+        clean.scheme = scheme
+        clean.percentEncodedHost = host.lowercased()
+        let path = components?.percentEncodedPath ?? ""
+        clean.percentEncodedPath = path.isEmpty ? "/" : path
+        return clean.string
+    }
+
+    /// 能力说明里可能带出的标识：网址只留 scheme://host/path，UUID 和 IPv4 地址换成占位符。
+    private static let urlPattern = try! NSRegularExpression(pattern: #"[A-Za-z][A-Za-z0-9+.-]*://[^\s，。；、）)\]]+"#)
+
+    static func redact(_ text: String) -> String {
+        var result = text
+        for match in urlPattern.matches(in: result, range: NSRange(result.startIndex..., in: result)).reversed() {
+            guard let range = Range(match.range, in: result) else { continue }
+            let replacement = URL(string: String(result[range])).flatMap(sanitizeURL) ?? "<url>"
+            result.replaceSubrange(range, with: replacement)
+        }
+        result = result.replacingOccurrences(of: #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#, with: "<uuid>", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"\b(?:\d{1,3}\.){3}\d{1,3}\b"#, with: "<ip>", options: .regularExpression)
+        return result
+    }
+
+    private static func sizeJSON(_ size: CGSize) -> [Int] {
+        [Int(size.width.rounded()), Int(size.height.rounded())]
     }
 }
 

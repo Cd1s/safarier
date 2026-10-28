@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Network
 import WebKit
 import SafarierCore
 import SafarierWebKit
@@ -256,6 +257,237 @@ final class BrowserFixesTests: XCTestCase {
             let hit = controller.window.contentView?.hitTest(center)
             XCTAssertNotNil(hit, id)
             XCTAssertTrue(hit === controller.webView || hit?.isDescendant(of: controller.webView) == true, "\(id): hit=\(String(describing: hit))")
+        }
+    }
+
+    // MARK: - 脱敏诊断
+
+    private func summaryJSON(_ controller: BrowserWindowController) throws -> [String: Any] {
+        let text = controller.sanitizedDiagnosticsSummary()
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+    }
+
+    /// 只留 scheme://host/path：去掉账号密码、端口、query、fragment；没有 host 的网址不带内容。
+    func testSanitizeURL() {
+        let cases: [(String, String)] = [
+            ("https://user:pass@Accounts.Google.com:443/o/oauth2/v2/auth?client_id=x&state=secret#frag", "https://accounts.google.com/o/oauth2/v2/auth"),
+            ("https://example.com", "https://example.com/"),
+            ("http://example.com/a%20b/c?x=1", "http://example.com/a%20b/c"),
+            ("about:blank", "about:blank"),
+            ("about:blank#token", "about:blank"),
+            ("data:text/html,secret", "data:"),
+            ("blob:https://example.com/6F9619FF-8B86-D011-B42D-00C04FC964FF", "blob:"),
+            ("file:///Users/someone/Desktop/a.html", "file:"),
+        ]
+        for (raw, expected) in cases {
+            XCTAssertEqual(BrowserWindowController.sanitizeURL(URL(string: raw)), expected, raw)
+        }
+        XCTAssertNil(BrowserWindowController.sanitizeURL(nil))
+    }
+
+    /// 能力说明里的网址、UUID、IPv4 换成脱敏形式。
+    func testRedactCapabilityDetails() {
+        XCTAssertEqual(
+            BrowserWindowController.redact("WKWebsiteDataStore(forIdentifier: 6F9619FF-8B86-D011-B42D-00C04FC964FF)"),
+            "WKWebsiteDataStore(forIdentifier: <uuid>)"
+        )
+        XCTAssertEqual(BrowserWindowController.redact("socks5 203.0.113.10:1080"), "socks5 <ip>:1080")
+        XCTAssertEqual(BrowserWindowController.redact("见 https://a.example/x?token=1，完毕"), "见 https://a.example/x，完毕")
+    }
+
+    /// 摘要是合法 JSON，有环境模式、内核 / UA、全部能力状态、窗口与视口尺寸、导航状态；
+    /// 不含环境名、环境 id、网址的 query / fragment、账号或令牌。用本机回环上的小 HTTP 服务走一次真实的 302 → 200。
+    func testSanitizedDiagnosticsSummaryHasNoSecrets() throws {
+        let server = try LoopbackHTTPServer(routes: [
+            "/start": .init(status: 302, headers: ["Location": "/signin/v2/identifier?continue=mail&email=alice%40gmail.com&token=secret-token"], body: ""),
+            "/signin/v2/identifier": .init(status: 200, headers: ["Content-Type": "text/html"], body: "<p>sign in</p>"),
+        ])
+        defer { server.stop() }
+        spin(until: { server.port != nil })
+        let port = try XCTUnwrap(server.port)
+
+        let profile = Profile(name: "alice@gmail.com", mode: .ephemeral)
+        let signIn = try Self.makeSession(profile)
+        let controller = signIn.openWindow(url: URL(string: "http://127.0.0.1:\(port)/start?session=abc123#frag"))
+        defer { controller.window.close() }
+        spin(until: { controller.navigationDiagnostics.lastMainFrameStatusCode == 200 && !controller.webView.isLoading })
+        XCTAssertEqual(controller.navigationDiagnostics.lastMainFrameStatusCode, 200)
+        XCTAssertEqual(controller.navigationDiagnostics.redirectCount, 1)
+
+        let text = controller.sanitizedDiagnosticsSummary()
+        for secret in ["alice", "secret-token", "continue", "abc123", "#frag", "\(port)", profile.id.uuidString] {
+            XCTAssertFalse(text.contains(secret), "摘要里不能有 \(secret)")
+        }
+        let json = try summaryJSON(controller)
+        let environment = try XCTUnwrap(json["environment"] as? [String: Any])
+        XCTAssertEqual(environment["mode"] as? String, "ephemeral")
+        XCTAssertEqual(environment["private"] as? Bool, true)
+        XCTAssertEqual(environment["inspectable"] as? Bool, false)
+        let engine = try XCTUnwrap(json["engine"] as? [String: Any])
+        XCTAssertEqual(engine["userAgentApplicationName"] as? String, "Version/26.2 Safari/605.1.15")
+        let capabilities = try XCTUnwrap(json["capabilities"] as? [String: [String: Any]])
+        XCTAssertEqual(Set(capabilities.keys), Set(PrivacyFeature.allCases.map(\.rawValue)))
+        XCTAssertTrue(capabilities.values.allSatisfy { $0["state"] is String })
+        XCTAssertTrue(capabilities["proxy"]?["detail"] is NSNull, "代理说明里有服务器地址，不输出")
+        let window = try XCTUnwrap(json["window"] as? [String: Any])
+        XCTAssertEqual(window["isPopup"] as? Bool, false)
+        XCTAssertEqual((window["frameSize"] as? [Int])?.count, 2)
+        XCTAssertEqual((window["webViewViewport"] as? [Int])?.count, 2)
+        XCTAssertTrue(json["device"] is NSNull, "没选机型")
+        let navigation = try XCTUnwrap(json["navigation"] as? [String: Any])
+        XCTAssertEqual(navigation["page"] as? String, "http://127.0.0.1/signin/v2/identifier")
+        XCTAssertEqual(navigation["lastMainFrameStatusCode"] as? Int, 200)
+        XCTAssertEqual(navigation["redirectCount"] as? Int, 1)
+        XCTAssertEqual(navigation["showingErrorPage"] as? Bool, false)
+        XCTAssertTrue(navigation["lastError"] is NSNull)
+    }
+
+    /// 重定向在一次导航内累加、新导航开始时清零；显示出错页时记下错误域和错误码（网址照样脱敏）。
+    func testNavigationDiagnosticsCountRedirectsAndRecordErrors() throws {
+        let controller = session.openWindow(url: nil)
+        controller.webView(controller.webView, didStartProvisionalNavigation: nil)
+        controller.webView(controller.webView, didReceiveServerRedirectForProvisionalNavigation: nil)
+        controller.webView(controller.webView, didReceiveServerRedirectForProvisionalNavigation: nil)
+        XCTAssertEqual(controller.navigationDiagnostics.redirectCount, 2)
+        controller.webView(controller.webView, didStartProvisionalNavigation: nil)
+        XCTAssertEqual(controller.navigationDiagnostics.redirectCount, 0)
+        XCTAssertNil(controller.navigationDiagnostics.lastMainFrameStatusCode)
+
+        let failing = URL(string: "https://login.example.invalid/challenge?token=abc#x")!
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost, userInfo: [NSURLErrorFailingURLErrorKey: failing])
+        controller.webView(controller.webView, didFailProvisionalNavigation: nil, withError: error)
+        XCTAssertEqual(controller.navigationDiagnostics.lastErrorDomain, NSURLErrorDomain)
+        XCTAssertEqual(controller.navigationDiagnostics.lastErrorCode, NSURLErrorCannotFindHost)
+        spin(until: { controller.displayURL == failing && !controller.webView.isLoading })
+
+        let text = controller.sanitizedDiagnosticsSummary()
+        XCTAssertFalse(text.contains("token=abc"))
+        let navigation = try XCTUnwrap(try summaryJSON(controller)["navigation"] as? [String: Any])
+        XCTAssertEqual(navigation["page"] as? String, "https://login.example.invalid/challenge")
+        XCTAssertEqual(navigation["showingErrorPage"] as? Bool, true)
+        let lastError = try XCTUnwrap(navigation["lastError"] as? [String: Any])
+        XCTAssertEqual(lastError["domain"] as? String, NSURLErrorDomain)
+        XCTAssertEqual(lastError["code"] as? Int, NSURLErrorCannotFindHost)
+
+        // 取消的载入不算错误，不覆盖上一次的记录。
+        controller.webView(controller.webView, didFail: nil, withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled))
+        XCTAssertEqual(controller.navigationDiagnostics.lastErrorCode, NSURLErrorCannotFindHost)
+    }
+
+    /// 网页弹窗（登录弹窗等）和打开它的窗口同属一个会话：共用网站数据存储，跟着会话的 inspectable，
+    /// 诊断里标成 isPopup，环境模式一致。
+    func testPopupWindowsInheritSessionStateInDiagnostics() throws {
+        session.setInspectable(true)
+        let host = session.openWindow(url: nil)
+        let popupTab = session.openTab(in: host, url: nil, configuration: session.configuration)
+        let popupWindow = session.openWindow(url: nil, configuration: session.configuration, contentSize: NSSize(width: 480, height: 360))
+        popupWindow.window.layoutIfNeeded()
+
+        for popup in [popupTab, popupWindow] {
+            XCTAssertTrue(popup.isPopup)
+            XCTAssertTrue(popup.webView.isInspectable, "弹窗跟着会话打开检查")
+            XCTAssertTrue(popup.webView.configuration.websiteDataStore === host.webView.configuration.websiteDataStore, "同一个网站数据存储")
+            let json = try summaryJSON(popup)
+            XCTAssertEqual((json["window"] as? [String: Any])?["isPopup"] as? Bool, true)
+            XCTAssertEqual((json["environment"] as? [String: Any])?["inspectable"] as? Bool, true)
+            XCTAssertEqual((json["environment"] as? [String: Any])?["mode"] as? String, session.profile.mode.rawValue)
+        }
+        XCTAssertEqual((try summaryJSON(host)["window"] as? [String: Any])?["isPopup"] as? Bool, false)
+        let popupWindowJSON = try XCTUnwrap(try summaryJSON(popupWindow)["window"] as? [String: Any])
+        XCTAssertEqual((popupWindowJSON["webViewViewport"] as? [Int])?.first, 480, "弹窗要求的宽度")
+
+        session.setInspectable(false)
+        XCTAssertFalse(popupTab.webView.isInspectable)
+        XCTAssertFalse(popupWindow.webView.isInspectable)
+    }
+
+    /// 选了机型、窗口因屏幕放不下被等比缩小时，能力报告马上写明目标视口和实际视口（deviceModel 降为 degraded），
+    /// 诊断摘要里也有两组尺寸；没缩放时保持机型模拟原来的结论。
+    func testDeviceViewportScalingIsReported() throws {
+        let id = "macbook-pro-16-m4-max"
+        let model = try XCTUnwrap(MacDeviceModel.preset(id))
+        let devSession = try Self.makeSession(Profile(name: "dev", mode: .ephemeral, deviceModel: id))
+        let controller = devSession.openWindow(url: nil)
+        defer { controller.window.close() }
+
+        let target = model.viewportSize
+        let actual = CGSize(width: (target.width * 0.75).rounded(.down), height: (target.height * 0.75).rounded(.down))
+        devSession.recordViewportFit(.init(target: target, actual: actual))
+        guard case .degraded(let text) = devSession.report[.deviceModel] else {
+            return XCTFail("缩放后应为 degraded：\(devSession.report[.deviceModel].summary)")
+        }
+        XCTAssertTrue(text.contains("目标视口 \(Int(target.width))×\(Int(target.height))"), text)
+        XCTAssertTrue(text.contains("实际视口缩小为 \(Int(actual.width))×\(Int(actual.height))"), text)
+
+        let device = try XCTUnwrap(try summaryJSON(controller)["device"] as? [String: Any])
+        XCTAssertEqual(device["model"] as? String, id)
+        XCTAssertEqual(device["targetViewport"] as? [Int], [Int(target.width), Int(target.height)])
+        XCTAssertEqual(device["newWindowViewport"] as? [Int], [Int(actual.width), Int(actual.height)])
+        XCTAssertEqual(device["scaledToFitScreen"] as? Bool, true)
+
+        // 合并规则本身。
+        let fit = BrowserSession.ViewportFit(target: target, actual: actual)
+        let unscaled = BrowserSession.ViewportFit(target: target, actual: target)
+        XCTAssertEqual(BrowserSession.deviceModelState(simulation: .active("模拟"), fit: unscaled), .active("模拟"))
+        XCTAssertEqual(BrowserSession.deviceModelState(simulation: .active("模拟"), fit: nil), .active("模拟"))
+        guard case .degraded(let merged) = BrowserSession.deviceModelState(simulation: .active("模拟"), fit: fit) else { return XCTFail() }
+        XCTAssertTrue(merged.hasPrefix("模拟；目标视口"), merged)
+        guard case .unavailable = BrowserSession.deviceModelState(simulation: .unavailable("没有接口"), fit: fit) else { return XCTFail() }
+        guard case .degraded = BrowserSession.deviceModelState(simulation: nil, fit: fit) else { return XCTFail() }
+    }
+}
+
+/// 只监听 127.0.0.1 的极简 HTTP 服务：按路径（不含 query）返回固定响应，每个连接只答一次。测试用，不出本机。
+private final class LoopbackHTTPServer: @unchecked Sendable {
+    struct Response {
+        var status: Int
+        var headers: [String: String]
+        var body: String
+    }
+
+    private let listener: NWListener
+    private let routes: [String: Response]
+    private let queue = DispatchQueue(label: "safarier.test.http")
+    private let lock = NSLock()
+    private var boundPort: UInt16?
+
+    var port: UInt16? {
+        lock.lock()
+        defer { lock.unlock() }
+        return boundPort
+    }
+
+    init(routes: [String: Response]) throws {
+        self.routes = routes
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self, case .ready = state, let port = self.listener.port?.rawValue else { return }
+            self.lock.lock()
+            self.boundPort = port
+            self.lock.unlock()
+        }
+        listener.newConnectionHandler = { [weak self] connection in self?.serve(connection) }
+        listener.start(queue: queue)
+    }
+
+    func stop() {
+        listener.cancel()
+    }
+
+    private func serve(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [routes] data, _, _, _ in
+            let requestLine = data.flatMap { String(data: $0, encoding: .utf8) }?.components(separatedBy: "\r\n").first ?? ""
+            let target = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            let path = String(target.split(separator: "?", maxSplits: 1).first ?? "/")
+            let response = routes[path] ?? Response(status: 404, headers: [:], body: "not found")
+            let body = Data(response.body.utf8)
+            var head = "HTTP/1.1 \(response.status) \(HTTPURLResponse.localizedString(forStatusCode: response.status))\r\n"
+            for (name, value) in response.headers { head += "\(name): \(value)\r\n" }
+            head += "Content-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
         }
     }
 }

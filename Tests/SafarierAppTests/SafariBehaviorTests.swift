@@ -75,6 +75,7 @@ final class SafariBehaviorTests: XCTestCase {
             (#selector(BrowserActions.showWebInspector(_:)), "i", [.command, .option], false),
             (#selector(BrowserActions.showJavaScriptConsole(_:)), "c", [.command, .option], false),
             (#selector(BrowserActions.showPageSource(_:)), "u", [.command, .option], false),
+            (#selector(BrowserActions.copyDiagnostics(_:)), "d", [.command, .option, .shift], false),
             (#selector(NSWindow.performMiniaturize(_:)), "m", .command, false),
             (#selector(BrowserActions.cycleWindowsForward(_:)), "`", .command, false),
             (#selector(BrowserActions.cycleWindowsForward(_:)), "·", .command, true),
@@ -414,14 +415,68 @@ final class SafariBehaviorTests: XCTestCase {
         XCTAssertEqual(WebViewSPI.textZoomFactor(of: webView), 1)
     }
 
-    /// 默认允许检查网页元素（右键「检查元素」直接可用），网页检查器接口在本机存在。
-    func testInspectableByDefaultAndInspectorAvailable() {
+    /// 默认不允许检查网页元素（不向系统登记调试目标）；「开发 → 允许检查网页元素」打开后，
+    /// 已开的标签和之后新开的窗口都可检查，再点一次全部关掉。网页检查器接口在本机存在。
+    func testInspectableOffByDefaultAndToggleAppliesToAllWindows() {
         let controller = session.openWindow(url: nil)
+        XCTAssertFalse(session.inspectable)
+        XCTAssertFalse(controller.webView.isInspectable)
+        XCTAssertTrue(WebViewSPI.hasInspector(controller.webView))
+
+        let toggle = NSMenuItem(title: "允许检查网页元素", action: #selector(BrowserActions.toggleInspectable(_:)), keyEquivalent: "")
+        XCTAssertTrue(controller.validateMenuItem(toggle))
+        XCTAssertEqual(toggle.state, .off)
+
+        controller.toggleInspectable(toggle)
         XCTAssertTrue(session.inspectable)
         XCTAssertTrue(controller.webView.isInspectable)
-        XCTAssertTrue(WebViewSPI.hasInspector(controller.webView))
-        session.toggleInspectable(nil)
+        _ = controller.validateMenuItem(toggle)
+        XCTAssertEqual(toggle.state, .on)
+        let later = session.openWindow(url: nil)
+        XCTAssertTrue(later.webView.isInspectable, "之后新开的窗口跟着会话的设置")
+
+        controller.toggleInspectable(toggle)
         XCTAssertFalse(controller.webView.isInspectable)
+        XCTAssertFalse(later.webView.isInspectable)
+    }
+
+    /// ⌥⌘I / ⌥⌘C 打开检查器时自动允许检查：当前窗口的所有标签一起打开，菜单勾选跟着变。
+    func testOpeningInspectorEnablesInspectable() {
+        let controller = session.openWindow(url: nil)
+        let otherTab = session.openTab(in: controller, url: nil)
+        XCTAssertFalse(session.inspectable)
+
+        controller.showWebInspector(nil)
+
+        XCTAssertTrue(session.inspectable)
+        XCTAssertTrue(controller.webView.isInspectable)
+        XCTAssertTrue(otherTab.webView.isInspectable)
+        let toggle = NSMenuItem(title: "允许检查网页元素", action: #selector(BrowserActions.toggleInspectable(_:)), keyEquivalent: "")
+        _ = controller.validateMenuItem(toggle)
+        XCTAssertEqual(toggle.state, .on)
+    }
+
+    /// 「开发」菜单：允许检查网页元素和拷贝环境诊断摘要（⌥⇧⌘D）都在；拷贝的是当前窗口的诊断 JSON。
+    func testDevelopMenuHasInspectableToggleAndDiagnosticsCopy() throws {
+        let develop = try XCTUnwrap(BrowserMenu.make().items.first { $0.title == "开发" }?.submenu)
+        let toggle = try XCTUnwrap(develop.items.first { $0.action == #selector(BrowserActions.toggleInspectable(_:)) })
+        XCTAssertEqual(toggle.title, "允许检查网页元素")
+        let copy = try XCTUnwrap(develop.items.first { $0.action == #selector(BrowserActions.copyDiagnostics(_:)) })
+        XCTAssertEqual(copy.title, "拷贝环境诊断摘要")
+        XCTAssertEqual(copy.keyEquivalent, "d")
+        XCTAssertEqual(copy.keyEquivalentModifierMask, [.command, .option, .shift])
+        XCTAssertFalse(copy.isHidden)
+
+        let controller = session.openWindow(url: nil)
+        XCTAssertTrue(controller.validateMenuItem(copy), "起始页上也能拷贝诊断")
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("safarier.test.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        controller.diagnosticsPasteboard = pasteboard
+        controller.copyDiagnostics(copy)
+        let copied = try XCTUnwrap(pasteboard.string(forType: .string))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(copied.utf8)) as? [String: Any])
+        XCTAssertNotNil(json["capabilities"])
+        XCTAssertEqual((json["window"] as? [String: Any])?["isPopup"] as? Bool, false)
     }
 
     /// ⇧⌘H：环境没设起始网址时回到起始页。

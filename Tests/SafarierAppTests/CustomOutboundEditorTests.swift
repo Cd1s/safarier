@@ -5,18 +5,6 @@ import SafarierNetwork
 
 @MainActor
 final class CustomOutboundEditorTests: XCTestCase {
-    func testManualFormRoundTripsAuthenticationAndKeepsAdvancedFieldsInJSONEditor() throws {
-        var draft = ManualProxyDraft()
-        draft.kind = .httpConnect
-        draft.username = "user"
-        draft.password = "secret"
-        let decoded = try XCTUnwrap(ManualProxyDraft(json: draft.json()))
-        XCTAssertEqual(decoded.kind, draft.kind)
-        XCTAssertEqual(decoded.password, draft.password)
-        let advanced = #"{"type":"http","server":"proxy.example","server_port":443,"tls":{"enabled":true}}"#
-        XCTAssertNil(ManualProxyDraft(json: advanced), "高级字段不能被表单静默丢弃")
-    }
-
     func testFailedCheckPreservesSavedProfileAndSuccessfulCheckSurvivesReloadAndCopy() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

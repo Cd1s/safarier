@@ -55,6 +55,7 @@ struct ManagerApp: App {
                     .keyboardShortcut("n")
                 Button("添加订阅…") { model.sheet = .newSubscription }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("添加代理…") { model.sheet = .newProxy }
             }
             CommandMenu("环境") {
                 Button("启动浏览器") { model.selectedProfile.map(model.launch) }

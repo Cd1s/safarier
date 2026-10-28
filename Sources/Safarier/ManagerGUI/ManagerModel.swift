@@ -30,18 +30,23 @@ final class ManagerModel: ObservableObject {
     enum Selection: Hashable {
         case profile(UUID)
         case subscription(UUID)
+        case proxy(UUID)
     }
 
     enum Sheet: Identifiable {
         case newProfile
         case editProfile(Profile)
         case newSubscription
+        case newProxy
+        case editProxy(ProxySettings)
 
         var id: String {
             switch self {
             case .newProfile: return "new-profile"
             case .editProfile(let profile): return "edit-\(profile.id.uuidString)"
             case .newSubscription: return "new-subscription"
+            case .newProxy: return "new-proxy"
+            case .editProxy(let proxy): return "edit-proxy-\(proxy.id.uuidString)"
             }
         }
     }
@@ -50,6 +55,7 @@ final class ManagerModel: ObservableObject {
         case deleteProfile(Profile)
         case purgeProfile(Profile)
         case deleteSubscription(Subscription)
+        case deleteProxy(ProxySettings)
     }
 
     struct Message: Identifiable {
@@ -59,6 +65,7 @@ final class ManagerModel: ObservableObject {
     }
 
     let workspace: SafarierWorkspace
+    private let credentials: any CredentialStore
 
     @Published private(set) var profiles: [Profile] = []
     @Published private(set) var proxies: [ProxySettings] = []
@@ -77,10 +84,11 @@ final class ManagerModel: ObservableObject {
     private var monitor: Timer?
     private var activationObserver: NSObjectProtocol?
 
-    init(workspace: SafarierWorkspace) {
+    init(workspace: SafarierWorkspace, credentials: any CredentialStore = KeychainCredentialStore()) {
         self.workspace = workspace
+        self.credentials = credentials
         reload()
-        selection = profiles.first.map { .profile($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
+        selection = profiles.first.map { .profile($0.id) } ?? proxies.first.map { .proxy($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
     }
 
     // MARK: - 读取
@@ -100,6 +108,7 @@ final class ManagerModel: ObservableObject {
         switch selection {
         case .profile(let id) where profile(id) == nil: selection = nil
         case .subscription(let id) where subscription(id) == nil: selection = nil
+        case .proxy(let id) where proxy(id) == nil: selection = nil
         default: break
         }
     }
@@ -136,6 +145,61 @@ final class ManagerModel: ObservableObject {
 
     func profile(_ id: UUID) -> Profile? { profiles.first { $0.id == id } }
     func subscription(_ id: UUID) -> Subscription? { subscriptions.first { $0.id == id } }
+    func proxy(_ id: UUID) -> ProxySettings? { proxies.first { $0.id == id } }
+
+    func profiles(using proxy: ProxySettings) -> [Profile] {
+        profiles.filter { $0.proxyID == proxy.id }
+    }
+
+    /// 空密码表示保留已有密码；关闭认证才删除 Keychain 项。
+    func saveProxy(_ draft: ProxySettings, password: String?, isNew: Bool) throws {
+        var proxy = draft
+        proxy.name = proxy.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        proxy.host = proxy.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        proxy.username = proxy.username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !proxy.name.isEmpty else { throw ProxyManagementError.emptyName }
+        if proxy.username?.isEmpty == true { throw ProxyManagementError.emptyUsername }
+        try proxy.validate()
+        let previous = try credentials.password(forKey: proxy.credentialKey)
+        let next = proxy.username == nil ? nil : password ?? previous
+        if proxy.username != nil, next?.isEmpty != false { throw ProxyManagementError.missingPassword }
+        try withProxyPassword(next, previous: previous, key: proxy.credentialKey) {
+            if isNew { try workspace.proxies.insert(proxy) }
+            else { try workspace.proxies.update(proxy) }
+        }
+        reload()
+        selection = .proxy(proxy.id)
+    }
+
+    func deleteProxy(_ proxy: ProxySettings) throws {
+        // 使用最新磁盘记录，避免侧边栏尚未刷新时删除仍被环境引用的代理。
+        let users = try workspace.profiles.all().filter { $0.proxyID == proxy.id }
+        guard users.isEmpty else { throw ProxyManagementError.inUse(users.map(\.name)) }
+        let previous = try credentials.password(forKey: proxy.credentialKey)
+        try withProxyPassword(nil, previous: previous, key: proxy.credentialKey) {
+            _ = try workspace.proxies.delete(id: proxy.id)
+        }
+        reload()
+    }
+
+    /// 元数据保存失败时恢复原凭据，不能留下“旧配置 + 新密码”。
+    private func withProxyPassword(_ password: String?, previous: String?, key: String, write: () throws -> Void) throws {
+        func set(_ value: String?) throws {
+            if let value { try credentials.setPassword(value, forKey: key) }
+            else { try credentials.removePassword(forKey: key) }
+        }
+        if password != previous { try set(password) }
+        do {
+            try write()
+        } catch {
+            let writeError = error
+            if password != previous {
+                do { try set(previous) }
+                catch { throw ProxyManagementError.credentialRollbackFailed }
+            }
+            throw writeError
+        }
+    }
 
     var selectedProfile: Profile? {
         guard case .profile(let id) = selection else { return nil }

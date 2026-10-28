@@ -55,20 +55,6 @@ public enum CustomOutbound {
         return String(decoding: try encoder.encode(outbound), as: UTF8.self)
     }
 
-    public static func manual(kind: ProxyKind, host: String, port: Int, username: String, password: String) throws -> String {
-        var outbound: [String: SingboxJSONValue] = [
-            "type": .string(kind == .socks5 ? "socks" : "http"),
-            "server": .string(host.trimmingCharacters(in: .whitespacesAndNewlines)),
-            "server_port": .number(port),
-        ]
-        if kind == .socks5 { outbound["version"] = .string("5") }
-        if !username.isEmpty || !password.isEmpty {
-            outbound["username"] = .string(username)
-            outbound["password"] = .string(password)
-        }
-        return try encoded(parse(encoded(outbound)))
-    }
-
     public static func configuration(json: String, inboundPort: Int) throws -> SingboxConfiguration {
         try SingboxConfigBuilder.makeConfiguration(inboundPort: inboundPort, outbound: parse(json))
     }

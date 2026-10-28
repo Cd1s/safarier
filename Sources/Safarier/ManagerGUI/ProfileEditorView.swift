@@ -2,13 +2,12 @@ import SwiftUI
 import SafarierCore
 import SafarierNetwork
 
-/// 新建 / 编辑环境。字段与命令行 `profile create/update` 一致；模式创建后不能改（数据目录跟着 id 走）。
+/// 新建 / 编辑环境并选择出站；模式创建后不能改（数据目录跟着 id 走）。
 struct ProfileEditorView: View {
     enum OutboundKind: Hashable {
         case direct
         case proxy
         case node
-        case manual
         case custom
     }
 
@@ -40,7 +39,6 @@ struct ProfileEditorView: View {
     @State private var spi: SPIFeatures
     @State private var notes: String
     @State private var errorText: String?
-    @State private var manualProxy: ManualProxyDraft
     @State private var customJSON: String
     @State private var isSaving = false
 
@@ -72,12 +70,10 @@ struct ProfileEditorView: View {
         } ?? .system)
         _timeZone = State(initialValue: original?.timeZoneIdentifier ?? "")
         _startURL = State(initialValue: original?.startURL?.absoluteString ?? "")
-        let draft = original?.customOutboundJSON.flatMap { ManualProxyDraft(json: $0) }
-        _manualProxy = State(initialValue: draft ?? ManualProxyDraft())
         _customJSON = State(initialValue: original?.customOutboundJSON ?? CustomOutbound.defaultJSON)
         let outbound: OutboundKind
         if original?.customOutboundJSON != nil {
-            outbound = draft == nil ? .custom : .manual
+            outbound = .custom
         } else if original?.subscriptionID != nil {
             outbound = .node
         } else {
@@ -112,17 +108,14 @@ struct ProfileEditorView: View {
                 Section {
                     Picker("出站", selection: $outboundKind) {
                         Text("直连").tag(OutboundKind.direct)
-                        Text("已有代理").tag(OutboundKind.proxy)
+                        Text("独立代理").tag(OutboundKind.proxy)
                         Text("订阅节点").tag(OutboundKind.node)
-                        Text("手动代理").tag(OutboundKind.manual)
                         Text("高级 JSON").tag(OutboundKind.custom)
                     }
                     .pickerStyle(.segmented)
                     switch outboundKind {
                     case .direct:
                         EmptyView()
-                    case .manual:
-                        ManualProxyFields(draft: $manualProxy)
                     case .custom:
                         CustomOutboundJSONEditor(json: $customJSON)
                     case .proxy:
@@ -135,6 +128,10 @@ struct ProfileEditorView: View {
                             if let proxyID, !model.proxies.contains(where: { $0.id == proxyID }) {
                                 Text("已被删除的代理（\(proxyID.uuidString.prefix(8))）").tag(UUID?.some(proxyID))
                             }
+                        }
+                        if model.proxies.isEmpty {
+                            Text("还没有独立代理。请先在管理窗口左侧的「代理」中添加 HTTP 或 SOCKS5 代理。")
+                                .foregroundStyle(.secondary)
                         }
                     case .node:
                         Picker("订阅", selection: $subscriptionID) {
@@ -292,14 +289,8 @@ struct ProfileEditorView: View {
             }
             errorText = nil
         }
-        .onChange(of: outboundKind) { old, new in
+        .onChange(of: outboundKind) {
             errorText = nil
-            if old == .manual, new == .custom {
-                do { customJSON = try manualProxy.json() }
-                catch { errorText = error.localizedDescription }
-            } else if old == .custom, new == .manual, let draft = ManualProxyDraft(json: customJSON) {
-                manualProxy = draft
-            }
             // 新环境：选了代理或节点就默认跟随代理出口，改回直连就回到跟随系统（自定义的不动）。
             guard original == nil else { return }
             let follow = outboundKind != .direct
@@ -324,8 +315,8 @@ struct ProfileEditorView: View {
     private var outboundFooter: String {
         switch outboundKind {
         case .direct: return "不经过代理。"
-        case .manual, .custom: return "保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。"
-        case .proxy: return "代理用命令行 safarier proxy add 添加。代理只在启动时生效，换代理要重启这个环境。"
+        case .custom: return "保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。"
+        case .proxy: return "在左侧「代理」中统一管理 HTTP / SOCKS5 代理，供多个环境复用。由 WebKit 直接连接，修改后需重启环境。"
         case .node: return "启动时为这个环境单独起一个 sing-box，把节点转成本地 SOCKS5 交给 WebKit；节点连不上时页面加载失败，不会退回直连。节点按名字匹配，订阅刷新后仍然有效。"
         }
     }
@@ -404,13 +395,8 @@ struct ProfileEditorView: View {
         profile.timeZoneIdentifier = timeZoneSource != .custom || zone.isEmpty ? nil : zone
         profile.startURL = url
         switch outboundKind {
-        case .manual, .custom:
-            do {
-                profile.customOutboundJSON = outboundKind == .manual ? try manualProxy.json() : customJSON
-            } catch {
-                errorText = error.localizedDescription
-                return
-            }
+        case .custom:
+            profile.customOutboundJSON = customJSON
             profile.proxyID = nil
             profile.subscriptionID = nil
             profile.nodeName = nil

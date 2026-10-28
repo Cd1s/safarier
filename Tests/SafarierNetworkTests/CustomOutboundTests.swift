@@ -3,10 +3,13 @@ import SafarierCore
 @testable import SafarierNetwork
 
 final class CustomOutboundTests: XCTestCase {
-    func testManualProxyPreservesCredentialsAndUsesManagedRouting() throws {
+    func testCustomProxyPreservesCredentialsAndUsesManagedRouting() throws {
         for kind in ProxyKind.allCases {
             let password = "quote\"\\\nsecret"
-            let json = try CustomOutbound.manual(kind: kind, host: " 127.0.0.1 ", port: 8080, username: "user", password: password)
+            let json = try CustomOutbound.encoded([
+                "type": .string(kind == .socks5 ? "socks" : "http"), "server": .string("127.0.0.1"),
+                "server_port": .number(8080), "username": .string("user"), "password": .string(password),
+            ])
             let config = try CustomOutbound.configuration(json: json, inboundPort: 23456)
             XCTAssertEqual(config.outbounds[0]["type"], .string(kind == .socks5 ? "socks" : "http"))
             XCTAssertEqual(config.outbounds[0]["password"], .string(password))
@@ -36,14 +39,17 @@ final class CustomOutboundTests: XCTestCase {
         }
     }
 
-    func testRealSingboxChecksAndStartsBothManualProtocols() throws {
+    func testRealSingboxChecksAndStartsBothCustomProtocols() throws {
         guard let executable = SingboxProcessManager.locateExecutable() else { throw XCTSkip("本机没有 sing-box") }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let manager = SingboxProcessManager(executableURL: executable, stateDirectory: root)
         defer { manager.stopAll() }
         for kind in ProxyKind.allCases {
-            let json = try CustomOutbound.manual(kind: kind, host: "192.0.2.1", port: 8080, username: "", password: "")
+            let json = try CustomOutbound.encoded([
+                "type": .string(kind == .socks5 ? "socks" : "http"),
+                "server": .string("192.0.2.1"), "server_port": .number(8080),
+            ])
             let normalized = try CustomOutbound.checked(json, executableURL: executable)
             let id = UUID()
             try manager.start(profileID: id, outboundJSON: normalized)

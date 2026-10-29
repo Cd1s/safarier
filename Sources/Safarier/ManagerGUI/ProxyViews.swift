@@ -157,6 +157,7 @@ struct ProxyDetailView: View {
             }
         }
         .formStyle(.grouped)
+        .navigationTitle(proxy.name)
     }
 }
 
@@ -166,7 +167,7 @@ struct ProxyRow: View {
         Label {
             VStack(alignment: .leading, spacing: 3) {
                 Text(proxy.name).fontWeight(.medium)
-                Text("\(DisplayText.proxyKind(proxy.kind)) · \(proxy.host):\(proxy.port)")
+                Text(verbatim: "\(DisplayText.proxyKind(proxy.kind)) · \(proxy.host):\(proxy.port)")
                     .font(.caption).foregroundStyle(.secondary)
             }.lineLimit(1)
         } icon: { Image(systemName: "network").foregroundStyle(.blue) }

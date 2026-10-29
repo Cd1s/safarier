@@ -56,12 +56,15 @@ struct ProxyEditorView: View {
                         Text("HTTP CONNECT").tag(ProxyKind.httpConnect)
                     }
                     TextField("服务器", text: $host, prompt: Text("主机名或 IP 地址"))
+                        .autocorrectionDisabled()
                     TextField("端口", text: $port)
+                        .autocorrectionDisabled()
                 }
                 Section {
                     Toggle("用户名和密码认证", isOn: $authenticated)
                     if authenticated {
                         TextField("用户名", text: $username)
+                            .autocorrectionDisabled()
                         SecureField("密码", text: $password, prompt: Text(original?.username == nil ? "请输入密码" : "留空保留原密码"))
                     }
                 } footer: {

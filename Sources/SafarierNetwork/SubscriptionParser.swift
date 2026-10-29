@@ -193,13 +193,15 @@ public enum SubscriptionParser {
         // 方法名里没有 `:`：按第一个 `:` 切，密码（含 EIH 的 `:` 和 Base64 的 `/`、`+`、`=`）原样保留。
         let split = userInfo.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
         guard split.count == 2, !split[0].isEmpty, !split[1].isEmpty else { throw invalid }
+        let method = SubscriptionNode.normalizedShadowsocksMethod(split[0])
+        guard SubscriptionNode.supportedShadowsocksMethods.contains(method) else { throw invalid }
         return SubscriptionNode(
             name: name ?? host,
             type: .shadowsocks,
             server: host,
             serverPort: port,
-            password: normalizedShadowsocksPassword(split[1], method: split[0]),
-            method: split[0],
+            password: normalizedShadowsocksPassword(split[1], method: method),
+            method: method,
             parameters: parameters
         )
     }

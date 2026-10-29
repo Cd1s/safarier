@@ -138,9 +138,11 @@ public struct SingboxConfigBuilder: Sendable {
         case .shadowsocks:
             // SS2022（2022-blake3-*）多用户的 `serverKey:userKey` 整体就是 password。解析时已经把密钥规范成标准 Base64，
             // 以前保存的节点可能还是 URL-safe / 没补齐的写法：这里再规范化一次。
-            if let method = node.method { result["method"] = .string(method) }
+            // 方法名同样规范化一次：以前保存的节点可能是大写（`AES-128-GCM`）或手滑写错（`aes-128-grm`），启动时自愈。
+            let method = node.method.map(SubscriptionNode.normalizedShadowsocksMethod)
+            if let method { result["method"] = .string(method) }
             if let password = node.password {
-                result["password"] = .string(node.method.map { SubscriptionParser.normalizedShadowsocksPassword(password, method: $0) } ?? password)
+                result["password"] = .string(method.map { SubscriptionParser.normalizedShadowsocksPassword(password, method: $0) } ?? password)
             }
             // SIP002 插件：`plugin=obfs-local;obfs=http;obfs-host=example.com`，第一个 `;` 前是插件名。
             if let plugin = node.parameters["plugin"], !plugin.isEmpty {

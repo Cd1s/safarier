@@ -13,6 +13,7 @@ struct CustomOutboundJSONEditor: View {
             }
             TextEditor(text: $json)
                 .font(.system(.body, design: .monospaced))
+                .autocorrectionDisabled()
                 .frame(minHeight: 190)
                 .accessibilityLabel("sing-box 出站 JSON")
             Text("填写一个出站对象，不是完整配置。可包含认证信息；复制或分享前请移除密码。")

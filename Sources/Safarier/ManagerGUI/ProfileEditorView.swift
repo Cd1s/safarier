@@ -1,12 +1,14 @@
 import SwiftUI
 import SafarierCore
+import SafarierNetwork
 
-/// 新建 / 编辑环境。字段与命令行 `profile create/update` 一致；模式创建后不能改（数据目录跟着 id 走）。
+/// 新建 / 编辑环境并选择出站；模式创建后不能改（数据目录跟着 id 走）。
 struct ProfileEditorView: View {
     enum OutboundKind: Hashable {
         case direct
         case proxy
         case node
+        case custom
     }
 
     /// 语言 / 时区从哪来。
@@ -37,6 +39,8 @@ struct ProfileEditorView: View {
     @State private var spi: SPIFeatures
     @State private var notes: String
     @State private var errorText: String?
+    @State private var customJSON: String
+    @State private var isSaving = false
 
     private static let languagePresets: [(title: String, value: String)] = [
         ("英语（美国）", "en-US, en"),
@@ -66,7 +70,16 @@ struct ProfileEditorView: View {
         } ?? .system)
         _timeZone = State(initialValue: original?.timeZoneIdentifier ?? "")
         _startURL = State(initialValue: original?.startURL?.absoluteString ?? "")
-        _outboundKind = State(initialValue: original?.subscriptionID != nil ? .node : original?.proxyID != nil ? .proxy : .direct)
+        _customJSON = State(initialValue: original?.customOutboundJSON ?? CustomOutbound.defaultJSON)
+        let outbound: OutboundKind
+        if original?.customOutboundJSON != nil {
+            outbound = .custom
+        } else if original?.subscriptionID != nil {
+            outbound = .node
+        } else {
+            outbound = original?.proxyID != nil ? .proxy : .direct
+        }
+        _outboundKind = State(initialValue: outbound)
         _proxyID = State(initialValue: original?.proxyID)
         _subscriptionID = State(initialValue: original?.subscriptionID)
         _nodeName = State(initialValue: original?.nodeName)
@@ -97,11 +110,14 @@ struct ProfileEditorView: View {
                         Text("直连").tag(OutboundKind.direct)
                         Text("独立代理").tag(OutboundKind.proxy)
                         Text("订阅节点").tag(OutboundKind.node)
+                        Text("高级 JSON").tag(OutboundKind.custom)
                     }
                     .pickerStyle(.segmented)
                     switch outboundKind {
                     case .direct:
                         EmptyView()
+                    case .custom:
+                        CustomOutboundJSONEditor(json: $customJSON)
                     case .proxy:
                         Picker("代理", selection: $proxyID) {
                             Text("选择代理").tag(UUID?.none)
@@ -112,6 +128,10 @@ struct ProfileEditorView: View {
                             if let proxyID, !model.proxies.contains(where: { $0.id == proxyID }) {
                                 Text("已被删除的代理（\(proxyID.uuidString.prefix(8))）").tag(UUID?.some(proxyID))
                             }
+                        }
+                        if model.proxies.isEmpty {
+                            Text("还没有独立代理。请先在管理窗口左侧的「代理」中添加 HTTP 或 SOCKS5 代理。")
+                                .foregroundStyle(.secondary)
                         }
                     case .node:
                         Picker("订阅", selection: $subscriptionID) {
@@ -247,6 +267,7 @@ struct ProfileEditorView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
+                if isSaving { ProgressView().controlSize(.small) }
                 Button("取消", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(original == nil ? "创建" : "保存") { save() }
@@ -256,6 +277,8 @@ struct ProfileEditorView: View {
             .padding(16)
         }
         .frame(width: 580, height: 600)
+        .disabled(isSaving)
+        .interactiveDismissDisabled(isSaving)
         .onChange(of: [name, languages, timeZone, startURL]) { errorText = nil }
         .onChange(of: subscriptionID) {
             // 单节点订阅直接选中；多节点订阅保留仍然有效的原选择。
@@ -292,7 +315,8 @@ struct ProfileEditorView: View {
     private var outboundFooter: String {
         switch outboundKind {
         case .direct: return "不经过代理。"
-        case .proxy: return "代理用命令行 safarier proxy add 添加。代理只在启动时生效，换代理要重启这个环境。"
+        case .custom: return "保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。"
+        case .proxy: return "在左侧「代理」中统一管理 HTTP / SOCKS5 代理，供多个环境复用。由 WebKit 直接连接，修改后需重启环境。"
         case .node: return "启动时为这个环境单独起一个 sing-box，把节点转成本地 SOCKS5 交给 WebKit；节点连不上时页面加载失败，不会退回直连。节点按名字匹配，订阅刷新后仍然有效。"
         }
     }
@@ -360,6 +384,7 @@ struct ProfileEditorView: View {
         }
 
         var profile = original ?? Profile(name: name, mode: mode)
+        profile.customOutboundJSON = nil
         profile.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         profile.followProxyLanguages = languageSource == .proxy
         profile.languages = languageSource != .custom ? [] : languages.split(separator: ",")
@@ -370,6 +395,11 @@ struct ProfileEditorView: View {
         profile.timeZoneIdentifier = timeZoneSource != .custom || zone.isEmpty ? nil : zone
         profile.startURL = url
         switch outboundKind {
+        case .custom:
+            profile.customOutboundJSON = customJSON
+            profile.proxyID = nil
+            profile.subscriptionID = nil
+            profile.nodeName = nil
         case .direct:
             profile.proxyID = nil
             profile.subscriptionID = nil
@@ -395,11 +425,15 @@ struct ProfileEditorView: View {
         profile.spi = spi
         profile.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        do {
-            try model.save(profile, isNew: original == nil)
-            dismiss()
-        } catch {
-            errorText = DisplayText.describe(error)
+        isSaving = true
+        Task { @MainActor in
+            defer { isSaving = false }
+            do {
+                try await model.saveValidated(profile, isNew: original == nil)
+                dismiss()
+            } catch {
+                errorText = DisplayText.describe(error)
+            }
         }
     }
 }

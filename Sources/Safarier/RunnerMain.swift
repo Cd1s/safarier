@@ -23,6 +23,7 @@ enum RunnerMain {
             guard let profile = try workspace.profiles.record(id: spec.profileID) else {
                 fail("找不到 profile \(spec.profileID.uuidString)")
             }
+            try profile.validate()
             lock = try ProfileLock.acquire(profileID: profile.id, in: workspace.locksDirectory)
             installTerminationCleanup()
             let diagnostics = SPIDiagnostics.standardError()
@@ -39,8 +40,19 @@ enum RunnerMain {
             var outboundDescription = proxy.map { "代理「\($0.name)」（\($0.kind.rawValue) \($0.host):\($0.port)）" } ?? "直连"
 
             let bound = try workspace.boundNode(for: profile)
-            if let bound {
-                let local = try startSingbox(profileID: profile.id, node: bound.node, workspace: workspace)
+            if let json = profile.customOutboundJSON {
+                let local = try startSingbox(profileID: profile.id, workspace: workspace) {
+                    try $0.start(profileID: profile.id, outboundJSON: json)
+                }
+                effectiveProfile.customOutboundJSON = nil
+                effectiveProfile.proxyID = local.proxy.id
+                proxy = local.proxy
+                outbound = ["kind": "customSingbox", "singboxPID": local.pid, "localProxy": "\(local.proxy.host):\(local.proxy.port)"]
+                outboundDescription = "自定义代理（经 sing-box）"
+            } else if let bound {
+                let local = try startSingbox(profileID: profile.id, workspace: workspace) {
+                    try $0.start(profileID: profile.id, node: bound.node)
+                }
                 effectiveProfile.proxyID = local.proxy.id
                 proxy = local.proxy
                 outbound = [
@@ -155,15 +167,15 @@ enum RunnerMain {
     /// 起 sing-box 并等它的本地端口可用。stdout/stderr 进 Runner 自己的日志（级别 warn，不记访问的域名）。
     private static func startSingbox(
         profileID: UUID,
-        node: SubscriptionNode,
-        workspace: SafarierWorkspace
+        workspace: SafarierWorkspace,
+        start: (SingboxProcessManager) throws -> Int32
     ) throws -> (proxy: ProxySettings, pid: Int32) {
         let manager = SingboxProcessManager(stateDirectory: workspace.singboxDirectory, logHandle: FileHandle.standardError)
         singbox = (manager, profileID)
-        let pid = try manager.start(profileID: profileID, node: node)
+        let pid = try start(manager)
         let port = try manager.waitUntilReady(profileID: profileID)
         // 写 stderr：探针模式下 stdout 只能有 JSON。
-        FileHandle.standardError.write(Data("[sing-box] \(manager.executableURL.path) pid \(pid)，节点「\(node.name)」（\(node.type.rawValue) \(node.server):\(node.serverPort)）→ 127.0.0.1:\(port)\n".utf8))
+        FileHandle.standardError.write(Data("[sing-box] \(manager.executableURL.path) pid \(pid) → 127.0.0.1:\(port)\n".utf8))
         let proxy = ProxySettings(name: "sing-box", kind: .socks5, host: SingboxConfigBuilder.defaultInboundAddress, port: port)
         return (proxy, pid)
     }

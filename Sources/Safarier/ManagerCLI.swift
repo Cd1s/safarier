@@ -117,6 +117,7 @@ enum ManagerCLI {
     }
 
     private static func outboundLabel(_ profile: Profile, proxies: [UUID: ProxySettings], subscriptions: [UUID: Subscription]) -> String {
+        if profile.customOutboundJSON != nil { return "custom:sing-box" }
         if let subscriptionID = profile.subscriptionID {
             let name = profile.nodeName ?? ""
             guard let subscription = subscriptions[subscriptionID] else { return "missing-sub:\(subscriptionID.uuidString.prefix(8))" }
@@ -210,6 +211,7 @@ enum ManagerCLI {
             profile.subscriptionID = nil
             profile.nodeName = nil
         } else if let outbound = try parseOutbound(workspace, args) {
+            profile.customOutboundJSON = nil
             profile.proxyID = outbound.proxyID
             profile.subscriptionID = outbound.subscriptionID
             profile.nodeName = outbound.nodeName

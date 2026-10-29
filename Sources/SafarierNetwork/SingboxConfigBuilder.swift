@@ -5,6 +5,7 @@ import SafarierCore
 public indirect enum SingboxJSONValue: Codable, Equatable, Sendable {
     case string(String)
     case number(Int)
+    case decimal(Double)
     case bool(Bool)
     case object([String: SingboxJSONValue])
     case array([SingboxJSONValue])
@@ -15,6 +16,7 @@ public indirect enum SingboxJSONValue: Codable, Equatable, Sendable {
         if single.decodeNil() { self = .null }
         else if let value = try? single.decode(Bool.self) { self = .bool(value) }
         else if let value = try? single.decode(Int.self) { self = .number(value) }
+        else if let value = try? single.decode(Double.self) { self = .decimal(value) }
         else if let value = try? single.decode(String.self) { self = .string(value) }
         else if let value = try? single.decode([String: SingboxJSONValue].self) { self = .object(value) }
         else if let value = try? single.decode([SingboxJSONValue].self) { self = .array(value) }
@@ -26,6 +28,7 @@ public indirect enum SingboxJSONValue: Codable, Equatable, Sendable {
         switch self {
         case .string(let value): try single.encode(value)
         case .number(let value): try single.encode(value)
+        case .decimal(let value): try single.encode(value)
         case .bool(let value): try single.encode(value)
         case .object(let value): try single.encode(value)
         case .array(let value): try single.encode(value)
@@ -82,7 +85,14 @@ public struct SingboxConfigBuilder: Sendable {
         do { try node.validate() } catch let error as SubscriptionNodeValidationError {
             throw SingboxConfigError.invalidNode(error)
         }
+        return try makeConfiguration(inboundPort: inboundPort, outbound: makeOutbound(node), inboundAddress: inboundAddress, logLevel: logLevel)
+    }
 
+    static func makeConfiguration(
+        inboundPort: Int, outbound: [String: SingboxJSONValue],
+        inboundAddress: String = defaultInboundAddress, logLevel: String = "warn"
+    ) throws -> SingboxConfiguration {
+        guard (1...65535).contains(inboundPort) else { throw SingboxConfigError.invalidInboundPort(inboundPort) }
         let inbound: [String: SingboxJSONValue] = [
             "type": .string("socks"),
             "tag": .string("socks-in"),
@@ -93,7 +103,7 @@ public struct SingboxConfigBuilder: Sendable {
         return SingboxConfiguration(
             log: ["level": .string(logLevel)],
             inbounds: [inbound],
-            outbounds: [makeOutbound(node), ["type": .string("direct"), "tag": .string(directTag)]],
+            outbounds: [outbound, ["type": .string("direct"), "tag": .string(directTag)]],
             route: ["final": .string(proxyTag)]
         )
     }

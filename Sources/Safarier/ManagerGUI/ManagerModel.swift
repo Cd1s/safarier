@@ -14,6 +14,7 @@ enum RunState {
 /// profile 的出站：直连、独立代理，或订阅节点（启动时经 sing-box 转成本地 SOCKS5）。
 enum ProxyBinding {
     case direct
+    case custom
     case proxy(ProxySettings)
     /// proxyID 指向的代理已经被删除。
     case missing(UUID)
@@ -26,21 +27,31 @@ enum ProxyBinding {
 /// 命令行在别处改了数据，窗口回到前台时会重新读。
 @MainActor
 final class ManagerModel: ObservableObject {
+    enum ProxyTestState: Equatable {
+        case running
+        case success(ProxyConnectionResult)
+        case failure(String)
+    }
     enum Selection: Hashable {
         case profile(UUID)
         case subscription(UUID)
+        case proxy(UUID)
     }
 
     enum Sheet: Identifiable {
         case newProfile
         case editProfile(Profile)
         case newSubscription
+        case newProxy
+        case editProxy(ProxySettings)
 
         var id: String {
             switch self {
             case .newProfile: return "new-profile"
             case .editProfile(let profile): return "edit-\(profile.id.uuidString)"
             case .newSubscription: return "new-subscription"
+            case .newProxy: return "new-proxy"
+            case .editProxy(let proxy): return "edit-proxy-\(proxy.id.uuidString)"
             }
         }
     }
@@ -49,6 +60,7 @@ final class ManagerModel: ObservableObject {
         case deleteProfile(Profile)
         case purgeProfile(Profile)
         case deleteSubscription(Subscription)
+        case deleteProxy(ProxySettings)
     }
 
     struct Message: Identifiable {
@@ -58,6 +70,10 @@ final class ManagerModel: ObservableObject {
     }
 
     let workspace: SafarierWorkspace
+    private let credentials: any CredentialStore
+    private let proxyTester: ProxyConnectionTester.Test
+    private var proxyTestTasks: [UUID: Task<Void, Never>] = [:]
+    @Published private(set) var proxyTests: [UUID: ProxyTestState] = [:]
 
     @Published private(set) var profiles: [Profile] = []
     @Published private(set) var proxies: [ProxySettings] = []
@@ -76,10 +92,13 @@ final class ManagerModel: ObservableObject {
     private var monitor: Timer?
     private var activationObserver: NSObjectProtocol?
 
-    init(workspace: SafarierWorkspace) {
+    init(workspace: SafarierWorkspace, credentials: any CredentialStore = KeychainCredentialStore(),
+         proxyTester: @escaping ProxyConnectionTester.Test = { try await ProxyConnectionTester.check(proxy: $0, password: $1) }) {
         self.workspace = workspace
+        self.credentials = credentials
+        self.proxyTester = proxyTester
         reload()
-        selection = profiles.first.map { .profile($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
+        selection = profiles.first.map { .profile($0.id) } ?? proxies.first.map { .proxy($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
     }
 
     // MARK: - 读取
@@ -90,7 +109,12 @@ final class ManagerModel: ObservableObject {
             let proxies = try workspace.proxies.all()
             let subscriptions = try workspace.subscriptions.all()
             if profiles != self.profiles { self.profiles = profiles }
-            if proxies != self.proxies { self.proxies = proxies }
+            if proxies != self.proxies {
+                for previous in self.proxies where proxies.first(where: { $0.id == previous.id }) != previous {
+                    cancelProxyTest(previous.id)
+                }
+                self.proxies = proxies
+            }
             if subscriptions != self.subscriptions { self.subscriptions = subscriptions }
         } catch {
             report("读取数据失败", error)
@@ -99,6 +123,7 @@ final class ManagerModel: ObservableObject {
         switch selection {
         case .profile(let id) where profile(id) == nil: selection = nil
         case .subscription(let id) where subscription(id) == nil: selection = nil
+        case .proxy(let id) where proxy(id) == nil: selection = nil
         default: break
         }
     }
@@ -135,6 +160,100 @@ final class ManagerModel: ObservableObject {
 
     func profile(_ id: UUID) -> Profile? { profiles.first { $0.id == id } }
     func subscription(_ id: UUID) -> Subscription? { subscriptions.first { $0.id == id } }
+    func proxy(_ id: UUID) -> ProxySettings? { proxies.first { $0.id == id } }
+
+    func profiles(using proxy: ProxySettings) -> [Profile] {
+        profiles.filter { $0.proxyID == proxy.id }
+    }
+
+    func testProxy(_ proxy: ProxySettings) {
+        guard proxyTestTasks[proxy.id] == nil else { return }
+        do {
+            guard let current = try workspace.proxies.record(id: proxy.id) else { throw RepositoryError.notFound(proxy.id) }
+            let password = current.username?.isEmpty == false ? try credentials.password(forKey: current.credentialKey) : nil
+            if current.username?.isEmpty == false, password == nil { throw ProxyConnectionError.missingPassword }
+            let tester = proxyTester
+            proxyTests[current.id] = .running
+            proxyTestTasks[current.id] = Task { @MainActor [weak self] in
+                let outcome: ProxyTestState?
+                do {
+                    outcome = .success(try await tester(current, password))
+                } catch is CancellationError {
+                    outcome = nil
+                } catch {
+                    outcome = .failure(DisplayText.describe(error))
+                }
+                guard !Task.isCancelled, let self else { return }
+                // 仅当前未取消的任务负责收尾；旧任务不能清掉后来启动的测试。
+                defer { self.proxyTestTasks[current.id] = nil }
+                // CLI 或其它窗口在测试中修改了配置时，丢弃旧快照的结果。
+                guard (try? self.workspace.proxies.record(id: current.id)) == current else {
+                    self.proxyTests[current.id] = nil
+                    return
+                }
+                self.proxyTests[current.id] = outcome
+            }
+        } catch {
+            proxyTests[proxy.id] = .failure(DisplayText.describe(error))
+        }
+    }
+
+    func cancelProxyTest(_ id: UUID) {
+        proxyTestTasks.removeValue(forKey: id)?.cancel()
+        proxyTests[id] = nil
+    }
+
+    /// 空密码表示保留已有密码；关闭认证才删除 Keychain 项。
+    func saveProxy(_ draft: ProxySettings, password: String?, isNew: Bool) throws {
+        var proxy = draft
+        proxy.name = proxy.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        proxy.host = proxy.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        proxy.username = proxy.username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !proxy.name.isEmpty else { throw ProxyManagementError.emptyName }
+        if proxy.username?.isEmpty == true { throw ProxyManagementError.emptyUsername }
+        try proxy.validate()
+        let previous = try credentials.password(forKey: proxy.credentialKey)
+        let next = proxy.username == nil ? nil : password ?? previous
+        if proxy.username != nil, next?.isEmpty != false { throw ProxyManagementError.missingPassword }
+        try withProxyPassword(next, previous: previous, key: proxy.credentialKey) {
+            if isNew { try workspace.proxies.insert(proxy) }
+            else { try workspace.proxies.update(proxy) }
+        }
+        cancelProxyTest(proxy.id)
+        reload()
+        selection = .proxy(proxy.id)
+    }
+
+    func deleteProxy(_ proxy: ProxySettings) throws {
+        // 使用最新磁盘记录，避免侧边栏尚未刷新时删除仍被环境引用的代理。
+        let users = try workspace.profiles.all().filter { $0.proxyID == proxy.id }
+        guard users.isEmpty else { throw ProxyManagementError.inUse(users.map(\.name)) }
+        let previous = try credentials.password(forKey: proxy.credentialKey)
+        try withProxyPassword(nil, previous: previous, key: proxy.credentialKey) {
+            _ = try workspace.proxies.delete(id: proxy.id)
+        }
+        cancelProxyTest(proxy.id)
+        reload()
+    }
+
+    /// 元数据保存失败时恢复原凭据，不能留下“旧配置 + 新密码”。
+    private func withProxyPassword(_ password: String?, previous: String?, key: String, write: () throws -> Void) throws {
+        func set(_ value: String?) throws {
+            if let value { try credentials.setPassword(value, forKey: key) }
+            else { try credentials.removePassword(forKey: key) }
+        }
+        if password != previous { try set(password) }
+        do {
+            try write()
+        } catch {
+            let writeError = error
+            if password != previous {
+                do { try set(previous) }
+                catch { throw ProxyManagementError.credentialRollbackFailed }
+            }
+            throw writeError
+        }
+    }
 
     var selectedProfile: Profile? {
         guard case .profile(let id) = selection else { return nil }
@@ -147,6 +266,7 @@ final class ManagerModel: ObservableObject {
     }
 
     func proxyBinding(for profile: Profile) -> ProxyBinding {
+        if profile.customOutboundJSON != nil { return .custom }
         if let subscriptionID = profile.subscriptionID {
             let name = profile.nodeName ?? ""
             guard let subscription = subscription(subscriptionID) else { return .missingNode(subscription: nil, node: name) }
@@ -165,7 +285,7 @@ final class ManagerModel: ObservableObject {
         guard runState(profile.id) == .stopped else { return }
         // Runner 找不到 sing-box 也会失败退出，这里先拦下来，提示更直接。
         let singbox = SingboxProcessManager.defaultExecutableURL
-        if profile.subscriptionID != nil, !FileManager.default.isExecutableFile(atPath: singbox.path) {
+        if profile.subscriptionID != nil || profile.customOutboundJSON != nil, !FileManager.default.isExecutableFile(atPath: singbox.path) {
             report("无法启动「\(profile.name)」", SingboxProcessError.executableNotFound(singbox))
             return
         }
@@ -223,6 +343,18 @@ final class ManagerModel: ObservableObject {
     }
 
     // MARK: - profile
+
+    /// 校验期间不修改磁盘记录；失败时旧配置仍然完整保留。
+    func saveValidated(_ profile: Profile, isNew: Bool, executableURL: URL = SingboxProcessManager.defaultExecutableURL) async throws {
+        try profile.validate()
+        var checkedProfile = profile
+        if let json = profile.customOutboundJSON {
+            checkedProfile.customOutboundJSON = try await Task.detached {
+                try CustomOutbound.checked(json, executableURL: executableURL)
+            }.value
+        }
+        try save(checkedProfile, isNew: isNew)
+    }
 
     func save(_ profile: Profile, isNew: Bool) throws {
         if isNew {

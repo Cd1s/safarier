@@ -1,7 +1,7 @@
 import SwiftUI
 import SafarierCore
 
-/// 管理窗口：左边环境和订阅列表，右边详情。
+/// 管理窗口：左边环境、代理和订阅列表，右边详情。
 struct SafarierAppView: View {
     @ObservedObject var model: ManagerModel
 
@@ -17,6 +17,8 @@ struct SafarierAppView: View {
             case .newProfile: ProfileEditorView(model: model, original: nil)
             case .editProfile(let profile): ProfileEditorView(model: model, original: profile)
             case .newSubscription: SubscriptionEditorView(model: model)
+            case .newProxy: ProxyEditorView(model: model, original: nil)
+            case .editProxy(let proxy): ProxyEditorView(model: model, original: proxy)
             }
         }
         .confirmationDialog(
@@ -47,6 +49,12 @@ struct SafarierAppView: View {
     @ViewBuilder
     private var detail: some View {
         switch model.selection {
+        case .proxy(let id):
+            if let proxy = model.proxy(id) {
+                ProxyDetailView(model: model, proxy: proxy)
+            } else {
+                placeholder
+            }
         case .profile(let id):
             if let profile = model.profile(id) {
                 ProfileDetailView(model: model, profile: profile)
@@ -77,7 +85,7 @@ struct SafarierAppView: View {
                     .controlSize(.large)
             }
         } else {
-            ContentUnavailableView("选择一个环境或订阅", systemImage: "sidebar.left", description: Text("在左侧列表里选择要查看的项目。"))
+            ContentUnavailableView("选择环境、代理或订阅", systemImage: "sidebar.left", description: Text("在左侧列表里选择要查看的项目。"))
         }
     }
 
@@ -88,6 +96,7 @@ struct SafarierAppView: View {
         case .deleteProfile(let profile): return "删除环境「\(profile.name)」？"
         case .purgeProfile(let profile): return "清理「\(profile.name)」的沙盒数据？"
         case .deleteSubscription(let subscription): return "删除订阅「\(subscription.name)」？"
+        case .deleteProxy(let proxy): return "删除代理「\(proxy.name)」？"
         case nil: return ""
         }
     }
@@ -106,6 +115,11 @@ struct SafarierAppView: View {
             Button("清理", role: .destructive) { model.purgeData(profile) }
         case .deleteSubscription(let subscription):
             Button("删除", role: .destructive) { model.delete(subscription) }
+        case .deleteProxy(let proxy):
+            Button("删除", role: .destructive) {
+                do { try model.deleteProxy(proxy) }
+                catch { model.message = .init(title: "删除代理失败", detail: DisplayText.describe(error)) }
+            }
         }
         Button("取消", role: .cancel) {}
     }
@@ -120,6 +134,8 @@ struct SafarierAppView: View {
             return Text("会删除这个环境的 Cookie、登录状态、本地存储和缓存，环境配置保留。此操作不能撤销。")
         case .deleteSubscription:
             return Text("只删除本地保存的订阅链接和节点缓存。")
+        case .deleteProxy:
+            return Text("删除代理配置及钥匙串中的密码。被环境使用的代理不能删除。")
         }
     }
 }
@@ -140,6 +156,24 @@ struct ManagerSidebar: View {
                 if model.profiles.isEmpty {
                     Text("还没有环境").foregroundStyle(.tertiary)
                 }
+            }
+            Section("代理") {
+                ForEach(model.proxies) { proxy in
+                    ProxyRow(proxy: proxy)
+                        .tag(ManagerModel.Selection.proxy(proxy.id))
+                        .contextMenu {
+                            Button("编辑代理…") { model.sheet = .editProxy(proxy) }
+                            Button("删除代理…", role: .destructive) { model.confirmation = .deleteProxy(proxy) }
+                                .disabled(!model.profiles(using: proxy).isEmpty)
+                        }
+                }
+                if model.proxies.isEmpty { Text("还没有代理").foregroundStyle(.tertiary) }
+                Button { model.sheet = .newProxy } label: {
+                    Label("添加代理…", systemImage: "plus")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             Section("订阅") {
                 ForEach(model.subscriptions) { subscription in
@@ -224,7 +258,7 @@ struct ProfileRow: View {
     private var proxySymbol: String {
         switch proxy {
         case .direct: return "arrow.up.right"
-        case .proxy: return "network"
+        case .proxy, .custom: return "network"
         case .node: return "antenna.radiowaves.left.and.right"
         case .missing, .missingNode: return "exclamationmark.triangle"
         }

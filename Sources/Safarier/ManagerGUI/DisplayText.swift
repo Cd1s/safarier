@@ -28,6 +28,7 @@ enum DisplayText {
 
     static func proxyName(_ binding: ProxyBinding) -> String {
         switch binding {
+        case .custom: return "自定义 sing-box"
         case .direct: return "直连"
         case .proxy(let proxy): return proxy.name
         case .missing: return "代理缺失"
@@ -175,7 +176,7 @@ enum DisplayText {
             case .invalidLanguageTag(let tag): return "语言标签不合法：\(tag)（例如 en-US）。"
             case .unknownTimeZone(let identifier): return "未知时区：\(identifier)。"
             case .unsupportedStartURLScheme(let scheme): return "起始网址只能是 http 或 https，现在是「\(scheme)」。"
-            case .conflictingOutbound: return "独立代理和订阅节点只能选一个。"
+            case .conflictingOutbound: return "独立代理、订阅节点和自定义代理只能选一个。"
             case .missingNodeName: return "请选择订阅里的节点。"
             case .unknownDeviceModel(let id): return "未知机型：\(id)。"
             }

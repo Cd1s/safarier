@@ -196,6 +196,17 @@ public final class SingboxProcessManager: @unchecked Sendable {
     /// 写配置、起 sing-box，立即返回 pid；要等本地端口可用请接着调 `waitUntilReady`。
     @discardableResult
     public func start(profileID: UUID, node: SubscriptionNode) throws -> Int32 {
+        try start(profileID: profileID) { try configuration(for: profileID, node: node) }
+    }
+
+    @discardableResult
+    public func start(profileID: UUID, outboundJSON: String) throws -> Int32 {
+        try start(profileID: profileID) {
+            try CustomOutbound.configuration(json: outboundJSON, inboundPort: port(for: profileID))
+        }
+    }
+
+    private func start(profileID: UUID, configuration: () throws -> SingboxConfiguration) throws -> Int32 {
         lock.lock()
         if let process = processes[profileID], process.isRunning {
             lock.unlock()
@@ -209,7 +220,7 @@ public final class SingboxProcessManager: @unchecked Sendable {
         // 同一个 profile 上次没清理掉的 sing-box（Runner 崩溃、被 SIGKILL）先结束，让出端口。
         Self.reapOrphan(profileID: profileID, in: stateDirectory)
 
-        let config = try configuration(for: profileID, node: node)
+        let config = try configuration()
         let configURL = configurationFileURL(for: profileID)
         try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
         try Self.writePrivate(config.encoded(), to: configURL)

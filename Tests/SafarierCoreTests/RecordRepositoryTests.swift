@@ -126,4 +126,19 @@ final class RecordRepositoryTests: XCTestCase {
         try ProfileRepository.profiles(in: directory).insert(profile)
         XCTAssertEqual(try ProfileRepository.profiles(in: directory).all(), [profile])
     }
+
+    func testCustomOutboundPersistsPrivatelyAndRejectsConflictingBindings() throws {
+        var profile = Profile(name: "Custom", mode: .ephemeral, customOutboundJSON: #"{"type":"http","server":"proxy.example","server_port":8080,"password":"test"}"#)
+        try ProfileRepository.profiles(in: directory).insert(profile)
+        XCTAssertEqual(try ProfileRepository.profiles(in: directory).record(id: profile.id), profile)
+        let url = directory.appendingPathComponent("profiles.json")
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        profile.proxyID = UUID()
+        XCTAssertThrowsError(try profile.validate())
+        profile.proxyID = nil
+        profile.subscriptionID = UUID()
+        profile.nodeName = "node"
+        XCTAssertThrowsError(try profile.validate())
+    }
 }

@@ -46,7 +46,7 @@ final class FontAllowlistPlannerTests: XCTestCase {
         let silom: FontNames
 
         func plan(_ languages: [String]) -> FontAllowlistPlan {
-            FontAllowlistPlanner.plan(languages: languages, roots: [systemDir, assetRoot], assetRoot: assetRoot)
+            FontAllowlistPlanner.plan(languages: languages, roots: [systemDir, assetRoot], assetRoots: [assetRoot])
         }
     }
 
@@ -131,6 +131,79 @@ final class FontAllowlistPlannerTests: XCTestCase {
         XCTAssertEqual(names.intersection(everything), fixture.ayuthaya.all)
     }
 
+    // MARK: - 多代资产目录（Font7 / Font8）
+
+    func testDiscoverAssetRootsFindsEveryFontGeneration() throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent("AssetsV2-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: parent) }
+        for name in ["com_apple_MobileAsset_Font8", "com_apple_MobileAsset_Font7", "com_apple_MobileAsset_FontNext", "com_apple_MobileAsset_Other"] {
+            try FileManager.default.createDirectory(at: parent.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        try Data().write(to: parent.appendingPathComponent("com_apple_MobileAsset_Font9"))  // 普通文件不算目录
+        let roots = FontAllowlistPlanner.discoverAssetRoots(in: parent.path).map { ($0 as NSString).lastPathComponent }
+        XCTAssertEqual(roots, ["com_apple_MobileAsset_Font7", "com_apple_MobileAsset_Font8", "com_apple_MobileAsset_FontNext"])
+        XCTAssertEqual(FontAllowlistPlanner.discoverAssetRoots(in: parent.appendingPathComponent("missing").path), [])
+    }
+
+    /// Font7 为空、字体全在 Font8（macOS 26+）时，英文 Profile 仍然要排除前提不满足的资产，不能退成 noOp。
+    func testAssetsInFont8AreExcludedWhenFont7IsEmpty() throws {
+        let fixture = try makeFixture()
+        let font7 = URL(fileURLWithPath: fixture.assetRoot).deletingLastPathComponent().appendingPathComponent("com_apple_MobileAsset_Font7")
+        try FileManager.default.createDirectory(at: font7, withIntermediateDirectories: true)
+        // 把 makeFixture 的资产目录当作 Font8，另给一个空的 Font7。
+        let plan = FontAllowlistPlanner.plan(
+            languages: ["en-US"], roots: [fixture.systemDir, fixture.assetRoot], assetRoots: [font7.path, fixture.assetRoot])
+        XCTAssertFalse(plan.isNoOp)
+        XCTAssertTrue(Set(plan.names).isDisjoint(with: fixture.krungthep.all))
+        XCTAssertTrue(Set(plan.names).isSuperset(of: fixture.ayuthaya.all))
+        // 只扫 Font7（旧行为）找不到资产，就会误判成 noOp。
+        let legacy = FontAllowlistPlanner.plan(languages: ["en-US"], roots: [fixture.systemDir, fixture.assetRoot], assetRoots: [font7.path])
+        XCTAssertTrue(legacy.isNoOp)
+    }
+
+    /// Font7 和 Font8 并存：两边的资产都按各自前提过滤，中文 Profile 保留匹配的那个。
+    func testMultiGenerationAssetsFilteredByTheirOwnPrerequisites() throws {
+        let supplemental = URL(fileURLWithPath: "/System/Library/Fonts/Supplemental")
+        let sources = ["Ayuthaya.ttf", "Krungthep.ttf", "Silom.ttf"].map { supplemental.appendingPathComponent($0) }
+        for source in sources where !FileManager.default.fileExists(atPath: source.path) { throw XCTSkip("本机没有 \(source.path)") }
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("FontAllowlistMulti-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: base) }
+        let fm = FileManager.default
+        let system = base.appendingPathComponent("system")
+        try fm.createDirectory(at: system, withIntermediateDirectories: true)
+        try fm.copyItem(at: sources[0], to: system.appendingPathComponent("Ayuthaya.ttf"))
+
+        func makeAsset(generation: String, properties: [String: Any], font: URL) throws -> (root: String, font: URL) {
+            let root = base.appendingPathComponent("AssetsV2/com_apple_MobileAsset_\(generation)")
+            let dir = root.appendingPathComponent("a.asset")
+            let data = dir.appendingPathComponent("AssetData")
+            try fm.createDirectory(at: data, withIntermediateDirectories: true)
+            let plist = try PropertyListSerialization.data(fromPropertyList: ["MobileAssetProperties": properties], format: .xml, options: 0)
+            try plist.write(to: dir.appendingPathComponent("Info.plist"))
+            let target = data.appendingPathComponent(font.lastPathComponent)
+            try fm.copyItem(at: font, to: target)
+            return (root.path, target)
+        }
+        let font7 = try makeAsset(generation: "Font7", properties: ["Prerequisite": ["ja"]], font: sources[1])
+        // Font8 的资产只带 FontDesignLanguages，没有 Prerequisite。
+        let font8 = try makeAsset(generation: "Font8", properties: ["FontDesignLanguages": ["zh-Hans"]], font: sources[2])
+        let krungthep = try names(of: font7.font), silom = try names(of: font8.font)
+        let roots = FontAllowlistPlanner.discoverAssetRoots(in: base.appendingPathComponent("AssetsV2").path)
+        XCTAssertEqual(roots, [font7.root, font8.root])
+
+        func allowed(_ languages: [String]) -> Set<String> {
+            Set(FontAllowlistPlanner.plan(languages: languages, roots: [system.path] + roots, assetRoots: roots).names)
+        }
+        let english = allowed(["en-US"])
+        XCTAssertTrue(english.isDisjoint(with: krungthep.all.union(silom.all)))
+        let chinese = allowed(["zh-CN"])
+        XCTAssertTrue(chinese.isSuperset(of: silom.all), "FontDesignLanguages 命中 zh-Hans")
+        XCTAssertTrue(chinese.isDisjoint(with: krungthep.all), "Font7 资产前提只有 ja")
+        let japanese = allowed(["ja-JP"])
+        XCTAssertTrue(japanese.isSuperset(of: krungthep.all))
+        XCTAssertTrue(japanese.isDisjoint(with: silom.all))
+    }
+
     // MARK: - 系统卷基础字体
 
     func testDefaultRootsAreSystemVolumeOnly() {
@@ -164,13 +237,13 @@ final class FontAllowlistPlannerTests: XCTestCase {
             fonts[key] = try names(of: link)
         }
         func kept(_ languages: [String]) -> Set<String> {
-            let names = Set(FontAllowlistPlanner.plan(languages: languages, roots: [system.path, assets.path], assetRoot: assets.path).names)
+            let names = Set(FontAllowlistPlanner.plan(languages: languages, roots: [system.path, assets.path], assetRoots: [assets.path]).names)
             return Set(fonts.filter { $0.value.families.isSubset(of: names) }.keys)
         }
         for languages in [["en-US", "en"], ["zh-CN"], ["zh-TW"], ["ja-JP"], ["ko-KR"], ["th-TH"]] {
             XCTAssertEqual(kept(languages), Set(sources.keys), "System fonts must survive: \(languages)")
         }
-        let english = FontAllowlistPlanner.plan(languages: ["en-US"], roots: [system.path, assets.path], assetRoot: assets.path)
+        let english = FontAllowlistPlanner.plan(languages: ["en-US"], roots: [system.path, assets.path], assetRoots: [assets.path])
         XCTAssertTrue(Set(english.names).isSuperset(of: ["Songti SC", "STSong", "宋體-簡", "Hiragino Mincho ProN", "AppleMyungjo"]))
         XCTAssertTrue(Set(english.excludedFamilies).isDisjoint(with: fonts.values.reduce(into: Set<String>()) { $0.formUnion($1.families) }))
     }
@@ -192,15 +265,16 @@ final class FontAllowlistPlannerTests: XCTestCase {
     }
 
     static var hostHasPingFangAsset: Bool {
-        let root = FontAllowlistPlanner.defaultAssetRoot
-        let entries = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
-        return entries.contains { FileManager.default.fileExists(atPath: "\(root)/\($0)/AssetData/PingFang.ttc") }
+        FontAllowlistPlanner.defaultAssetRoots.contains { root in
+            let entries = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+            return entries.contains { FileManager.default.fileExists(atPath: "\(root)/\($0)/AssetData/PingFang.ttc") }
+        }
     }
 
     /// 系统字体遍历要同时保留 Times / Courier 和基础 CJK 字体，不能把英文 Profile 当成“没有汉字字体”。
     func testHostEnglishPlanKeepsSystemFontsThatFontCollectionOmits() throws {
         let plan = hostPlan(["en-US"])
-        try XCTSkipIf(plan.isNoOp, "Host has no non-English Font7 assets installed")
+        try XCTSkipIf(plan.isNoOp, "Host has no non-English font assets installed")
         let names = Set(plan.names)
         for expected in ["Times", "Courier", "Helvetica", "Menlo", "Thonburi", "Arial Unicode MS", "Hiragino Sans GB", "Songti SC", "Heiti SC", "Heiti TC", "STSong"] {
             XCTAssertTrue(names.contains(expected), "en-US 白名单缺少 \(expected)（共 \(plan.names.count) 个名字）")
@@ -213,7 +287,7 @@ final class FontAllowlistPlannerTests: XCTestCase {
 
     func testHostPingFangAssetFollowsProfileLanguage() throws {
         guard Self.hostHasPingFangAsset else {
-            throw XCTSkip("本机 \(FontAllowlistPlanner.defaultAssetRoot) 里没有 PingFang.ttc 资产")
+            throw XCTSkip("本机 \(FontAllowlistPlanner.defaultAssetRoots) 里没有 PingFang.ttc 资产")
         }
         let english = Set(hostPlan(["en-US"]).names)
         XCTAssertFalse(english.contains("PingFang SC"))

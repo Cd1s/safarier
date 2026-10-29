@@ -27,22 +27,38 @@ public struct FontAllowlistPlan: Equatable, Sendable {
 
 /// 字体白名单规划按来源和字体资产的语言安装前提过滤，不按字体覆盖的文字分类。
 /// - 系统卷基础字体（含 Supplemental）在所有 Profile 中保留；英文 macOS 也自带部分 CJK 字体。
-/// - AssetsV2 Font7 按需资产只在 Profile 满足 Prerequisite 时保留；没有前提的额外下载资产不保留。
+/// - AssetsV2 `com_apple_MobileAsset_Font*`（macOS 15 及以前是 Font7，macOS 26 起是 Font8）按需资产只在 Profile 满足安装前提时保留；没有前提的额外下载资产不保留。
 /// - 不扫描 /Library/Fonts 或 ~/Library/Fonts，第三方和用户字体不加入允许集合。
 ///
 /// 直接遍历字体文件取全部字面：`CTFontCollectionCreateFromAvailableFonts` 会漏掉 Times、Courier 等
 /// 能按名字解析的字体，用它生成白名单会把这些常用字体也挡掉。
 public enum FontAllowlistPlanner {
-    /// 按需下载的字体资产目录，每个 `.asset` 子目录的 Info.plist 里有安装前提（Prerequisite）。
-    public static let defaultAssetRoot = "/System/Library/AssetsV2/com_apple_MobileAsset_Font7"
+    /// 按需下载的字体资产所在的父目录；其下每个 `com_apple_MobileAsset_Font*` 是一代资产目录。
+    public static let assetsV2Directory = "/System/Library/AssetsV2"
+    static let assetRootPrefix = "com_apple_MobileAsset_Font"
+
+    /// 本机全部字体资产目录（Font7、Font8……按名字排序）。Apple 每隔几代会换一个版本号，不写死。
+    public static var defaultAssetRoots: [String] { discoverAssetRoots(in: assetsV2Directory) }
+
+    /// 列出 `directory` 下名字以 `com_apple_MobileAsset_Font` 开头的子目录（不跟随普通文件）。
+    static func discoverAssetRoots(in directory: String) -> [String] {
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+        return entries
+            .filter { $0.hasPrefix(assetRootPrefix) }
+            .sorted()
+            .map { "\(directory)/\($0)" }
+            .filter { path in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+            }
+    }
 
     /// 遍历字体文件的根目录：只有系统卷上的字体。不在这里的字体不进白名单，网页按名字查不到。
     public static var defaultRoots: [String] {
         [
             "/System/Library/Fonts",
             "/System/Library/PrivateFrameworks/FontServices.framework/Resources",
-            defaultAssetRoot,
-        ]
+        ] + defaultAssetRoots
     }
 
     /// Profile 语言标签 → 与资产前提比对用的 key：语言码（ja、ko、th…）和"语言码-文字"（zh-Hans、zh-Hant…）。
@@ -51,10 +67,10 @@ public enum FontAllowlistPlanner {
     }
 
     /// languages 为空（跟随系统）或没有需要排除的资产字体时返回空计划（不设置白名单）。
-    public static func plan(languages: [String], roots: [String] = defaultRoots, assetRoot: String = defaultAssetRoot) -> FontAllowlistPlan {
+    public static func plan(languages: [String], roots: [String] = defaultRoots, assetRoots: [String] = defaultAssetRoots) -> FontAllowlistPlan {
         guard !languages.isEmpty else { return .noOp }
         let keys = LanguageMatcher.keys(for: languages)
-        let catalog = FontAssetCatalog.load(root: assetRoot)
+        let catalog = FontAssetCatalog.load(roots: assetRoots)
         var keep = Set<String>(), drop = Set<String>(), dropFamilies = Set<String>(), dropCount = 0
         for descriptor in fontDescriptorsFromFiles(roots: roots) {
             guard let url = CTFontDescriptorCopyAttribute(descriptor, kCTFontURLAttribute) as? URL else { continue }
@@ -103,7 +119,8 @@ public enum FontAllowlistPlanner {
     }
 }
 
-/// 本机已安装的 AssetsV2 Font7 资产：字体文件所在目录 → 安装前提语言（Info.plist 的 Prerequisite）。
+/// 本机已安装的 AssetsV2 字体资产（Font7、Font8……）：字体文件所在目录 → 安装前提语言。
+/// 前提取 Info.plist 的 `Prerequisite`；没有这个键时退回 `FontDesignLanguages`（资产设计面向的语言）。
 struct FontAssetCatalog {
     struct Asset {
         let directory: String
@@ -112,21 +129,25 @@ struct FontAssetCatalog {
 
     let assets: [Asset]
 
-    static func load(root: String = FontAllowlistPlanner.defaultAssetRoot) -> FontAssetCatalog {
-        let directories = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+    static func load(roots: [String] = FontAllowlistPlanner.defaultAssetRoots) -> FontAssetCatalog {
         var list: [Asset] = []
-        for name in directories where name.hasSuffix(".asset") {
-            let path = "\(root)/\(name)"
-            guard let data = FileManager.default.contents(atPath: "\(path)/Info.plist"),
-                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
-            else { continue }
-            let properties = plist["MobileAssetProperties"] as? [String: Any] ?? plist
-            list.append(Asset(directory: path, prerequisites: properties["Prerequisite"] as? [String] ?? []))
+        for root in roots {
+            let directories = (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []
+            for name in directories.sorted() where name.hasSuffix(".asset") {
+                let path = "\(root)/\(name)"
+                guard let data = FileManager.default.contents(atPath: "\(path)/Info.plist"),
+                      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+                else { continue }
+                let properties = plist["MobileAssetProperties"] as? [String: Any] ?? plist
+                let prerequisites = properties["Prerequisite"] as? [String] ?? []
+                let designLanguages = properties["FontDesignLanguages"] as? [String] ?? []
+                list.append(Asset(directory: path, prerequisites: prerequisites.isEmpty ? designLanguages : prerequisites))
+            }
         }
         return FontAssetCatalog(assets: list)
     }
 
-    /// nil：不在任何 Font7 资产里（系统卷上的其它字体）。
+    /// nil：不在任何字体资产里（系统卷上的其它字体）。
     func asset(containing fontPath: String) -> Asset? {
         let resolved = (fontPath as NSString).resolvingSymlinksInPath
         return assets.first { resolved.hasPrefix($0.directory + "/") || fontPath.hasPrefix($0.directory + "/") }

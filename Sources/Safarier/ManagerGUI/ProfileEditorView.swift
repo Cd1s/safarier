@@ -201,6 +201,7 @@ struct ProfileEditorView: View {
                             HStack(spacing: 6) {
                                 TextField("语言标签", text: $languages, prompt: Text("例如 en-US, en"))
                                     .labelsHidden()
+                                    .autocorrectionDisabled()
                                 Menu {
                                     ForEach(Self.languagePresets, id: \.value) { preset in
                                         Button("\(preset.title)  \(preset.value)") { languages = preset.value }
@@ -220,6 +221,7 @@ struct ProfileEditorView: View {
                             HStack(spacing: 6) {
                                 TextField("时区标识", text: $timeZone, prompt: Text("例如 America/Los_Angeles"))
                                     .labelsHidden()
+                                    .autocorrectionDisabled()
                                 TimeZoneMenu(selection: $timeZone)
                             }
                         }
@@ -250,6 +252,7 @@ struct ProfileEditorView: View {
 
                 Section("其他") {
                     TextField("起始网址", text: $startURL, prompt: Text("https://example.com"))
+                        .autocorrectionDisabled()
                     TextField("备注", text: $notes, prompt: Text("可选"), axis: .vertical)
                         .lineLimit(2...4)
                 }
@@ -499,6 +502,7 @@ struct NodePickerView: View {
     var body: some View {
         VStack(spacing: 0) {
             TextField("搜索名称或服务器", text: $query)
+                .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
                 .padding(10)
             Divider()

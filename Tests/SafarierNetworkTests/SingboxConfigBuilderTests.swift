@@ -194,6 +194,17 @@ final class SingboxConfigBuilderTests: XCTestCase {
         XCTAssertEqual(try SingboxConfigBuilder.makeConfiguration(inboundPort: 20_001, node: classic).outbounds.first?["password"], .string("a-b_c"))
     }
 
+    /// 以前保存的节点方法名可能是大写或手滑写错（`aes-128-grm`）：生成配置时自愈，未知加密方式则拒绝。
+    func testStoredShadowsocksMethodIsHealedWhenBuildingConfig() throws {
+        for (stored, expected) in [("aes-128-grm", "aes-128-gcm"), ("AES-128-GCM", "aes-128-gcm"), ("chacha20-poly1305", "chacha20-ietf-poly1305")] {
+            let node = SubscriptionNode(name: "old", type: .shadowsocks, server: "ss.example.com", serverPort: 8388, password: "secret", method: stored)
+            let outbound = try XCTUnwrap(SingboxConfigBuilder.makeConfiguration(inboundPort: 20_001, node: node).outbounds.first)
+            XCTAssertEqual(outbound["method"], .string(expected), stored)
+        }
+        let bad = SubscriptionNode(name: "bad", type: .shadowsocks, server: "ss.example.com", serverPort: 8388, password: "secret", method: "aes-128-xyz")
+        XCTAssertThrowsError(try SingboxConfigBuilder.makeConfiguration(inboundPort: 20_001, node: bad))
+    }
+
     /// `plugin=%3B`（只有分号）以前会数组越界崩溃：插件名为空就不写插件。
     func testShadowsocksPluginWithEmptyNameIsIgnored() throws {
         func outbound(_ plugin: String) throws -> [String: SingboxJSONValue] {

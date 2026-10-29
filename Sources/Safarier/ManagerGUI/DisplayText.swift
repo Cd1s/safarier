@@ -188,6 +188,9 @@ enum DisplayText {
             case .invalidURL: return "订阅链接缺少主机名。"
             }
         case let error as SubscriptionNodeValidationError:
+            if case .unsupportedCipher(let method) = error {
+                return "订阅里有节点使用了 sing-box 不支持的 Shadowsocks 加密方式「\(method)」。"
+            }
             return "订阅里有不完整的节点：\(error)。"
         case let error as SubscriptionParseError:
             switch error {

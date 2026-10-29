@@ -70,6 +70,39 @@ public struct SubscriptionNode: Codable, Equatable, Identifiable, Sendable {
         self.parameters = parameters
     }
 
+    /// sing-box 支持的 Shadowsocks 加密方式（含 SS2022 与旧式流/CFB/CTR）。
+    public static let supportedShadowsocksMethods: Set<String> = [
+        "aes-128-gcm", "aes-192-gcm", "aes-256-gcm",
+        "chacha20-ietf-poly1305", "xchacha20-ietf-poly1305",
+        "none",
+        "aes-128-ctr", "aes-192-ctr", "aes-256-ctr",
+        "aes-128-cfb", "aes-192-cfb", "aes-256-cfb",
+        "rc4-md5", "chacha20-ietf", "xchacha20",
+        "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305",
+    ]
+
+    private static let shadowsocksMethodAliases: [String: String] = [
+        "chacha20-poly1305": "chacha20-ietf-poly1305",
+        "xchacha20-poly1305": "xchacha20-ietf-poly1305",
+        "plain": "none",
+        "dummy": "none",
+        "aes-128-grm": "aes-128-gcm", "aes-128-gmc": "aes-128-gcm",
+        "aes-192-grm": "aes-192-gcm", "aes-192-gmc": "aes-192-gcm",
+        "aes-256-grm": "aes-256-gcm", "aes-256-gmc": "aes-256-gcm",
+        "2022-blake3-aes-128-grm": "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-128-gmc": "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-256-grm": "2022-blake3-aes-256-gcm",
+        "2022-blake3-aes-256-gmc": "2022-blake3-aes-256-gcm",
+        "2022-blake3-chacha20-ietf-poly1305": "2022-blake3-chacha20-poly1305",
+    ]
+
+    /// 去空白、转小写，并把订阅里常见的别名和 OCR / 手滑写错（`aes-128-grm` 等）改成 sing-box 认的名字。
+    /// 不认识的名字原样（小写）返回，由调用方对照 `supportedShadowsocksMethods` 判断。
+    public static func normalizedShadowsocksMethod(_ method: String) -> String {
+        let lowered = method.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return shadowsocksMethodAliases[lowered] ?? lowered
+    }
+
     public func validate() throws {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { throw SubscriptionNodeValidationError.emptyName }
@@ -93,6 +126,9 @@ public struct SubscriptionNode: Codable, Equatable, Identifiable, Sendable {
             guard let method, !method.isEmpty, let password, !password.isEmpty else {
                 throw SubscriptionNodeValidationError.missingCredential
             }
+            guard Self.supportedShadowsocksMethods.contains(Self.normalizedShadowsocksMethod(method)) else {
+                throw SubscriptionNodeValidationError.unsupportedCipher(method)
+            }
         }
     }
 }
@@ -106,6 +142,7 @@ public enum SubscriptionNodeValidationError: Error, Equatable {
     case invalidPort(Int)
     case missingIdentity
     case missingCredential
+    case unsupportedCipher(String)
 }
 
 /// A subscription and its last successfully parsed node cache.

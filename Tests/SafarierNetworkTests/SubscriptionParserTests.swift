@@ -195,6 +195,32 @@ final class SubscriptionParserTests: XCTestCase {
     static let key32 = "++++////AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRo="
     static let key32b = "ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoM="
 
+    func testShadowsocksMethodIsLowercasedAndAliasesNormalized() throws {
+        let cases: [(written: String, expected: String)] = [
+            ("AES-128-GCM", "aes-128-gcm"),
+            ("chacha20-poly1305", "chacha20-ietf-poly1305"),
+            ("xchacha20-poly1305", "xchacha20-ietf-poly1305"),
+            ("plain", "none"),
+            ("aes-128-grm", "aes-128-gcm"),
+            ("aes-256-gmc", "aes-256-gcm"),
+            ("2022-blake3-chacha20-ietf-poly1305", "2022-blake3-chacha20-poly1305"),
+        ]
+        for (written, expected) in cases {
+            let node = try SubscriptionParser.parseLine("ss://\(written):secret@ss.example.com:8388#n")
+            XCTAssertEqual(node.method, expected, written)
+            XCTAssertNoThrow(try node.validate(), written)
+        }
+        XCTAssertEqual(SubscriptionNode.normalizedShadowsocksMethod("  AES-256-GRM \n"), "aes-256-gcm")
+    }
+
+    func testShadowsocksUnknownMethodIsRejected() {
+        XCTAssertThrowsError(try SubscriptionParser.parseLine("ss://aes-128-xyz:secret@ss.example.com:8388#bad"))
+        let node = SubscriptionNode(name: "s", type: .shadowsocks, server: "s.example", serverPort: 8388, password: "p", method: "aes-128-xyz")
+        XCTAssertThrowsError(try node.validate()) { error in
+            XCTAssertEqual(error as? SubscriptionNodeValidationError, .unsupportedCipher("aes-128-xyz"))
+        }
+    }
+
     func testSS2022PlainKeysWithSlashPlusAndPadding() throws {
         let cases: [(method: String, key: String)] = [
             ("2022-blake3-aes-128-gcm", Self.key16),

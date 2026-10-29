@@ -138,6 +138,7 @@ struct SubscriptionEditorView: View {
                 Section {
                     TextField("名称", text: $name, prompt: Text("例如：机场 A"))
                     TextField("订阅链接", text: $url, prompt: Text("https://… 或直接粘贴 ss:// vless:// 等节点链接"), axis: .vertical)
+                        .autocorrectionDisabled()
                         .lineLimit(1...6)
                 } header: {
                     Text("添加订阅")

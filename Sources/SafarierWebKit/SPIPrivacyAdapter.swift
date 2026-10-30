@@ -77,6 +77,9 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             (SFRSymbolDecoder.decode([0x05, 0x2A, 0x2F, 0x29, 0x32, 0x1B, 0x0A, 0x13, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]), SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x0A, 0x2F, 0x29, 0x32, 0x1B, 0x0A, 0x13, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]), "PushManager"),
             (SFRSymbolDecoder.decode([0x05, 0x37, 0x3F, 0x3E, 0x33, 0x3B, 0x1E, 0x3F, 0x2C, 0x33, 0x39, 0x3F, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]), SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x17, 0x3F, 0x3E, 0x33, 0x3B, 0x1E, 0x3F, 0x2C, 0x33, 0x39, 0x3F, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]), "navigator.mediaDevices"),
         ]
+        /// 不披露已绑卡状态，避免持久化环境的商家银行卡查询挂起；支付仍由系统授权。
+        public var applePayDisclosureGetter = SFRSymbolDecoder.decode([0x05, 0x3B, 0x2A, 0x2A, 0x36, 0x3F, 0x0A, 0x3B, 0x23, 0x19, 0x3B, 0x2A, 0x3B, 0x38, 0x33, 0x36, 0x33, 0x2E, 0x23, 0x1E, 0x33, 0x29, 0x39, 0x36, 0x35, 0x29, 0x2F, 0x28, 0x3F, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x3F, 0x3E])
+        public var applePayDisclosureSetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x1B, 0x2A, 0x2A, 0x36, 0x3F, 0x0A, 0x3B, 0x23, 0x19, 0x3B, 0x2A, 0x3B, 0x38, 0x33, 0x36, 0x33, 0x2E, 0x23, 0x1E, 0x33, 0x29, 0x39, 0x36, 0x35, 0x29, 0x2F, 0x28, 0x3F, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x3F, 0x3E, 0x60])
         /// Safari 关闭了用户安装字体；普通 WKWebView 会把后来从 Apple 下载的（楷体、圆体、兰亭黑…）
         /// 和用户自己装的字体都给网页，字体探测能据此推断用户的语言和地区。
         public var userInstalledFontsGetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x32, 0x35, 0x2F, 0x36, 0x3E, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x0F, 0x29, 0x3F, 0x28, 0x13, 0x34, 0x29, 0x2E, 0x3B, 0x36, 0x36, 0x3F, 0x3E, 0x1C, 0x35, 0x34, 0x2E, 0x29])
@@ -357,20 +360,25 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
                 return .degraded(text)
             }
         }
-        if case .failure(let failure) = SPIRuntimeBridge.setBool(false, symbols.userInstalledFontsSetter, on: preferences) {
-            return fallback(feature, failure)
+        for (getter, setter, label) in [
+            (symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, "Apple Pay 银行卡状态披露"),
+            (symbols.userInstalledFontsGetter, symbols.userInstalledFontsSetter, "userFonts"),
+        ] {
+            if case .failure(let failure) = SPIRuntimeBridge.setBool(false, setter, on: preferences) {
+                return fallback(feature, failure)
+            }
+            switch SPIRuntimeBridge.getBool(getter, on: preferences) {
+            case .failure(let failure):
+                return fallback(feature, failure)
+            case .success(true):
+                let text = "\(label) 写入 NO 后回读仍为 YES"
+                diagnostics.record("\(feature)：\(text)")
+                return .degraded(text)
+            case .success(false):
+                break
+            }
         }
-        switch SPIRuntimeBridge.getBool(symbols.userInstalledFontsGetter, on: preferences) {
-        case .failure(let failure):
-            return fallback(feature, failure)
-        case .success(true):
-            let text = "userFonts 写入 NO 后回读仍为 YES"
-            diagnostics.record("\(feature)：\(text)")
-            return .degraded(text)
-        case .success(false):
-            break
-        }
-        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体（回读一致）；preference readback only: window.safari, Web Push delivery and platform authenticator availability are not verified."
+        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体和 Apple Pay 银行卡状态披露（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
         diagnostics.record("\(feature)：\(text)")
         return .active(text)
     }

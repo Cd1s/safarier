@@ -162,10 +162,26 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         let report = apply(adapter(.safariAPIs, preferences: preferences))
 
         XCTAssertTrue(preferences.applePay && preferences.push && preferences.mediaDevices)
+        XCTAssertFalse(preferences.applePayDisclosure)
         XCTAssertFalse(preferences.userInstalledFonts)
         guard case .active(let text) = report[.safariAPIs] else { return XCTFail("\(report[.safariAPIs])") }
         XCTAssertTrue(text.contains("ApplePaySession") && text.contains("PushManager") && text.contains("navigator.mediaDevices"), text)
         XCTAssertTrue(text.contains("关闭用户安装字体"), text)
+    }
+
+    func testSafariDisclosureIgnoredWriteIsDegraded() {
+        let preferences = FakeSafariAPIPreferences()
+        preferences.ignoreDisclosureWrites = true
+        let state = apply(adapter(.safariAPIs, preferences: preferences))[.safariAPIs]
+        XCTAssertEqual(state.name, "degraded")
+        XCTAssertTrue(state.summary.contains("银行卡状态披露"))
+    }
+
+    func testSafariDisclosureMissingIsUnavailable() {
+        var symbols = mockSymbols
+        symbols.applePayDisclosureSetter = "safarierMissingDisclosure:"
+        let state = apply(adapter(.safariAPIs, symbols: symbols, preferences: FakeSafariAPIPreferences()))[.safariAPIs]
+        XCTAssertEqual(state.name, "unavailable")
     }
 
     func testSafariAPIsIgnoredWriteIsDegraded() {
@@ -302,6 +318,7 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         let hasPeerConnection = WKPreferences.instancesRespond(to: NSSelectorFromString(symbols.peerConnectionSetter))
         let hasTimeZone = NSClassFromString(symbols.processPoolConfigurationClass) != nil
         let hasSafariAPIs = symbols.safariAPISwitches.allSatisfy { WKPreferences.instancesRespond(to: NSSelectorFromString($0.setter)) }
+            && WKPreferences.instancesRespond(to: NSSelectorFromString(symbols.applePayDisclosureSetter))
         let hasFeatureAPI = (WKPreferences.self as AnyObject).responds(to: NSSelectorFromString(symbols.featuresGetter))
 
         XCTAssertEqual(report[.advancedPrivacyProtections].name, hasPolicy ? "active" : "unavailable", report[.advancedPrivacyProtections].summary)
@@ -310,6 +327,7 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         XCTAssertEqual(report[.safariAPIs].name, hasSafariAPIs ? "active" : "unavailable", report[.safariAPIs].summary)
         XCTAssertEqual(report[.webGPU].name, hasFeatureAPI ? "active" : "unavailable", report[.webGPU].summary)
         if hasSafariAPIs {
+            XCTAssertFalse(try SPIRuntimeBridge.getBool(symbols.applePayDisclosureGetter, on: configuration.preferences).get())
             for item in symbols.safariAPISwitches {
                 XCTAssertEqual(try SPIRuntimeBridge.getBool(item.getter, on: configuration.preferences).get(), true, item.getter)
             }
@@ -369,6 +387,7 @@ private final class SafariParityPreferences: NSObject {
     var stored = ["legacy": true, "auth": false, "authServices": false]
     var ignoredKeys: Set<String> = []
     var writes: [(String, Bool)] = []
+    private var disclosure = true
     private var applePay = false
     private var push = false
     private var mediaDevices = false
@@ -386,6 +405,8 @@ private final class SafariParityPreferences: NSObject {
         writes.append((feature.identifier, enabled))
         if !ignoredKeys.contains(feature.identifier) { stored[feature.identifier] = enabled }
     }
+    @objc(safarierMockApplePayDisclosure) var disclosureAllowed: Bool { disclosure }
+    @objc(setSafarierMockApplePayDisclosure:) func setDisclosure(_ value: Bool) { disclosure = value }
     @objc(safarierMockApplePay) var applePayEnabled: Bool { applePay }
     @objc(setSafarierMockApplePay:) func setApplePay(_ value: Bool) { applePay = value }
     @objc(safarierMockPushAPI) var pushAPIEnabled: Bool { push }

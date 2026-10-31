@@ -1,4 +1,5 @@
 import AppKit
+import SafarierCore
 import WebKit
 
 /// 一个环境（Runner 进程）里的下载：存到「下载」文件夹，重名自动加序号；走的是这个环境的网络（同一代理）。
@@ -52,6 +53,9 @@ final class DownloadsController: NSObject, WKDownloadDelegate {
 
     func downloadDidFinish(_ download: WKDownload) {
         guard let item = item(for: download) else { return }
+        if let destination = item.destination {
+            DownloadQuarantine.apply(to: destination)
+        }
         item.finished = true
         onChange?()
     }

@@ -181,7 +181,7 @@ enum ManagerCLI {
             followProxyTimeZone: timeZone?.follow ?? false,
             startURL: startURL,
             notes: args.value("--notes") ?? "",
-            spi: try args.spi() ?? .defaultFeatures,
+            spi: try args.spi() ?? SPIFeatures.defaultFeatures(hasProxy: outbound != nil),
             subscriptionID: outbound?.subscriptionID,
             nodeName: outbound?.nodeName,
             deviceModel: deviceModel
@@ -206,6 +206,7 @@ enum ManagerCLI {
         }
         if let raw = args.value("--url") { profile.startURL = raw == "none" ? nil : try parseURL(raw) }
         if let raw = args.value("--notes") { profile.notes = raw }
+        let hadProxy = profile.hasOutboundProxy
         if args.value("--node") == "none", args.value("--sub") == nil, args.value("--proxy") == nil {
             // 只解绑订阅节点；独立代理（如果有）不动。
             profile.subscriptionID = nil
@@ -215,6 +216,9 @@ enum ManagerCLI {
             profile.proxyID = outbound.proxyID
             profile.subscriptionID = outbound.subscriptionID
             profile.nodeName = outbound.nodeName
+            if !hadProxy, profile.hasOutboundProxy {
+                profile.spi.insert(.disableWebRTC)
+            }
         }
         if let raw = args.value("--device") { profile.deviceModel = try parseDevice(raw) }
         if let spi = try args.spi() { profile.spi = spi }

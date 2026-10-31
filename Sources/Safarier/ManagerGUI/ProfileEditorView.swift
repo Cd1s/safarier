@@ -37,6 +37,7 @@ struct ProfileEditorView: View {
     @State private var showNodePicker = false
     @State private var deviceModel: String?
     @State private var spi: SPIFeatures
+    @State private var userToggledWebRTC = false
     @State private var hideApplePayCardStatus: Bool
     @State private var notes: String
     @State private var errorText: String?
@@ -252,7 +253,7 @@ struct ProfileEditorView: View {
                 } header: {
                     Text("隐私与指纹保护")
                 } footer: {
-                    Text("基于系统 WebKit 原生能力实现，不向网页注入任何篡改脚本。高级隐私保护、Safari 专有接口与字体、按语言收窄字体已默认开启。")
+                    Text("基于系统 WebKit 原生能力实现，不向网页注入任何篡改脚本。高级隐私保护、Safari 专有接口与字体、按语言收窄字体已默认开启；配置代理或节点时默认一并关闭 WebRTC，防止 STUN 泄露真实 IP。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -301,15 +302,23 @@ struct ProfileEditorView: View {
         }
         .onChange(of: outboundKind) {
             errorText = nil
+            let follow = outboundKind != .direct
+            // 未手动改过 WebRTC 开关时：新环境或原本直连的环境切到代理/节点/自定义出站自动开启「关闭 WebRTC」，新环境切回直连则恢复默认。
+            if !userToggledWebRTC, original == nil || original?.hasOutboundProxy == false {
+                if follow {
+                    spi.insert(.disableWebRTC)
+                } else if original == nil {
+                    spi.remove(.disableWebRTC)
+                }
+            }
             // 新环境：选了代理或节点就默认跟随代理出口，改回直连就回到跟随系统（自定义的不动）。
             guard original == nil else { return }
-            let follow = outboundKind != .direct
             if follow ? languageSource == .system : languageSource == .proxy { languageSource = follow ? .proxy : .system }
             if follow ? timeZoneSource == .system : timeZoneSource == .proxy { timeZoneSource = follow ? .proxy : .system }
         }
         .onChange(of: [languageSource, timeZoneSource]) { errorText = nil }
         .onChange(of: mode) {
-            if original == nil { spi = Self.defaultSPI(for: mode) }
+            if original == nil { spi = Self.defaultSPI(for: mode, hasProxy: outboundKind != .direct) }
         }
     }
 
@@ -357,15 +366,16 @@ struct ProfileEditorView: View {
         }
     }
 
-    /// 新环境默认开启全部原生隐私保护（WebRTC 和 WebGPU 除外），持久和临时环境一样。
-    static func defaultSPI(for mode: ProfileMode) -> SPIFeatures {
-        .defaultFeatures
+    /// 新环境默认开启全部原生隐私保护（直连时 WebRTC 和 WebGPU 除外，配置代理时一并开启关闭 WebRTC），持久和临时环境一样。
+    static func defaultSPI(for mode: ProfileMode, hasProxy: Bool = false) -> SPIFeatures {
+        SPIFeatures.defaultFeatures(hasProxy: hasProxy)
     }
 
     private func binding(for feature: SPIFeatures) -> Binding<Bool> {
         Binding(
             get: { spi.contains(feature) },
             set: { enabled in
+                if feature == .disableWebRTC { userToggledWebRTC = true }
                 if enabled { spi.insert(feature) } else { spi.remove(feature) }
             }
         )

@@ -37,6 +37,11 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     /// `MacDeviceModel.id`；nil 表示跟随系统。
     public var deviceModel: String?
 
+    /// 是否配置了出站代理（独立代理、订阅节点或自定义 sing-box 出站）。
+    public var hasOutboundProxy: Bool {
+        proxyID != nil || subscriptionID != nil || !(customOutboundJSON?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
     public init(
         id: UUID = UUID(),
         name: String,
@@ -49,13 +54,14 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         followProxyTimeZone: Bool = false,
         startURL: URL? = nil,
         notes: String = "",
-        spi: SPIFeatures = .defaultFeatures,
+        spi: SPIFeatures? = nil,
         subscriptionID: UUID? = nil,
         nodeName: String? = nil,
         deviceModel: String? = nil,
         customOutboundJSON: String? = nil,
         hideApplePayCardStatus: Bool = true
     ) {
+        let hasProxy = proxyID != nil || subscriptionID != nil || !(customOutboundJSON?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         self.id = id
         self.name = name
         self.mode = mode
@@ -67,7 +73,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         self.followProxyTimeZone = followProxyTimeZone
         self.startURL = startURL
         self.notes = notes
-        self.spi = spi
+        self.spi = spi ?? SPIFeatures.defaultFeatures(hasProxy: hasProxy)
         self.hideApplePayCardStatus = hideApplePayCardStatus
         self.subscriptionID = subscriptionID
         self.nodeName = nodeName

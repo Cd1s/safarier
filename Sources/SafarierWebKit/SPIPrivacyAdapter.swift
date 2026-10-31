@@ -77,6 +77,9 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             (SFRSymbolDecoder.decode([0x05, 0x2A, 0x2F, 0x29, 0x32, 0x1B, 0x0A, 0x13, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]), SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x0A, 0x2F, 0x29, 0x32, 0x1B, 0x0A, 0x13, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]), "PushManager"),
             (SFRSymbolDecoder.decode([0x05, 0x37, 0x3F, 0x3E, 0x33, 0x3B, 0x1E, 0x3F, 0x2C, 0x33, 0x39, 0x3F, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]), SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x17, 0x3F, 0x3E, 0x33, 0x3B, 0x1E, 0x3F, 0x2C, 0x33, 0x39, 0x3F, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]), "navigator.mediaDevices"),
         ]
+        /// 不披露已绑卡状态，避免持久化环境的商家银行卡查询挂起；支付仍由系统授权。
+        public var applePayDisclosureGetter = SFRSymbolDecoder.decode([0x05, 0x3B, 0x2A, 0x2A, 0x36, 0x3F, 0x0A, 0x3B, 0x23, 0x19, 0x3B, 0x2A, 0x3B, 0x38, 0x33, 0x36, 0x33, 0x2E, 0x23, 0x1E, 0x33, 0x29, 0x39, 0x36, 0x35, 0x29, 0x2F, 0x28, 0x3F, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x3F, 0x3E])
+        public var applePayDisclosureSetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x1B, 0x2A, 0x2A, 0x36, 0x3F, 0x0A, 0x3B, 0x23, 0x19, 0x3B, 0x2A, 0x3B, 0x38, 0x33, 0x36, 0x33, 0x2E, 0x23, 0x1E, 0x33, 0x29, 0x39, 0x36, 0x35, 0x29, 0x2F, 0x28, 0x3F, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x3F, 0x3E, 0x60])
         /// Safari 关闭了用户安装字体；普通 WKWebView 会把后来从 Apple 下载的（楷体、圆体、兰亭黑…）
         /// 和用户自己装的字体都给网页，字体探测能据此推断用户的语言和地区。
         public var userInstalledFontsGetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x32, 0x35, 0x2F, 0x36, 0x3E, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x0F, 0x29, 0x3F, 0x28, 0x13, 0x34, 0x29, 0x2E, 0x3B, 0x36, 0x36, 0x3F, 0x3E, 0x1C, 0x35, 0x34, 0x2E, 0x29])
@@ -186,7 +189,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             for: .webRTCDisabled
         )
         if features.contains(.safariAPIs) {
-            let state = enableSafariAPIs(configuration, report: &report)
+            let state = enableSafariAPIs(configuration, hideApplePayCardStatus: profile.hideApplePayCardStatus, report: &report)
             report.set(state, for: .safariAPIs)
         } else {
             report.set(.notRequested, for: .safariAPIs)
@@ -267,7 +270,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     /// 和内核版本无关。只让接口存在；真正支付、推送仍需要 Apple 的授权，调用会像没有配置 Wallet 的 Mac 一样失败。
     /// 字体同理（2026-10-25 实测）：同一台 Mac 上真 Safari 网页能探测到 24 个候选字体，WKWebView 默认 52 个，
     /// 关掉用户安装字体后和同一台 Mac 上的真 Safari 相同。
-    private func enableSafariAPIs(_ configuration: WKWebViewConfiguration, report: inout PrivacyCapabilityReport) -> CapabilityState {
+    private func enableSafariAPIs(_ configuration: WKWebViewConfiguration, hideApplePayCardStatus: Bool, report: inout PrivacyCapabilityReport) -> CapabilityState {
         let legacy = alignSafariFeatures(symbols.legacyEventFeatureKeys, enabled: false, label: "MutationEvent", configuration: configuration)
         if case .active(let detail) = legacy {
             // The local control stops legacy event dispatch, not constructor exposure.
@@ -288,7 +291,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         default:
             report.set(.unverified(boundary), for: .webAuthentication)
         }
-        return enableSafariPreferenceSwitches(configuration)
+        return enableSafariPreferenceSwitches(configuration, hideApplePayCardStatus: hideApplePayCardStatus)
     }
 
     /// Preflight every feature before writing. Roll back on failure; report only public labels.
@@ -338,39 +341,34 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         return .degraded("\(label) feature write/readback failed; \(restored ? "original values restored" : "rollback could not be verified").")
     }
 
-    private func enableSafariPreferenceSwitches(_ configuration: WKWebViewConfiguration) -> CapabilityState {
+    private func enableSafariPreferenceSwitches(_ configuration: WKWebViewConfiguration, hideApplePayCardStatus: Bool) -> CapabilityState {
         let feature = "safari"
         let preferences = preferences(configuration)
-        var enabled: [String] = []
-        for item in symbols.safariAPISwitches {
-            if case .failure(let failure) = SPIRuntimeBridge.setBool(true, item.setter, on: preferences) {
+        var switches = symbols.safariAPISwitches.map {
+            (getter: $0.getter, setter: $0.setter, label: $0.exposes, value: true)
+        }
+        switches.append((symbols.userInstalledFontsGetter, symbols.userInstalledFontsSetter, "userFonts", false))
+        if hideApplePayCardStatus {
+            switches.append((symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, "Apple Pay 银行卡状态披露", false))
+        }
+        for item in switches {
+            if case .failure(let failure) = SPIRuntimeBridge.setBool(item.value, item.setter, on: preferences) {
                 return fallback(feature, failure)
             }
             switch SPIRuntimeBridge.getBool(item.getter, on: preferences) {
             case .failure(let failure):
                 return fallback(feature, failure)
-            case .success(true):
-                enabled.append(item.exposes)
-            case .success(false):
-                let text = "featureSwitch \(item.exposes) 写入 YES 后回读仍为 NO"
-                diagnostics.record("\(feature)：\(text)")
-                return .degraded(text)
+            case .success(let actual):
+                guard actual == item.value else {
+                    let text = "\(item.label) 写入 \(item.value) 后回读为 \(actual)"
+                    diagnostics.record("\(feature)：\(text)")
+                    return .degraded(text)
+                }
             }
         }
-        if case .failure(let failure) = SPIRuntimeBridge.setBool(false, symbols.userInstalledFontsSetter, on: preferences) {
-            return fallback(feature, failure)
-        }
-        switch SPIRuntimeBridge.getBool(symbols.userInstalledFontsGetter, on: preferences) {
-        case .failure(let failure):
-            return fallback(feature, failure)
-        case .success(true):
-            let text = "userFonts 写入 NO 后回读仍为 YES"
-            diagnostics.record("\(feature)：\(text)")
-            return .degraded(text)
-        case .success(false):
-            break
-        }
-        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体（回读一致）；preference readback only: window.safari, Web Push delivery and platform authenticator availability are not verified."
+        let enabled = symbols.safariAPISwitches.map(\.exposes)
+        let disclosureSummary = hideApplePayCardStatus ? "，关闭 Apple Pay 银行卡状态披露" : "，Apple Pay 银行卡状态披露保留系统默认"
+        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体\(disclosureSummary)（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
         diagnostics.record("\(feature)：\(text)")
         return .active(text)
     }

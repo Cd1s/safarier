@@ -86,12 +86,18 @@ final class FakePool: NSObject {
 
 /// 正常：Safari 专有接口的三个嵌入方开关。
 final class FakeSafariAPIPreferences: NSObject {
+    var applePayDisclosure = true
+    var ignoreDisclosureWrites = false
     var applePay = false
     var push = false
     var mediaDevices = false
     var userInstalledFonts = true
     var ignoreWrites = false
 
+    @objc(safarierMockApplePayDisclosure) var disclosureAllowed: Bool { applePayDisclosure }
+    @objc(setSafarierMockApplePayDisclosure:) func setDisclosureAllowed(_ value: Bool) {
+        if !ignoreDisclosureWrites { applePayDisclosure = value }
+    }
     @objc(safarierMockApplePay) var applePayEnabled: Bool { applePay }
     @objc(setSafarierMockApplePay:) func setApplePayEnabled(_ value: Bool) { if !ignoreWrites { applePay = value } }
     @objc(safarierMockPushAPI) var pushAPIEnabled: Bool { push }
@@ -114,6 +120,8 @@ let mockSymbols: SPIPrivacyAdapter.Symbols = {
     symbols.processPoolConfigurationGetter = "safarierMockConfiguration"
     symbols.processPoolClass = "SafarierTestPool"
     symbols.processPoolConfigurationClass = "SafarierTestPoolConfiguration"
+    symbols.applePayDisclosureGetter = "safarierMockApplePayDisclosure"
+    symbols.applePayDisclosureSetter = "setSafarierMockApplePayDisclosure:"
     symbols.userInstalledFontsGetter = "safarierMockUserFonts"
     symbols.userInstalledFontsSetter = "setSafarierMockUserFonts:"
     symbols.safariAPISwitches = [

@@ -46,6 +46,8 @@ FOUNDATION_EXPORT SFRCallStatus SFRGetObject(id target, NSString *selectorName, 
 FOUNDATION_EXPORT SFRCallStatus SFRNewInstance(NSString *className, id _Nullable __autoreleasing * _Nonnull instance, NSString * _Nullable * _Nullable detail);
 /// `[[NSClassFromString(className) alloc] <initializer>argument]`；initializer 必须是 init 家族、返回对象、只有一个对象参数。
 FOUNDATION_EXPORT SFRCallStatus SFRAllocInitWithObject(NSString *className, NSString *initializerName, id argument, id _Nullable __autoreleasing * _Nonnull instance, NSString * _Nullable * _Nullable detail);
+/// `[[NSClassFromString(className) alloc] <initializer>]`；initializer 必须是 init 家族、返回对象、没有参数。
+FOUNDATION_EXPORT SFRCallStatus SFRAllocInitWithoutArguments(NSString *className, NSString *initializerName, id _Nullable __autoreleasing * _Nonnull instance, NSString * _Nullable * _Nullable detail);
 
 /// 模拟显示器能力（进程级）：替换 `-[NSScreen canRepresentDisplayGamut:]`（P3）、NSScreen 的两个 EDR 余量属性，
 /// 以及视频动态范围查询。引擎的 UI 进程收集屏幕能力时调用这些方法，

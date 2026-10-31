@@ -20,6 +20,12 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     let startPageDetails: [String]
     let downloads = DownloadsController()
     private(set) var report: PrivacyCapabilityReport
+    /// 网页打开的弹窗建 WebView 前补齐页面级隐私设置（本会话实际生效的那一套，见 `WebViewConfigurationFactory.Output.preparePopup`）。
+    private let preparePopup: @MainActor (WKWebViewConfiguration) -> PrivacyCapabilityReport
+    /// 4 参数导航决策回调放行前，在单次导航的 WKWebpagePreferences 上确保高级隐私保护位（同一个隐私适配器）。
+    private let prepareNavigationPreferences: @MainActor (WKWebpagePreferences) -> Void
+    /// 最近一个弹窗配置上的落实情况（测试和诊断用）。
+    private(set) var lastPopupReport: PrivacyCapabilityReport?
     private let deviceSimulation: DeviceSimulation?
     /// 第一次给 WebView 套机型模拟的结果；和 `viewportFit` 合起来决定能力报告里的 deviceModel。
     private var deviceSimulationState: CapabilityState?
@@ -64,6 +70,8 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         self.configuration = output.configuration
         self.extensionRuntime = output.extensionRuntime
         self.report = output.report
+        self.preparePopup = output.preparePopup
+        self.prepareNavigationPreferences = output.prepareNavigationPreferences
         self.device = profile.deviceModel.flatMap(MacDeviceModel.preset)
         self.isPrivate = profile.mode == .ephemeral
         self.accent = Self.palette[Int(profile.id.uuid.0) % Self.palette.count]
@@ -182,12 +190,29 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     }
 
     private func makeWebView(configuration popupConfiguration: WKWebViewConfiguration?) -> BrowserWebView {
+        // 网页打开的视图必须原样用 WebKit 交来的配置（window.opener 在里面），只在它上面补齐页面级设置。
+        if let popupConfiguration { alignPopupConfiguration(popupConfiguration) }
         let webView = BrowserWebView(frame: NSRect(origin: .zero, size: Self.defaultContentSize), configuration: popupConfiguration ?? configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = inspectable
         WebViewSPI.setDeveloperExtrasEnabled(inspectable, on: webView.configuration.preferences)
         return webView
+    }
+
+    /// 4 参数导航决策回调放行前调用，见 `WebViewConfigurationFactory.Output.prepareNavigationPreferences`。
+    func alignNavigationPreferences(_ preferences: WKWebpagePreferences) {
+        prepareNavigationPreferences(preferences)
+    }
+
+    /// 本会话里生效的项，在弹窗上没生效就记一行日志（逐项明细不打，每个弹窗都会走一遍）。
+    private func alignPopupConfiguration(_ popupConfiguration: WKWebViewConfiguration) {
+        let popup = preparePopup(popupConfiguration)
+        lastPopupReport = popup
+        for feature in [PrivacyFeature.advancedPrivacyProtections, .webRTCDisabled, .safariAPIs, .webGPU]
+        where report[feature].name == "active" && popup[feature].name != "active" {
+            FileHandle.standardError.write(Data("[spi] popup：\(feature.rawValue) \(popup[feature].summary)\n".utf8))
+        }
     }
 
     /// 新窗口内容区大小：选了机型就按机型视口（屏幕放不下等比缩小），否则沿用当前窗口或默认大小。

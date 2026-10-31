@@ -130,6 +130,13 @@ enum SPIRuntimeBridge {
         return result(status, detail) { instance }.flatMap(Self.asObject(className))
     }
 
+    static func allocInit(className: String, initializer: String) -> Result<NSObject, SPICallFailure> {
+        var instance: AnyObject?
+        var detail: NSString?
+        let status = SFRAllocInitWithoutArguments(className, initializer, &instance, &detail)
+        return result(status, detail) { instance }.flatMap(Self.asObject(className))
+    }
+
     private static func asObject(_ className: String) -> (AnyObject?) -> Result<NSObject, SPICallFailure> {
         { value in
             guard let object = value as? NSObject else {

@@ -47,6 +47,9 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     public struct Symbols: Sendable {
         public var networkPolicyGetter = SFRSymbolDecoder.decode([0x05, 0x34, 0x3F, 0x2E, 0x2D, 0x35, 0x28, 0x31, 0x19, 0x35, 0x34, 0x34, 0x3F, 0x39, 0x2E, 0x33, 0x35, 0x34, 0x13, 0x34, 0x2E, 0x3F, 0x3D, 0x28, 0x33, 0x2E, 0x23, 0x0A, 0x35, 0x36, 0x33, 0x39, 0x23])
         public var networkPolicySetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x14, 0x3F, 0x2E, 0x2D, 0x35, 0x28, 0x31, 0x19, 0x35, 0x34, 0x34, 0x3F, 0x39, 0x2E, 0x33, 0x35, 0x34, 0x13, 0x34, 0x2E, 0x3F, 0x3D, 0x28, 0x33, 0x2E, 0x23, 0x0A, 0x35, 0x36, 0x33, 0x39, 0x23, 0x60])
+        /// 引擎自己判断「高级隐私保护整体开启」的读法：0x1、0x40、0x80、0x100 四位齐了才是 YES，
+        /// 少了 0x1 时即使三个反指纹位都在也是 NO（2026-10-31 本机 WebKit 20621 实测，签名 B16@0:8）。
+        public var networkPolicyEnabledGetter = SFRSymbolDecoder.decode([0x05, 0x34, 0x3F, 0x2E, 0x2D, 0x35, 0x28, 0x31, 0x19, 0x35, 0x34, 0x34, 0x3F, 0x39, 0x2E, 0x33, 0x35, 0x34, 0x13, 0x34, 0x2E, 0x3F, 0x3D, 0x28, 0x33, 0x2E, 0x23, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E])
         public var processPoolConfigurationClass = SFRSymbolDecoder.decode([0x05, 0x0D, 0x11, 0x0A, 0x28, 0x35, 0x39, 0x3F, 0x29, 0x29, 0x0A, 0x35, 0x35, 0x36, 0x19, 0x35, 0x34, 0x3C, 0x33, 0x3D, 0x2F, 0x28, 0x3B, 0x2E, 0x33, 0x35, 0x34])
         public var timeZoneGetter = SFRSymbolDecoder.decode([0x2E, 0x33, 0x37, 0x3F, 0x00, 0x35, 0x34, 0x3F, 0x15, 0x2C, 0x3F, 0x28, 0x28, 0x33, 0x3E, 0x3F])
         public var timeZoneSetter = SFRSymbolDecoder.decode([0x29, 0x3F, 0x2E, 0x0E, 0x33, 0x37, 0x3F, 0x00, 0x35, 0x34, 0x3F, 0x15, 0x2C, 0x3F, 0x28, 0x28, 0x33, 0x3E, 0x3F, 0x60])
@@ -84,6 +87,25 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         /// 和用户自己装的字体都给网页，字体探测能据此推断用户的语言和地区。
         public var userInstalledFontsGetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x32, 0x35, 0x2F, 0x36, 0x3E, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x0F, 0x29, 0x3F, 0x28, 0x13, 0x34, 0x29, 0x2E, 0x3B, 0x36, 0x36, 0x3F, 0x3E, 0x1C, 0x35, 0x34, 0x2E, 0x29])
         public var userInstalledFontsSetter = SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x09, 0x32, 0x35, 0x2F, 0x36, 0x3E, 0x1B, 0x36, 0x36, 0x35, 0x2D, 0x0F, 0x29, 0x3F, 0x28, 0x13, 0x34, 0x29, 0x2E, 0x3B, 0x36, 0x36, 0x3F, 0x3E, 0x1C, 0x35, 0x34, 0x2E, 0x29, 0x60])
+        /// Safari 给 WKPreferences 注册的另外 5 个行为默认值（getter, setter, 诊断里的名字, Safari 的值），
+        /// 都和裸 WKPreferences 的默认值相反（2026-10-31 本机 WebKit 20621 实测）。
+        public var safariBehaviorSwitches: [(getter: String, setter: String, label: String, value: Bool)] = [
+            (SFRSymbolDecoder.decode([0x05, 0x38, 0x3B, 0x39, 0x31, 0x29, 0x2A, 0x3B, 0x39, 0x3F, 0x11, 0x3F, 0x23, 0x14, 0x3B, 0x2C, 0x33, 0x3D, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
+             SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x18, 0x3B, 0x39, 0x31, 0x29, 0x2A, 0x3B, 0x39, 0x3F, 0x11, 0x3F, 0x23, 0x14, 0x3B, 0x2C, 0x33, 0x3D, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
+             "退格键不后退", false),
+            (SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x28, 0x2C, 0x33, 0x39, 0x3F, 0x19, 0x35, 0x34, 0x2E, 0x28, 0x35, 0x36, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
+             SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x09, 0x3F, 0x28, 0x2C, 0x33, 0x39, 0x3F, 0x19, 0x35, 0x34, 0x2E, 0x28, 0x35, 0x36, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
+             "服务控件", true),
+            (SFRSymbolDecoder.decode([0x05, 0x29, 0x32, 0x35, 0x2D, 0x29, 0x0E, 0x35, 0x35, 0x36, 0x0E, 0x33, 0x2A, 0x15, 0x2C, 0x3F, 0x28, 0x0E, 0x28, 0x2F, 0x34, 0x39, 0x3B, 0x2E, 0x3F, 0x3E, 0x0E, 0x3F, 0x22, 0x2E]),
+             SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x09, 0x32, 0x35, 0x2D, 0x29, 0x0E, 0x35, 0x35, 0x36, 0x0E, 0x33, 0x2A, 0x15, 0x2C, 0x3F, 0x28, 0x0E, 0x28, 0x2F, 0x34, 0x39, 0x3B, 0x2E, 0x3F, 0x3E, 0x0E, 0x3F, 0x22, 0x2E, 0x60]),
+             "截断文字悬停提示", true),
+            (SFRSymbolDecoder.decode([0x05, 0x2E, 0x3F, 0x36, 0x3F, 0x2A, 0x32, 0x35, 0x34, 0x3F, 0x14, 0x2F, 0x37, 0x38, 0x3F, 0x28, 0x1E, 0x3F, 0x2E, 0x3F, 0x39, 0x2E, 0x33, 0x35, 0x34, 0x13, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
+             SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x0E, 0x3F, 0x36, 0x3F, 0x2A, 0x32, 0x35, 0x34, 0x3F, 0x14, 0x2F, 0x37, 0x38, 0x3F, 0x28, 0x1E, 0x3F, 0x2E, 0x3F, 0x39, 0x2E, 0x33, 0x35, 0x34, 0x13, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
+             "电话号码识别", true),
+            (SFRSymbolDecoder.decode([0x05, 0x3B, 0x3D, 0x3D, 0x28, 0x3F, 0x29, 0x29, 0x33, 0x2C, 0x3F, 0x0E, 0x33, 0x36, 0x3F, 0x08, 0x3F, 0x2E, 0x3F, 0x34, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
+             SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x1B, 0x3D, 0x3D, 0x28, 0x3F, 0x29, 0x29, 0x33, 0x2C, 0x3F, 0x0E, 0x33, 0x36, 0x3F, 0x08, 0x3F, 0x2E, 0x3F, 0x34, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
+             "积极保留图块", true),
+        ]
         /// 允许尝试字体桥接的系统 WebKit 版本前缀；其它版本（例如 macOS 13 的 18615）不调用。
         /// 覆盖 196（macOS 14）、206（macOS 15）、216（macOS 26）、226（macOS 27）、236（下一代）；
         /// C 导出、进程池对象类型和类型标识仍逐项检查，对不上就报 unavailable / degraded。
@@ -94,10 +116,16 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         public static let webKit = Symbols()
     }
 
-    /// 高级隐私保护的三个位：
-    /// EnhancedTelemetry 0x40 → FingerprintingProtections，RequestValidation 0x80 → EnhancedNetworkPrivacy，
+    /// 高级隐私保护的四个位（与 SafariSharedUI 无痕模式 0x1c1 对齐）：
+    /// Enabled 0x1 → BaselineProtections，
+    /// EnhancedTelemetry 0x40 → FingerprintingProtections，
+    /// RequestValidation 0x80 → EnhancedNetworkPrivacy，
     /// SanitizeLookalikeCharacters 0x100 → LinkDecorationFiltering。
-    public static let fingerprintingPolicyMask: UInt = 0x40 | 0x80 | 0x100
+    public static let fingerprintingPolicyMask: UInt = 0x1 | 0x40 | 0x80 | 0x100
+
+    /// 网页打开的弹窗只对齐这几项页面级设置。引擎层时区和字体白名单设在进程池上，
+    /// 弹窗和打开它的网页共用同一个进程池，跟着它走，不能也不用在弹窗上重设。
+    public static let popupFeatures: SPIFeatures = [.fingerprintingProtections, .disableWebRTC, .safariAPIs, .webGPU]
 
     public let identifier = "spi"
     public let features: SPIFeatures
@@ -180,6 +208,82 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     }
 
     public func apply(to configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {
+        applyPageSettings(to: configuration, for: profile, report: &report)
+        if features.contains(.engineTimeZone) {
+            if let timeZone = profile.timeZoneIdentifier {
+                report.set(applyTimeZoneOverride(timeZone, configuration), for: .timeZone)
+            } else {
+                diagnostics.record("tz：profile 没有设置时区，跳过引擎层时区覆盖")
+            }
+        }
+        // 必须在时区之后：tz 可能给 configuration 换上新的进程池，白名单要设在最终用的那个进程池上。
+        report.set(
+            features.contains(.fontAllowlist) ? applyFontAllowlist(configuration, languages: profile.languages) : .notRequested,
+            for: .fontAllowlist
+        )
+    }
+
+    /// 网页打开的弹窗（window.open、target=_blank）：WebKit 交来的 configuration 必须原样用来建 WebView
+    /// （window.opener 和 related page 关系在里面），这里只在它上面把 `popupFeatures` 再写一遍、回读一遍。
+    /// 进程池和网站数据存储一律不碰。逐项诊断不进会话日志（每个弹窗都会走一遍），没生效的项看返回的报告。
+    public func applyToPopup(_ configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {
+        let popup = SPIPrivacyAdapter(
+            features: features.intersection(Self.popupFeatures),
+            symbols: symbols,
+            diagnostics: SPIDiagnostics(),
+            webpagePreferences: webpagePreferences,
+            commitWebpagePreferences: commitWebpagePreferences,
+            preferences: preferences,
+            installProcessPool: { _, _ in false },
+            webKitVersion: webKitVersion,
+            fontAllowlistPlanner: fontAllowlistPlanner,
+            fontAllowlistBridge: fontAllowlistBridge
+        )
+        popup.applyPageSettings(to: configuration, for: profile, report: &report)
+    }
+
+    /// 网站数据存储照 Safari 建（无痕配置、智能防跟踪），跟着 Safari 专有接口这一项开关走。
+    public var appliesSafariDataStoreDefaults: Bool { features.contains(.safariAPIs) }
+
+    /// 4 参数导航决策回调交来的单次导航 WKWebpagePreferences（WebKit 从 defaultWebpagePreferences 复制来，平时已经带着）：
+    /// 像 Safari 的导航代理一样，开着高级隐私保护时在每次导航上确保四位都在。每次导航都走，已经齐了就不写、不记；
+    /// 写入后回读不一致或调用失败才记一条诊断（同样的内容只记一次）。
+    public func alignNavigationPreferences(_ preferences: WKWebpagePreferences) {
+        navigationPreferencesState(preferences)
+    }
+
+    @discardableResult
+    func navigationPreferencesState(_ preferences: NSObject) -> CapabilityState {
+        guard features.contains(.fingerprintingProtections) else { return .notRequested }
+        func failed(_ text: String, unsupported: Bool) -> CapabilityState {
+            let message = "afp.navigation：\(text)"
+            if !diagnostics.entries.contains(message) { diagnostics.record(message) }
+            return unsupported ? .unavailable(text) : .degraded(text)
+        }
+        let current: UInt
+        switch SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: preferences) {
+        case .success(let value): current = value
+        case .failure(let failure): return failed("单次导航读不到高级隐私保护位：\(failure)", unsupported: failure.isUnsupported)
+        }
+        if current & Self.fingerprintingPolicyMask == Self.fingerprintingPolicyMask {
+            return .active("单次导航已带 \(Self.hex(current))")
+        }
+        let desired = current | Self.fingerprintingPolicyMask
+        if case .failure(let failure) = SPIRuntimeBridge.setUInt(desired, symbols.networkPolicySetter, on: preferences) {
+            return failed("单次导航写入高级隐私保护位失败：\(failure)", unsupported: failure.isUnsupported)
+        }
+        switch SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: preferences) {
+        case .success(let after) where after & Self.fingerprintingPolicyMask == Self.fingerprintingPolicyMask:
+            return .active("单次导航 \(Self.hex(current)) → \(Self.hex(after))")
+        case .success(let after):
+            return failed("单次导航写入 \(Self.hex(desired)) 后回读为 \(Self.hex(after))", unsupported: false)
+        case .failure(let failure):
+            return failed("单次导航回读高级隐私保护位失败：\(failure)", unsupported: failure.isUnsupported)
+        }
+    }
+
+    /// 只改 configuration 上的页面级设置（defaultWebpagePreferences、preferences），不碰进程池。
+    private func applyPageSettings(to configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {
         report.set(
             features.contains(.fingerprintingProtections) ? applyFingerprintingProtections(configuration) : .notRequested,
             for: .advancedPrivacyProtections
@@ -197,18 +301,6 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             report.set(.unverified(PrivacyCapabilityReport.webAuthenticationBoundary), for: .webAuthentication)
         }
         report.set(features.contains(.webGPU) ? enableWebGPU(configuration) : .notRequested, for: .webGPU)
-        if features.contains(.engineTimeZone) {
-            if let timeZone = profile.timeZoneIdentifier {
-                report.set(applyTimeZoneOverride(timeZone, configuration), for: .timeZone)
-            } else {
-                diagnostics.record("tz：profile 没有设置时区，跳过引擎层时区覆盖")
-            }
-        }
-        // 必须在时区之后：tz 可能给 configuration 换上新的进程池，白名单要设在最终用的那个进程池上。
-        report.set(
-            features.contains(.fontAllowlist) ? applyFontAllowlist(configuration, languages: profile.languages) : .notRequested,
-            for: .fontAllowlist
-        )
     }
 
     // MARK: - M0-7 高级隐私保护
@@ -216,7 +308,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     private func applyFingerprintingProtections(_ configuration: WKWebViewConfiguration) -> CapabilityState {
         let feature = "afp"
         let preferences = webpagePreferences(configuration)
-        // 先读当前值：保留已有的位，只加上反指纹三位。
+        // 先读当前值：保留已有的位，只加上高级隐私保护的四位。
         let before: UInt
         switch SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: preferences) {
         case .success(let value): before = value
@@ -232,14 +324,29 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         case .failure(let failure):
             return fallback(feature, failure)
         case .success(let after) where after & Self.fingerprintingPolicyMask == Self.fingerprintingPolicyMask:
-            let text = "privacyPolicy \(Self.hex(before)) → \(Self.hex(after))（回读一致）"
-            diagnostics.record("\(feature)：\(text)")
-            return .active(text)
+            return confirmEngineSwitch(feature, configuration, change: "privacyPolicy \(Self.hex(before)) → \(Self.hex(after))")
         case .success(let after):
-            let text = "写入 \(Self.hex(desired)) 后回读为 \(Self.hex(after))，反指纹位没有全部生效"
+            let text = "写入 \(Self.hex(desired)) 后回读为 \(Self.hex(after))，高级隐私保护位没有全部生效"
             diagnostics.record("\(feature)：\(text)")
             return .degraded(text)
         }
+    }
+
+    /// 位掩码回读一致之后，再看引擎自己的总开关：存在就必须是 YES；本机引擎没有这个读法时只按位掩码报告。
+    private func confirmEngineSwitch(_ feature: String, _ configuration: WKWebViewConfiguration, change: String) -> CapabilityState {
+        let state: CapabilityState
+        switch SPIRuntimeBridge.getBool(symbols.networkPolicyEnabledGetter, on: webpagePreferences(configuration)) {
+        case .success(true):
+            state = .active("\(change)，引擎总开关回读 YES（回读一致）")
+        case .failure(.missingSelector):
+            state = .active("\(change)（回读一致；本机引擎没有总开关读法，只核对了位掩码）")
+        case .success(false):
+            state = .degraded("\(change)，位掩码已写入，但引擎总开关回读为 NO")
+        case .failure(let failure):
+            state = .degraded("\(change)，引擎总开关回读失败：\(failure)")
+        }
+        diagnostics.record("\(feature)：\(state.detail ?? state.name)")
+        return state
     }
 
     // MARK: - M0-9 关闭 WebRTC
@@ -366,9 +473,39 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
                 }
             }
         }
+        // Safari 给 WKPreferences 另设的行为默认值：本机引擎有对应读写接口才写，写了就回读；没有的保持引擎默认。
+        var aligned: [String] = []
+        var skipped: [String] = []
+        for item in symbols.safariBehaviorSwitches {
+            guard preferences.responds(to: NSSelectorFromString(item.setter)), preferences.responds(to: NSSelectorFromString(item.getter)) else {
+                skipped.append(item.label)
+                continue
+            }
+            switch SPIRuntimeBridge.setBool(item.value, item.setter, on: preferences) {
+            case .failure(let failure) where failure.isUnsupported:
+                skipped.append(item.label)
+                continue
+            case .failure(let failure):
+                return fallback(feature, failure)
+            case .success:
+                break
+            }
+            switch SPIRuntimeBridge.getBool(item.getter, on: preferences) {
+            case .success(item.value):
+                aligned.append(item.label)
+            case .success(let actual):
+                let text = "\(item.label) 写入 \(item.value) 后回读为 \(actual)"
+                diagnostics.record("\(feature)：\(text)")
+                return .degraded(text)
+            case .failure(let failure):
+                return fallback(feature, failure)
+            }
+        }
         let enabled = symbols.safariAPISwitches.map(\.exposes)
         let disclosureSummary = hideApplePayCardStatus ? "，关闭 Apple Pay 银行卡状态披露" : "，Apple Pay 银行卡状态披露保留系统默认"
-        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体\(disclosureSummary)（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
+        var behaviorSummary = aligned.isEmpty ? "" : "，Safari 行为默认值：\(aligned.joined(separator: "、"))"
+        if !skipped.isEmpty { behaviorSummary += "（本机引擎没有：\(skipped.joined(separator: "、"))，保持默认）" }
+        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体\(disclosureSummary)\(behaviorSummary)（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
         diagnostics.record("\(feature)：\(text)")
         return .active(text)
     }

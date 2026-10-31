@@ -1,18 +1,93 @@
 #!/usr/bin/env bash
 # 编出 Universal（arm64 + x86_64）release 二进制，组装 dist/Safarier.app 并做本机 ad-hoc 签名。
 # Apple 芯片和 Intel 的 Mac 都能用。只在 Mac mini 上跑（需要 Xcode 工具链：多架构 swift build 和 lipo）。
-# 环境变量：SAFARIER_VERSION 覆盖版本号（默认 1.2.3），SAFARIER_BUILD 覆盖构建号（默认 git 提交数），
+# 环境变量：SAFARIER_VERSION 覆盖版本号（默认 1.2.4），SAFARIER_BUILD 覆盖构建号（默认 git 提交数），
 #           SINGBOX_DIR 覆盖自带 sing-box 的目录（默认 .build/sing-box，由 scripts/build-singbox.sh 在编译机上编出来）。
+# scripts/build-app.sh --info-plist PATH：只生成 Info.plist 到 PATH（测试用），不编译、不组装。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-VERSION="${SAFARIER_VERSION:-1.2.3}"
+VERSION="${SAFARIER_VERSION:-1.2.4}"
 BUILD="${SAFARIER_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 TARGET_ARCH="${SAFARIER_ARCH:-universal}"
 BUNDLE_ID="sh.safarier.app"
 APP="${SAFARIER_APP_OUT:-$ROOT/dist/Safarier.app}"
 SINGBOX_DIR="${SINGBOX_DIR:-$ROOT/.build/sing-box}"
+
+# App 声明支持的语言：和 /Applications/Safari.app/Contents/Resources 下的 40 个 .lproj 一致，另加 zh-Hans、zh-Hant。
+# 只写开发区域时 CFBundle 把本 App 的本地化锁成 zh-Hans，WebKit / WebCore 跟着主 Bundle 走：不管环境语言是什么，
+# 网页读到的 navigator.mimeTypes 描述、表单校验提示（validationMessage）都是简体中文，和真 Safari 对不上（检测脚本会读）。
+LOCALIZATIONS=(
+  ar ca cs da de el en en_AU en_GB es es_419 fi fr fr_CA he hi hr hu id it ja ko ms nl no pl pt pt_PT ro ru sk sl sv th tr uk vi
+  zh-Hans zh-Hant zh_CN zh_HK zh_TW
+)
+
+# 界面文案是简体中文，开发区域仍是 zh-Hans；CFBundleAllowMixedLocalizations 让系统框架（WebKit、AppKit）
+# 按进程语言（Runner 的 -AppleLanguages 就是环境语言）本地化，不再跟着主 Bundle 固定成简体中文。
+write_info_plist() {
+  local path="$1"
+  mkdir -p "$(dirname "$path")"
+  cat > "$path" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleAllowMixedLocalizations</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
+	<key>CFBundleDisplayName</key>
+	<string>Safarier</string>
+	<key>CFBundleExecutable</key>
+	<string>Safarier</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>${BUNDLE_ID}</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+$(printf '\t\t<string>%s</string>\n' "${LOCALIZATIONS[@]}")
+	</array>
+	<key>CFBundleName</key>
+	<string>Safarier</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${VERSION}</string>
+	<key>CFBundleVersion</key>
+	<string>${BUILD}</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSCameraUsageDescription</key>
+	<string>网页请求使用摄像头时（例如视频会议），Safarier 会先询问你。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>网页请求使用麦克风时（例如视频会议），Safarier 会先询问你。</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Safarier</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>
+PLIST
+  plutil -lint "$path" >/dev/null
+}
+
+if [ "${1:-}" = "--info-plist" ]; then
+  [ -n "${2:-}" ] || { echo "用法：scripts/build-app.sh --info-plist PATH" >&2; exit 2; }
+  write_info_plist "$2"
+  exit 0
+fi
 
 ARCHS_EXPECTED="arm64 x86_64"
 
@@ -82,54 +157,7 @@ for spec in 16:16x16 32:16x16@2x 32:32x32 64:32x32@2x 128:128x128 256:128x128@2x
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
-# 界面文案是简体中文；开发区域设成 zh-Hans，系统菜单（关于、退出、编辑…）跟着用中文。
-cat > "$APP/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>zh-Hans</string>
-	<key>CFBundleDisplayName</key>
-	<string>Safarier</string>
-	<key>CFBundleExecutable</key>
-	<string>Safarier</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>CFBundleIdentifier</key>
-	<string>${BUNDLE_ID}</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>Safarier</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>${VERSION}</string>
-	<key>CFBundleVersion</key>
-	<string>${BUILD}</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.productivity</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
-	<key>NSCameraUsageDescription</key>
-	<string>网页请求使用摄像头时（例如视频会议），Safarier 会先询问你。</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>网页请求使用麦克风时（例如视频会议），Safarier 会先询问你。</string>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>NSHumanReadableCopyright</key>
-	<string>Safarier</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
-	<key>NSSupportsAutomaticTermination</key>
-	<false/>
-	<key>NSSupportsSuddenTermination</key>
-	<false/>
-</dict>
-</plist>
-PLIST
-plutil -lint "$APP/Contents/Info.plist" >/dev/null
+write_info_plist "$APP/Contents/Info.plist"
 
 echo "==> ad-hoc 签名"
 # 由内向外签：先签里面的 sing-box，再签整个 App（App 的签名把它封进去）。不用 --deep，否则会把 sing-box 重签掉。

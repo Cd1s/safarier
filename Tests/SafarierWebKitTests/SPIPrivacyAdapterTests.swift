@@ -55,10 +55,53 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         let report = apply(adapter(.fingerprintingProtections, diagnostics: diagnostics, webpage: webpage))
 
         XCTAssertEqual(webpage.stored, 0x2 | SPIPrivacyAdapter.fingerprintingPolicyMask)
-        XCTAssertEqual(SPIPrivacyAdapter.fingerprintingPolicyMask, 0x1C0)
+        XCTAssertEqual(SPIPrivacyAdapter.fingerprintingPolicyMask, 0x1C1, "和 SafariSharedUI 无痕模式一样：0x1 | 0x40 | 0x80 | 0x100")
         guard case .active(let text) = report[.advancedPrivacyProtections] else { return XCTFail("\(report[.advancedPrivacyProtections])") }
-        XCTAssertTrue(text.contains("0x2 → 0x1c2"), text)
+        XCTAssertTrue(text.contains("0x2 → 0x1c3"), text)
+        XCTAssertTrue(text.contains("只核对了位掩码"), "测试对象没有总开关读法：兼容跳过，不报错。\(text)")
         XCTAssertTrue(diagnostics.entries.contains { $0.hasPrefix("afp：") })
+    }
+
+    /// 引擎的总开关要四位齐全：少了 0x1（以前只写 0x1c0）时总开关是 NO。
+    func testFingerprintingTurnsOnEngineSwitch() {
+        let webpage = EngineLikePolicyPreferences()
+        let report = apply(adapter(.fingerprintingProtections, webpage: webpage))
+        XCTAssertEqual(webpage.stored, 0x1C1)
+        XCTAssertTrue(webpage.policyEnabled)
+        guard case .active(let text) = report[.advancedPrivacyProtections] else { return XCTFail("\(report[.advancedPrivacyProtections])") }
+        XCTAssertTrue(text.contains("0x0 → 0x1c1"), text)
+        XCTAssertTrue(text.contains("引擎总开关回读 YES"), text)
+
+        let withoutBaseline = EngineLikePolicyPreferences(stored: 0x1C0)
+        XCTAssertFalse(withoutBaseline.policyEnabled, "只有三个反指纹位时总开关是 NO")
+    }
+
+    func testEngineSwitchReadingNoIsDegradedEvenWhenBitsReadBack() {
+        let diagnostics = SPIDiagnostics()
+        let webpage = SwitchOffPolicyPreferences()
+        let report = apply(adapter(.fingerprintingProtections, diagnostics: diagnostics, webpage: webpage))
+        XCTAssertEqual(webpage.stored & SPIPrivacyAdapter.fingerprintingPolicyMask, SPIPrivacyAdapter.fingerprintingPolicyMask, "位掩码回读看起来是齐的")
+        guard case .degraded(let text) = report[.advancedPrivacyProtections] else { return XCTFail("\(report[.advancedPrivacyProtections])") }
+        XCTAssertTrue(text.contains("引擎总开关回读为 NO"), text)
+        XCTAssertTrue(diagnostics.entries.contains { $0.hasPrefix("afp：") && $0.contains("回读为 NO") })
+    }
+
+    func testEngineSwitchExceptionIsDegradedWithoutCrash() {
+        let report = apply(adapter(.fingerprintingProtections, webpage: ThrowingSwitchPolicyPreferences()))
+        guard case .degraded(let text) = report[.advancedPrivacyProtections] else { return XCTFail("\(report[.advancedPrivacyProtections])") }
+        XCTAssertTrue(text.contains("引擎总开关回读失败"), text)
+        XCTAssertTrue(text.contains("NSInternalInconsistencyException"), text)
+    }
+
+    /// 编码的总开关读法和本机 WebKit 对得上：和位掩码读法同一前缀、BOOL 返回、无参数。不在源码里写明文。
+    func testEngineSwitchSymbolMatchesThisWebKit() throws {
+        let symbols = SPIPrivacyAdapter.Symbols.webKit
+        XCTAssertEqual(symbols.networkPolicyEnabledGetter, String(symbols.networkPolicyGetter.dropLast("Policy".count)) + "Enabled")
+        XCTAssertTrue(symbols.networkPolicyEnabledGetter.hasPrefix("_"))
+        guard let method = class_getInstanceMethod(WKWebpagePreferences.self, NSSelectorFromString(symbols.networkPolicyEnabledGetter)) else {
+            throw XCTSkip("本机 WebKit 没有总开关读法，适配器按位掩码报告")
+        }
+        XCTAssertEqual(String(cString: try XCTUnwrap(method_getTypeEncoding(method))), "B16@0:8")
     }
 
     func testFingerprintingReadBackMismatchIsDegraded() {
@@ -167,6 +210,98 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         guard case .active(let text) = report[.safariAPIs] else { return XCTFail("\(report[.safariAPIs])") }
         XCTAssertTrue(text.contains("ApplePaySession") && text.contains("PushManager") && text.contains("navigator.mediaDevices"), text)
         XCTAssertTrue(text.contains("关闭用户安装字体"), text)
+        XCTAssertTrue(text.contains("本机引擎没有：退格键不后退、服务控件、截断文字悬停提示、电话号码识别、积极保留图块，保持默认"), "没有行为默认值接口的对象：跳过，不报错。\(text)")
+    }
+
+    /// Safari 另设的 5 个 WKPreferences 行为默认值：有读写接口就写成 Safari 的值并回读。
+    func testSafariBehaviorDefaultsAlignAndReadBack() {
+        let preferences = FakeSafariBehaviorPreferences()
+        let report = apply(adapter(.safariAPIs, preferences: preferences))
+        XCTAssertEqual(preferences.behaviors, ["backspace": false, "services": true, "tooltip": true, "telephone": true, "tiles": true])
+        guard case .active(let text) = report[.safariAPIs] else { return XCTFail("\(report[.safariAPIs])") }
+        XCTAssertTrue(text.contains("Safari 行为默认值：退格键不后退、服务控件、截断文字悬停提示、电话号码识别、积极保留图块"), text)
+        XCTAssertFalse(text.contains("本机引擎没有"), text)
+    }
+
+    func testSafariBehaviorIgnoredWriteIsDegraded() {
+        let preferences = FakeSafariBehaviorPreferences()
+        preferences.ignoreBehaviorWrites = true
+        guard case .degraded(let text) = apply(adapter(.safariAPIs, preferences: preferences))[.safariAPIs] else {
+            return XCTFail("回读不一致应当降级")
+        }
+        XCTAssertTrue(text.contains("退格键不后退 写入 false 后回读为 true"), text)
+    }
+
+    // MARK: - 单次导航
+
+    /// 4 参数导航决策回调交来的 preferences：缺位就补上并回读，不记诊断（每次导航都走）。
+    func testNavigationPreferencesGetMaskWithoutDiagnostics() {
+        let diagnostics = SPIDiagnostics()
+        let navigation = EngineLikePolicyPreferences(stored: 0x2)
+        let state = adapter(.fingerprintingProtections, diagnostics: diagnostics).navigationPreferencesState(navigation)
+        XCTAssertEqual(navigation.stored, 0x1C3)
+        XCTAssertTrue(navigation.policyEnabled)
+        XCTAssertEqual(state.name, "active", state.summary)
+        XCTAssertTrue(diagnostics.entries.isEmpty, "\(diagnostics.entries)")
+    }
+
+    func testNavigationPreferencesAlreadyAlignedAreNotRewritten() {
+        let navigation = FakePolicyPreferences(stored: 0x1C1)
+        let state = adapter(.fingerprintingProtections).navigationPreferencesState(navigation)
+        XCTAssertEqual(state.name, "active")
+        XCTAssertTrue(navigation.writes.isEmpty, "已经齐了就不写")
+    }
+
+    func testNavigationPreferencesFailureIsRecordedOnce() {
+        let diagnostics = SPIDiagnostics()
+        let navigation = FakePolicyPreferences()
+        navigation.ignoreWrites = true
+        let spi = adapter(.fingerprintingProtections, diagnostics: diagnostics)
+        XCTAssertEqual(spi.navigationPreferencesState(navigation).name, "degraded")
+        XCTAssertEqual(spi.navigationPreferencesState(navigation).name, "degraded")
+        XCTAssertEqual(diagnostics.entries.count, 1, "同样的失败只记一条：\(diagnostics.entries)")
+        XCTAssertTrue(diagnostics.entries[0].hasPrefix("afp.navigation："), diagnostics.entries[0])
+    }
+
+    func testNavigationPreferencesUntouchedWithoutFingerprintingProtections() {
+        let navigation = FakePolicyPreferences()
+        XCTAssertEqual(adapter([.safariAPIs, .disableWebRTC]).navigationPreferencesState(navigation), .notRequested)
+        XCTAssertTrue(navigation.writes.isEmpty)
+    }
+
+    /// 真实 WKWebpagePreferences 经配置工厂交出来的入口（Runner 的 4 参数导航回调用的就是它）。
+    func testFactoryNavigationEntryAlignsRealWebpagePreferences() throws {
+        let symbols = SPIPrivacyAdapter.Symbols.webKit
+        guard WKWebpagePreferences.instancesRespond(to: NSSelectorFromString(symbols.networkPolicySetter)) else {
+            throw XCTSkip("本机 WebKit 没有高级隐私保护位接口")
+        }
+        let privacy = CompositePrivacyAdapter([PublicAPIPrivacyAdapter(), SPIPrivacyAdapter(features: .fingerprintingProtections)])
+        let output = try WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), privacy: privacy, safariApplicationName: nil)
+            .make(profile: Profile(name: "n", mode: .ephemeral), proxy: nil, processLanguages: [])
+        let navigation = WKWebpagePreferences()
+        XCTAssertEqual(try SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: navigation).get(), 0)
+        output.prepareNavigationPreferences(navigation)
+        XCTAssertEqual(try SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: navigation).get() & 0x1C1, 0x1C1)
+        if WKWebpagePreferences.instancesRespond(to: NSSelectorFromString(symbols.networkPolicyEnabledGetter)) {
+            XCTAssertTrue(try SPIRuntimeBridge.getBool(symbols.networkPolicyEnabledGetter, on: navigation).get())
+        }
+
+        // 只用公开 API 的适配器不碰单次导航。
+        let publicOnly = try WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), safariApplicationName: nil)
+            .make(profile: Profile(name: "p", mode: .ephemeral), proxy: nil, processLanguages: [])
+        let untouched = WKWebpagePreferences()
+        publicOnly.prepareNavigationPreferences(untouched)
+        XCTAssertEqual(try SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: untouched).get(), 0)
+    }
+
+    /// 照 Safari 建网站数据存储跟着 Safari 专有接口这一项开关走；只用公开 API 时不碰。
+    func testSafariDataStoreDefaultsFollowSafariAPIsFeature() {
+        XCTAssertTrue(SPIPrivacyAdapter(features: .safariAPIs).appliesSafariDataStoreDefaults)
+        XCTAssertTrue(SPIPrivacyAdapter(features: .defaultFeatures).appliesSafariDataStoreDefaults)
+        XCTAssertFalse(SPIPrivacyAdapter(features: [.fingerprintingProtections, .engineTimeZone]).appliesSafariDataStoreDefaults)
+        XCTAssertFalse(PublicAPIPrivacyAdapter().appliesSafariDataStoreDefaults)
+        XCTAssertTrue(CompositePrivacyAdapter([PublicAPIPrivacyAdapter(), SPIPrivacyAdapter(features: .safariAPIs)]).appliesSafariDataStoreDefaults)
+        XCTAssertFalse(CompositePrivacyAdapter([PublicAPIPrivacyAdapter(), SPIPrivacyAdapter(features: [])]).appliesSafariDataStoreDefaults)
     }
 
     func testSafariDisclosureOptOutLeavesSystemValueUntouched() {
@@ -351,6 +486,11 @@ final class SPIPrivacyAdapterTests: XCTestCase {
                 XCTAssertEqual(try SPIRuntimeBridge.getBool(item.getter, on: configuration.preferences).get(), true, item.getter)
             }
             XCTAssertEqual(try SPIRuntimeBridge.getBool(symbols.userInstalledFontsGetter, on: configuration.preferences).get(), false)
+            // Safari 另设的 5 个行为默认值：本机有的都要是 Safari 的值。
+            for item in symbols.safariBehaviorSwitches where WKPreferences.instancesRespond(to: NSSelectorFromString(item.setter)) {
+                XCTAssertEqual(try SPIRuntimeBridge.getBool(item.getter, on: configuration.preferences).get(), item.value, item.label)
+            }
+            XCTAssertTrue(report[.safariAPIs].summary.contains("Safari 行为默认值"), report[.safariAPIs].summary)
         }
 
         if hasPeerConnection {
@@ -358,7 +498,12 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         }
         if hasPolicy {
             let policy = try SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: configuration.defaultWebpagePreferences).get()
-            XCTAssertEqual(policy & SPIPrivacyAdapter.fingerprintingPolicyMask, SPIPrivacyAdapter.fingerprintingPolicyMask)
+            XCTAssertEqual(policy & 0x1C1, 0x1C1, "和 Safari 无痕的高级隐私保护一样是 0x1c1")
+            if WKWebpagePreferences.instancesRespond(to: NSSelectorFromString(symbols.networkPolicyEnabledGetter)) {
+                XCTAssertTrue(try SPIRuntimeBridge.getBool(symbols.networkPolicyEnabledGetter, on: configuration.defaultWebpagePreferences).get(),
+                              "引擎总开关必须是 YES")
+                XCTAssertTrue(report[.advancedPrivacyProtections].summary.contains("引擎总开关回读 YES"), report[.advancedPrivacyProtections].summary)
+            }
         }
         if hasTimeZone {
             let poolAfter = try SPIRuntimeBridge.getObject(SFRSymbolDecoder.decode([0x2A, 0x28, 0x35, 0x39, 0x3F, 0x29, 0x29, 0x0A, 0x35, 0x35, 0x36]), on: configuration).get()
@@ -390,6 +535,119 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         }
         XCTAssertEqual(diagnostics.entries.count, 7)
         XCTAssertTrue(try SPIRuntimeBridge.getObject(SFRSymbolDecoder.decode([0x2A, 0x28, 0x35, 0x39, 0x3F, 0x29, 0x29, 0x0A, 0x35, 0x35, 0x36]), on: configuration).get() === poolBefore)
+    }
+
+    // MARK: - 网页打开的弹窗
+
+    private let processPoolGetter = SFRSymbolDecoder.decode([0x2A, 0x28, 0x35, 0x39, 0x3F, 0x29, 0x29, 0x0A, 0x35, 0x35, 0x36])
+
+    /// 弹窗只对齐页面级设置：时区、字体白名单就算开着也不碰（它们在进程池上），逐项诊断不进会话日志。
+    func testPopupAlignmentSkipsPoolFeaturesAndKeepsSessionDiagnosticsQuiet() {
+        let diagnostics = SPIDiagnostics()
+        let webpage = EngineLikePolicyPreferences()
+        var report = PrivacyCapabilityReport()
+        adapter([.fingerprintingProtections, .engineTimeZone, .fontAllowlist], diagnostics: diagnostics, webpage: webpage)
+            .applyToPopup(WKWebViewConfiguration(), for: tokyo, report: &report)
+        XCTAssertEqual(webpage.stored, 0x1C1)
+        XCTAssertEqual(report[.advancedPrivacyProtections].name, "active", report[.advancedPrivacyProtections].summary)
+        XCTAssertEqual(report[.timeZone], .unavailable("未评估"))
+        XCTAssertEqual(report[.fontAllowlist], .unavailable("未评估"))
+        XCTAssertTrue(diagnostics.entries.isEmpty, "每个弹窗都会走一遍，逐项诊断不进会话日志：\(diagnostics.entries)")
+        XCTAssertEqual(SPIPrivacyAdapter.popupFeatures, [.fingerprintingProtections, .disableWebRTC, .safariAPIs, .webGPU])
+    }
+
+    /// 真实 WebKit：在弹窗配置上补齐 0x1c1、Safari 开关、关 WebRTC；进程池、网站数据存储、preferences 对象原样不动
+    /// （window.opener 和 related page 关系靠它们），profile 开着的时区和字体白名单不在弹窗上重设。
+    func testApplyToPopupAlignsPageSettingsWithoutReplacingPoolOrStore() throws {
+        let popup = WKWebViewConfiguration()
+        let store = WKWebsiteDataStore.nonPersistent()
+        popup.websiteDataStore = store
+        let poolBefore = try SPIRuntimeBridge.getObject(processPoolGetter, on: popup).get()
+        let preferencesBefore = popup.preferences
+        let symbols = SPIPrivacyAdapter.Symbols.webKit
+        let hasPolicy = WKWebpagePreferences.instancesRespond(to: NSSelectorFromString(symbols.networkPolicySetter))
+        if hasPolicy {
+            XCTAssertEqual(try SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: popup.defaultWebpagePreferences).get() & 0x1C1, 0, "新配置还没有高级隐私保护位")
+        }
+
+        let spi = SPIPrivacyAdapter(features: .all, fontAllowlistPlanner: { _ in
+            XCTFail("弹窗不应规划字体白名单")
+            return FontAllowlistPlan(names: [], excludedFamilies: [], excludedFontCount: 0, sharedNamesDropped: 0)
+        })
+        var report = PrivacyCapabilityReport()
+        CompositePrivacyAdapter([PublicAPIPrivacyAdapter(), spi]).applyToPopup(popup, for: tokyo, report: &report)
+
+        XCTAssertTrue(try SPIRuntimeBridge.getObject(processPoolGetter, on: popup).get() === poolBefore, "不换进程池")
+        XCTAssertTrue(popup.websiteDataStore === store, "不换网站数据存储")
+        XCTAssertTrue(popup.preferences === preferencesBefore)
+        XCTAssertEqual(report[.timeZone], .unavailable("未评估"), "引擎层时区不在弹窗上重设")
+        XCTAssertEqual(report[.fontAllowlist], .unavailable("未评估"), "字体白名单不在弹窗上重设")
+
+        if hasPolicy {
+            XCTAssertEqual(report[.advancedPrivacyProtections].name, "active", report[.advancedPrivacyProtections].summary)
+            XCTAssertEqual(try SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: popup.defaultWebpagePreferences).get() & 0x1C1, 0x1C1)
+            if WKWebpagePreferences.instancesRespond(to: NSSelectorFromString(symbols.networkPolicyEnabledGetter)) {
+                XCTAssertTrue(try SPIRuntimeBridge.getBool(symbols.networkPolicyEnabledGetter, on: popup.defaultWebpagePreferences).get())
+            }
+        }
+        if symbols.safariAPISwitches.allSatisfy({ WKPreferences.instancesRespond(to: NSSelectorFromString($0.setter)) }) {
+            XCTAssertEqual(report[.safariAPIs].name, "active", report[.safariAPIs].summary)
+            for item in symbols.safariAPISwitches {
+                XCTAssertTrue(try SPIRuntimeBridge.getBool(item.getter, on: popup.preferences).get(), item.exposes)
+            }
+            XCTAssertFalse(try SPIRuntimeBridge.getBool(symbols.userInstalledFontsGetter, on: popup.preferences).get())
+        }
+        if WKPreferences.instancesRespond(to: NSSelectorFromString(symbols.peerConnectionSetter)) {
+            XCTAssertEqual(report[.webRTCDisabled].name, "active", report[.webRTCDisabled].summary)
+            XCTAssertFalse(try SPIRuntimeBridge.getBool(symbols.peerConnectionGetter, on: popup.preferences).get())
+        }
+    }
+
+    // MARK: - 明文
+
+    /// 编码的私有接口名（下划线或 WK 开头，以及 12 个字符以上的标识）只能以编码形式出现在源码里；
+    /// 真实 WebKit 上跑完全部能力（含弹窗）后，诊断和能力报告里也不能出现。失败信息只报长度，不打印名字。
+    func testEncodedPrivateSymbolsNeverAppearInPlaintext() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let swiftArrays = try NSRegularExpression(pattern: #"decode\(\[([0-9xA-Fa-f,\s]+)\]\)"#)
+        let cArrays = try NSRegularExpression(pattern: #"\{\s*(0x[0-9A-Fa-f]{2}(?:\s*,\s*0x[0-9A-Fa-f]{2})+)\s*\}"#)
+        var files: [(name: String, text: String)] = []
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        for case let url as URL in enumerator where ["swift", "m", "h", "c"].contains(url.pathExtension) {
+            files.append((url.lastPathComponent, try String(contentsOf: url, encoding: .utf8)))
+        }
+        var encoded = Set<String>()
+        for file in files {
+            for pattern in [swiftArrays, cArrays] {
+                for match in pattern.matches(in: file.text, range: NSRange(file.text.startIndex..., in: file.text)) {
+                    guard let range = Range(match.range(at: 1), in: file.text) else { continue }
+                    let bytes = file.text[range].split(separator: ",").compactMap {
+                        UInt8($0.trimmingCharacters(in: .whitespacesAndNewlines).dropFirst(2), radix: 16)
+                    }
+                    encoded.insert(SFRSymbolDecoder.decode(bytes))
+                }
+            }
+        }
+        let sensitive = encoded.filter { $0.hasPrefix("_") || $0.hasPrefix("WK") || $0.count >= 12 }
+        XCTAssertTrue(sensitive.contains(SPIPrivacyAdapter.Symbols.webKit.networkPolicyEnabledGetter), "新加的总开关读法也是编码的")
+        XCTAssertGreaterThan(sensitive.count, 30)
+        for file in files {
+            for name in sensitive where file.text.contains(name) {
+                XCTFail("\(file.name) 里出现了编码标识的明文（\(name.count) 个字符）")
+            }
+        }
+
+        let diagnostics = SPIDiagnostics()
+        var report = PrivacyCapabilityReport()
+        let spi = SPIPrivacyAdapter(features: .all, diagnostics: diagnostics)
+        spi.apply(to: WKWebViewConfiguration(), for: tokyo, report: &report)
+        spi.applyToPopup(WKWebViewConfiguration(), for: tokyo, report: &report)
+        let output = (diagnostics.entries + report.lines()).joined(separator: "\n")
+        XCTAssertFalse(output.isEmpty)
+        for name in sensitive where output.contains(name) {
+            XCTFail("诊断或能力报告里出现了编码标识的明文（\(name.count) 个字符）")
+        }
     }
 }
 

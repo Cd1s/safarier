@@ -102,4 +102,44 @@ final class SPIRuntimeBridgeTests: XCTestCase {
         XCTAssertTrue(webView.responds(to: NSSelectorFromString(WebViewSPI.mainResourceData)))
     }
 
+    /// 本轮新加的接口在本机 WebKit 上都在、签名对：数据存储配置、智能防跟踪、Safari 行为默认值、高级隐私保护总开关。
+    func testSafariParitySymbolsMatchRealWebKitSignatures() throws {
+        func encoding(_ cls: AnyClass, _ name: String) -> String? {
+            class_getInstanceMethod(cls, NSSelectorFromString(name)).flatMap { method_getTypeEncoding($0) }.map { String(cString: $0) }
+        }
+        let store = DataStoreManager.Symbols.webKit
+        let configuration: AnyClass = try XCTUnwrap(NSClassFromString(store.configurationClass), "本机 WebKit 应当有数据存储配置类")
+        XCTAssertEqual(encoding(configuration, store.nonPersistentInitializer), "@16@0:8")
+        for item in store.configurationSwitches {
+            XCTAssertEqual(encoding(configuration, item.getter), "B16@0:8", item.label)
+            XCTAssertEqual(encoding(configuration, item.setter), "v20@0:8B16", item.label)
+        }
+        XCTAssertEqual(encoding(WKWebsiteDataStore.self, store.storeInitializer), "@24@0:8@16")
+        XCTAssertEqual(encoding(WKWebsiteDataStore.self, store.statisticsGetter), "B16@0:8")
+        XCTAssertEqual(encoding(WKWebsiteDataStore.self, store.statisticsSetter), "v20@0:8B16")
+
+        let symbols = SPIPrivacyAdapter.Symbols.webKit
+        XCTAssertEqual(encoding(WKWebpagePreferences.self, symbols.networkPolicyEnabledGetter), "B16@0:8")
+        let bare = WKPreferences()
+        for item in symbols.safariBehaviorSwitches {
+            XCTAssertEqual(encoding(WKPreferences.self, item.getter), "B16@0:8", item.label)
+            XCTAssertEqual(encoding(WKPreferences.self, item.setter), "v20@0:8B16", item.label)
+            XCTAssertEqual(try SPIRuntimeBridge.getBool(item.getter, on: bare).get(), !item.value, "裸 WKPreferences 的默认值和 Safari 相反：\(item.label)")
+        }
+    }
+
+    /// 无参初始化：只调用 init 家族、返回对象、没有参数的方法。
+    func testAllocInitWithoutArgumentsChecksFamilyAndSignature() throws {
+        XCTAssertTrue(try SPIRuntimeBridge.allocInit(className: "SafarierTestPoolConfiguration", initializer: "init").get() is FakePoolConfiguration)
+        guard case .failure(.missingClass) = SPIRuntimeBridge.allocInit(className: "_SafarierNoSuchClass", initializer: "init") else {
+            return XCTFail("类不在")
+        }
+        guard case .failure(.missingSelector) = SPIRuntimeBridge.allocInit(className: "SafarierTestPoolConfiguration", initializer: "copy") else {
+            return XCTFail("不是 init 家族的方法不调用")
+        }
+        guard case .failure(.signatureMismatch) = SPIRuntimeBridge.allocInit(className: "SafarierTestPool", initializer: "initWithSafarierMockConfiguration:") else {
+            return XCTFail("要参数的初始化方法不调用")
+        }
+    }
+
 }

@@ -1016,7 +1016,25 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 
     // MARK: - WKNavigationDelegate
 
+    /// 和 Safari 的导航代理一样用 4 参数版本：放行前在这次导航的 WKWebpagePreferences 上确保高级隐私保护位。
+    /// 实现了它 WebKit 就只调它（3 参数版本不再被调用，留着给直接调用的地方）。
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        preferences: WKWebpagePreferences,
+        decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
+    ) {
+        decideNavigation(navigationAction, in: webView) { policy in
+            if policy == .allow { self.session.alignNavigationPreferences(preferences) }
+            decisionHandler(policy, preferences)
+        }
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decideNavigation(navigationAction, in: webView, decisionHandler: decisionHandler)
+    }
+
+    private func decideNavigation(_ navigationAction: WKNavigationAction, in webView: WKWebView, decisionHandler: (WKNavigationActionPolicy) -> Void) {
         if navigationAction.shouldPerformDownload {
             decisionHandler(.download)
             return

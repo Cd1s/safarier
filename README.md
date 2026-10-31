@@ -4,7 +4,7 @@
   <p><strong>The Native Safari Multi-Environment Browser for macOS</strong></p>
   <p>Run dozens of isolated accounts side-by-side — powered by Apple's real Safari engine, Safari Private Browsing protection, 34 authentic Mac hardware presets, and built-in global proxy routing.</p>
   <p>
-    <a href="https://github.com/Cd1s/safarier/releases/latest"><img src="https://img.shields.io/badge/Release-v1.2.3-0A84FF?style=flat-square" alt="Release v1.2.3" /></a>
+    <a href="https://github.com/Cd1s/safarier/releases/latest"><img src="https://img.shields.io/badge/Release-v1.2.4-0A84FF?style=flat-square" alt="Release v1.2.4" /></a>
     <img src="https://img.shields.io/badge/macOS-14.0%2B-1d1d1f?style=flat-square&logo=apple" alt="macOS 14.0+" />
     <img src="https://img.shields.io/badge/Apple%20Silicon%20%26%20Intel-Universal-34C759?style=flat-square" alt="Universal" />
     <img src="https://img.shields.io/badge/Engine-Native%20Safari-007AFF?style=flat-square&logo=safari" alt="Native Safari" />
@@ -43,9 +43,9 @@ Choose the package for your Mac from [GitHub Releases](https://github.com/Cd1s/s
 
 | Edition | Recommended For | Download Package |
 |---|---|---|
-| **Apple Silicon** | Mac with **Apple Silicon** chip | [**`Safarier-v1.2.3-macOS-arm64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
-| **Intel** | Intel-based Mac | [**`Safarier-v1.2.3-macOS-x86_64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
-| **Universal** | Works on both Apple Silicon & Intel Macs | [**`Safarier-v1.2.3-macOS-universal.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Apple Silicon** | Mac with **Apple Silicon** chip | [**`Safarier-v1.2.4-macOS-arm64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Intel** | Intel-based Mac | [**`Safarier-v1.2.4-macOS-x86_64.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
+| **Universal** | Works on both Apple Silicon & Intel Macs | [**`Safarier-v1.2.4-macOS-universal.zip`**](https://github.com/Cd1s/safarier/releases/latest) |
 
 1. Unzip the downloaded file and drag **`Safarier.app`** into your **`Applications`** folder.
 2. If macOS prompts that the app cannot be verified on first launch, run this single command in Terminal:

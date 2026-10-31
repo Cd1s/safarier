@@ -11,7 +11,7 @@ enum AboutAndUpdateController {
         case browser
     }
 
-    static let fallbackVersion = "1.2.3"
+    static let fallbackVersion = "1.2.4"
     static let notesLimit = 600
 
     static var currentVersion: String {

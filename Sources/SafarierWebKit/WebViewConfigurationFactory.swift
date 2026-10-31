@@ -16,6 +16,11 @@ public struct WebViewConfigurationFactory {
         public let extensionRuntime: (any WebExtensionRuntimeProtocol)?
         /// Runner 在创建 WebView 之后还会补上每个 WebView 上才能设置的项（机型像素比）。
         public var report: PrivacyCapabilityReport
+        /// 网页打开的弹窗建 WebView 之前调用：用这次 make 实际生效的隐私适配器（含 --spi 覆盖）在 WebKit 交来的
+        /// configuration 上补齐页面级设置，返回弹窗上的落实情况。不替换进程池和网站数据存储。
+        public let preparePopup: @MainActor (WKWebViewConfiguration) -> PrivacyCapabilityReport
+        /// 4 参数导航决策回调放行前调用：同一个隐私适配器在单次导航的 WKWebpagePreferences 上确保高级隐私保护位。
+        public let prepareNavigationPreferences: @MainActor (WKWebpagePreferences) -> Void
     }
 
     public let dataStores: DataStoreManager
@@ -96,12 +101,20 @@ public struct WebViewConfigurationFactory {
         }
         report.set(extensionMount.state, for: .webExtensions)
 
-        let store = dataStores.dataStore(for: profile)
-        switch profile.mode {
-        case .persistent:
-            report.set(.active("WKWebsiteDataStore(forIdentifier: \(profile.id.uuidString))"), for: .dataIsolation)
-        case .ephemeral:
-            report.set(.active("WKWebsiteDataStore.nonPersistent()，窗口关闭即销毁"), for: .dataIsolation)
+        // 开着 Safari 专有接口时照 Safari 建数据存储（无痕配置、智能防跟踪）；否则只用公开 API。
+        let store: WKWebsiteDataStore
+        if privacy.appliesSafariDataStoreDefaults {
+            let created = dataStores.safariDataStore(for: profile)
+            store = created.store
+            report.set(created.state, for: .dataIsolation)
+        } else {
+            store = dataStores.dataStore(for: profile)
+            switch profile.mode {
+            case .persistent:
+                report.set(.active("WKWebsiteDataStore(forIdentifier: \(profile.id.uuidString))"), for: .dataIsolation)
+            case .ephemeral:
+                report.set(.active("WKWebsiteDataStore.nonPersistent()，窗口关闭即销毁"), for: .dataIsolation)
+            }
         }
 
         if let proxyID = profile.proxyID {
@@ -160,7 +173,14 @@ public struct WebViewConfigurationFactory {
             for: .displayCapabilities
         )
         privacy.apply(to: configuration, for: profile, report: &report)
-        return Output(configuration: configuration, extensionRuntime: extensionMount.runtime, report: report)
+        let privacy = privacy
+        return Output(configuration: configuration, extensionRuntime: extensionMount.runtime, report: report, preparePopup: { popup in
+            var popupReport = PrivacyCapabilityReport()
+            privacy.applyToPopup(popup, for: profile, report: &popupReport)
+            return popupReport
+        }, prepareNavigationPreferences: { preferences in
+            privacy.alignNavigationPreferences(preferences)
+        })
     }
 }
 

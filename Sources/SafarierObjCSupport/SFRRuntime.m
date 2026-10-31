@@ -284,6 +284,34 @@ SFRCallStatus SFRNewInstance(NSString *className, id __autoreleasing *instance, 
 
 // init 家族：消耗 self、返回 +1。用带 ARC 属性的函数指针调用，引用计数才对得上。
 typedef id __attribute__((ns_returns_retained)) (*SFRInitWithObjectFunction)(id __attribute__((ns_consumed)), SEL, id);
+typedef id __attribute__((ns_returns_retained)) (*SFRInitWithoutArgumentsFunction)(id __attribute__((ns_consumed)), SEL);
+
+SFRCallStatus SFRAllocInitWithoutArguments(NSString *className, NSString *initializerName, id __autoreleasing *instance, NSString **detail) {
+    Class cls = NSClassFromString(className);
+    if (!cls) {
+        SFRSetDetail(detail, @"engineClass 不可用");
+        return SFRCallStatusMissingClass;
+    }
+    SEL sel = NSSelectorFromString(initializerName);
+    if (![initializerName hasPrefix:@"init"] || ![cls instancesRespondToSelector:sel]) {
+        SFRSetDetail(detail, @"engineClass 初始化方法不可用");
+        return SFRCallStatusMissingSelector;
+    }
+    SFRCallStatus status = SFRCheckSignature([cls instanceMethodSignatureForSelector:sel], "@", NULL, detail);
+    if (status != SFRCallStatusOK) return status;
+    @try {
+        id allocated = [cls alloc];
+        id object = ((SFRInitWithoutArgumentsFunction)objc_msgSend)(allocated, sel);
+        if (!object) {
+            SFRSetDetail(detail, @"engineClass 初始化返回 nil");
+            return SFRCallStatusException;
+        }
+        *instance = object;
+    } @catch (NSException *exception) {
+        return SFRException(exception, detail);
+    }
+    return SFRCallStatusOK;
+}
 
 SFRCallStatus SFRAllocInitWithObject(NSString *className, NSString *initializerName, id argument, id __autoreleasing *instance, NSString **detail) {
     Class cls = NSClassFromString(className);

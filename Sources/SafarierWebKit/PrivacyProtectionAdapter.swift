@@ -8,6 +8,20 @@ public protocol PrivacyProtectionAdapter {
     var identifier: String { get }
     /// 只修改 `configuration`，并把各项能力的真实状态写进 `report`。
     func apply(to configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport)
+    /// 网页打开的弹窗：在 WebKit 交来的 configuration 上补齐页面级设置。不能替换进程池和网站数据存储，
+    /// window.opener 和 related page 关系靠它们。
+    func applyToPopup(_ configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport)
+    /// 单次导航：WebKit 交给 4 参数导航决策回调的 WKWebpagePreferences，像 Safari 一样在每次导航上再确保一遍。
+    func alignNavigationPreferences(_ preferences: WKWebpagePreferences)
+    /// 是否照 Safari 建网站数据存储（见 `DataStoreManager.safariDataStore(for:)`）。
+    var appliesSafariDataStoreDefaults: Bool { get }
+}
+
+public extension PrivacyProtectionAdapter {
+    /// 默认不用补：只改公开设置的适配器写下的值，WebKit 复制配置给弹窗时已经带上了。
+    func applyToPopup(_ configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {}
+    func alignNavigationPreferences(_ preferences: WKWebpagePreferences) {}
+    var appliesSafariDataStoreDefaults: Bool { false }
 }
 
 /// 默认适配器：只用公开 API，不碰任何私有开关，如实报告做不到的项。
@@ -40,5 +54,21 @@ public struct CompositePrivacyAdapter: PrivacyProtectionAdapter {
         for adapter in adapters {
             adapter.apply(to: configuration, for: profile, report: &report)
         }
+    }
+
+    public func applyToPopup(_ configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {
+        for adapter in adapters {
+            adapter.applyToPopup(configuration, for: profile, report: &report)
+        }
+    }
+
+    public func alignNavigationPreferences(_ preferences: WKWebpagePreferences) {
+        for adapter in adapters {
+            adapter.alignNavigationPreferences(preferences)
+        }
+    }
+
+    public var appliesSafariDataStoreDefaults: Bool {
+        adapters.contains { $0.appliesSafariDataStoreDefaults }
     }
 }

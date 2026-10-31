@@ -377,6 +377,10 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
 
     @objc func toggleConfirmBeforeClose(_ sender: Any?) { confirmsBeforeClose.toggle() }
 
+    @objc func showAbout(_ sender: Any?) { AboutAndUpdateController.showAbout(context: .browser) }
+    @objc func checkForUpdates(_ sender: Any?) { AboutAndUpdateController.checkForUpdates(context: .browser) }
+    @objc func openGitHub(_ sender: Any?) { AboutAndUpdateController.openGitHub() }
+
     private var keyController: BrowserWindowController? {
         guard let key = NSApp.keyWindow else { return nil }
         return controllers.first { $0.window === key }

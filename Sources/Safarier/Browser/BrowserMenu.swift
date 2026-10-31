@@ -12,7 +12,8 @@ enum BrowserMenu {
         let main = NSMenu()
 
         main.addItem(submenu("Safarier", [
-            item("关于 Safarier", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            item("关于 Safarier", #selector(BrowserActions.showAbout(_:))),
+            item("检查更新…", #selector(BrowserActions.checkForUpdates(_:))),
             .separator(),
             item("隐藏 Safarier", #selector(NSApplication.hide(_:)), "h"),
             item("隐藏其他", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -142,6 +143,13 @@ enum BrowserMenu {
         main.addItem(windowItem)
         NSApp.windowsMenu = windowMenu
 
+        let helpItem = submenu("帮助", [
+            item("Safarier GitHub 主页", #selector(BrowserActions.openGitHub(_:))),
+            item("检查更新…", #selector(BrowserActions.checkForUpdates(_:))),
+        ])
+        main.addItem(helpItem)
+        NSApp.helpMenu = helpItem.submenu
+
         return main
     }
 
@@ -240,6 +248,9 @@ enum BrowserMenu {
     @objc optional func openHistoryEntry(_ sender: Any?)
     @objc optional func clearHistory(_ sender: Any?)
     @objc optional func toggleConfirmBeforeClose(_ sender: Any?)
+    @objc optional func showAbout(_ sender: Any?)
+    @objc optional func checkForUpdates(_ sender: Any?)
+    @objc optional func openGitHub(_ sender: Any?)
 }
 
 /// 「历史记录」菜单打开前，按当前环境（应用代理 BrowserSession）的历史记录刷新最近访问。

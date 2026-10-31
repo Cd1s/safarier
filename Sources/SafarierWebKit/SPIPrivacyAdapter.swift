@@ -344,41 +344,29 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     private func enableSafariPreferenceSwitches(_ configuration: WKWebViewConfiguration, hideApplePayCardStatus: Bool) -> CapabilityState {
         let feature = "safari"
         let preferences = preferences(configuration)
-        var enabled: [String] = []
-        for item in symbols.safariAPISwitches {
-            if case .failure(let failure) = SPIRuntimeBridge.setBool(true, item.setter, on: preferences) {
+        var switches = symbols.safariAPISwitches.map {
+            (getter: $0.getter, setter: $0.setter, label: $0.exposes, value: true)
+        }
+        switches.append((symbols.userInstalledFontsGetter, symbols.userInstalledFontsSetter, "userFonts", false))
+        if hideApplePayCardStatus {
+            switches.append((symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, "Apple Pay 银行卡状态披露", false))
+        }
+        for item in switches {
+            if case .failure(let failure) = SPIRuntimeBridge.setBool(item.value, item.setter, on: preferences) {
                 return fallback(feature, failure)
             }
             switch SPIRuntimeBridge.getBool(item.getter, on: preferences) {
             case .failure(let failure):
                 return fallback(feature, failure)
-            case .success(true):
-                enabled.append(item.exposes)
-            case .success(false):
-                let text = "featureSwitch \(item.exposes) 写入 YES 后回读仍为 NO"
-                diagnostics.record("\(feature)：\(text)")
-                return .degraded(text)
+            case .success(let actual):
+                guard actual == item.value else {
+                    let text = "\(item.label) 写入 \(item.value) 后回读为 \(actual)"
+                    diagnostics.record("\(feature)：\(text)")
+                    return .degraded(text)
+                }
             }
         }
-        var disabledSwitches = [(symbols.userInstalledFontsGetter, symbols.userInstalledFontsSetter, "userFonts")]
-        if hideApplePayCardStatus {
-            disabledSwitches.append((symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, "Apple Pay 银行卡状态披露"))
-        }
-        for (getter, setter, label) in disabledSwitches {
-            if case .failure(let failure) = SPIRuntimeBridge.setBool(false, setter, on: preferences) {
-                return fallback(feature, failure)
-            }
-            switch SPIRuntimeBridge.getBool(getter, on: preferences) {
-            case .failure(let failure):
-                return fallback(feature, failure)
-            case .success(true):
-                let text = "\(label) 写入 NO 后回读仍为 YES"
-                diagnostics.record("\(feature)：\(text)")
-                return .degraded(text)
-            case .success(false):
-                break
-            }
-        }
+        let enabled = symbols.safariAPISwitches.map(\.exposes)
         let disclosureSummary = hideApplePayCardStatus ? "，关闭 Apple Pay 银行卡状态披露" : "，Apple Pay 银行卡状态披露保留系统默认"
         let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体\(disclosureSummary)（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
         diagnostics.record("\(feature)：\(text)")

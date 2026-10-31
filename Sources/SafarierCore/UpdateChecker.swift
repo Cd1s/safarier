@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -37,18 +38,44 @@ public struct SemanticVersion: Comparable, Equatable, Sendable, CustomStringConv
     }
 }
 
+/// Release 里的一个附件（zip、.sha256 等）。
+public struct ReleaseAsset: Equatable, Sendable {
+    public let name: String
+    public let downloadURL: URL
+
+    public init(name: String, downloadURL: URL) {
+        self.name = name
+        self.downloadURL = downloadURL
+    }
+}
+
 /// GitHub Releases API 里用得到的几个字段。
-public struct ReleaseInfo: Equatable, Sendable {
+public struct ReleaseInfo: Equatable, Sendable, Identifiable {
+    public var id: String { tagName }
     public let tagName: String
     public let name: String
     public let body: String
     public let htmlURL: URL
+    public let assets: [ReleaseAsset]
 
-    public init(tagName: String, name: String, body: String, htmlURL: URL) {
+    public init(tagName: String, name: String, body: String, htmlURL: URL, assets: [ReleaseAsset] = []) {
         self.tagName = tagName
         self.name = name
         self.body = body
         self.htmlURL = htmlURL
+        self.assets = assets
+    }
+
+    /// 当前架构（`arm64` / `x86_64`）的 zip；没有就退回 universal。
+    public func preferredZipAsset(arch: String) -> ReleaseAsset? {
+        let lowered = arch.lowercased()
+        return assets.first { $0.name.lowercased().hasSuffix("-\(lowered).zip") }
+            ?? assets.first { $0.name.lowercased().hasSuffix("-universal.zip") }
+    }
+
+    /// `<zip 名>.sha256` 校验文件。
+    public func sha256Asset(for zipAsset: ReleaseAsset) -> ReleaseAsset? {
+        assets.first { $0.name == zipAsset.name + ".sha256" }
     }
 }
 
@@ -71,7 +98,7 @@ public enum UpdateCheckError: Error, Equatable, LocalizedError {
     }
 }
 
-/// 检查 GitHub 上的最新 Release。只在用户点「检查更新…」时请求一次，不自动轮询、不带任何环境数据。
+/// 检查 GitHub 上的最新 Release。管理器启动时静默查一次、用户点「检查更新…」时再查一次，不轮询、不带任何环境数据。
 /// 浏览器（Runner）进程不要调用 `checkLatest`：它的直连请求不走环境的代理，会泄露真实 IP。
 public enum UpdateChecker {
     public static let repositoryURL = URL(string: "https://github.com/Cd1s/safarier")!
@@ -84,6 +111,12 @@ public enum UpdateChecker {
         let name: String?
         let body: String?
         let html_url: String?
+        let assets: [AssetPayload]?
+    }
+
+    private struct AssetPayload: Decodable {
+        let name: String
+        let browser_download_url: String
     }
 
     public static func parseRelease(from data: Data) throws -> ReleaseInfo {
@@ -92,7 +125,19 @@ public enum UpdateChecker {
         // 响应里的链接只在确实指向本仓库时才用，其余一律退回 Releases 页面，避免被带去别的地方。
         let pageURL = payload.html_url.flatMap(URL.init(string:)).flatMap { isRepositoryURL($0) ? $0 : nil } ?? releasesURL
         let title = payload.name.flatMap { $0.isEmpty ? nil : $0 } ?? payload.tag_name
-        return ReleaseInfo(tagName: payload.tag_name, name: title, body: payload.body ?? "", htmlURL: pageURL)
+        // 下载链接同样只认本仓库 Release 下的附件。
+        let assets = (payload.assets ?? []).compactMap { asset -> ReleaseAsset? in
+            guard let url = URL(string: asset.browser_download_url), isReleaseDownloadURL(url), !asset.name.isEmpty else { return nil }
+            return ReleaseAsset(name: asset.name, downloadURL: url)
+        }
+        return ReleaseInfo(tagName: payload.tag_name, name: title, body: payload.body ?? "", htmlURL: pageURL, assets: assets)
+    }
+
+    /// `.sha256` 文件第一个空白字符前的十六进制摘要（忽略大小写）与 `data` 的 SHA-256 比对。
+    public static func verifySHA256(data: Data, expectedFileText: String) -> Bool {
+        guard let expected = expectedFileText.split(whereSeparator: \.isWhitespace).first else { return false }
+        let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return actual == expected.lowercased()
     }
 
     public static func compare(currentVersion: String, latest: ReleaseInfo) throws -> UpdateStatus {
@@ -123,6 +168,10 @@ public enum UpdateChecker {
         let session = URLSession(configuration: .ephemeral)
         defer { session.finishTasksAndInvalidate() }
         return try await session.data(for: request)
+    }
+
+    private static func isReleaseDownloadURL(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host?.lowercased() == "github.com" && url.path.lowercased().hasPrefix("/cd1s/safarier/releases/download/") && !url.path.contains("..")
     }
 
     private static func isRepositoryURL(_ url: URL) -> Bool {

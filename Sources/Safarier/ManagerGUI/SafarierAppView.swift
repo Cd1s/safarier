@@ -10,7 +10,16 @@ struct SafarierAppView: View {
             ManagerSidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 270, max: 360)
         } detail: {
-            detail
+            VStack(spacing: 0) {
+                if let release = model.availableUpdate, !model.isUpdateBannerDismissed {
+                    UpdateBannerView(model: model, release: release)
+                    Divider()
+                }
+                detail
+            }
+        }
+        .sheet(item: $model.showingUpdateNotes) { release in
+            UpdateNotesSheet(model: model, release: release)
         }
         .sheet(item: $model.sheet) { sheet in
             switch sheet {
@@ -41,6 +50,18 @@ struct SafarierAppView: View {
                     Label("AI Agent 接入", systemImage: "sparkles")
                 }
                 .help("同步 Skill 并查看 AI Agent 接入指南")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { AboutAndUpdateController.openGitHub() } label: {
+                    Label("查看 GitHub 项目", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                .help("打开 Safarier 的 GitHub 项目页")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { AboutAndUpdateController.checkForUpdates() } label: {
+                    Label("检查更新…", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .help("检查是否有新版本")
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -149,6 +170,82 @@ struct SafarierAppView: View {
         case .deleteProxy:
             return Text("删除代理配置及钥匙串中的密码。被环境使用的代理不能删除。")
         }
+    }
+}
+
+// MARK: - 更新提醒
+
+/// 详情区域顶部的新版本横幅。
+struct UpdateBannerView: View {
+    @ObservedObject var model: ManagerModel
+    let release: ReleaseInfo
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("发现新版本 \(release.tagName)（当前 v\(AboutAndUpdateController.currentVersion)）")
+                    .font(.headline)
+                if let status = model.updateStatusText {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            if model.isInstallingUpdate {
+                ProgressView().controlSize(.small)
+            }
+            Button("点一下重启更新") { model.installAvailableUpdate() }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.isInstallingUpdate)
+            Button("查看更新内容") { model.showingUpdateNotes = release }
+                .disabled(model.isInstallingUpdate)
+            Button("查看 GitHub 项目") { AboutAndUpdateController.openGitHub() }
+            Button { model.isUpdateBannerDismissed = true } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("隐藏本次提醒")
+            .disabled(model.isInstallingUpdate)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.accentColor.opacity(0.12))
+    }
+}
+
+/// 完整的版本更新说明（纯文本，不渲染 Markdown）。
+struct UpdateNotesSheet: View {
+    @ObservedObject var model: ManagerModel
+    let release: ReleaseInfo
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(release.tagName) 更新内容").font(.title3.bold())
+            ScrollView {
+                Text(release.body.isEmpty ? release.name : release.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 200, maxHeight: 360)
+            if let status = model.updateStatusText {
+                Text(status).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("查看 GitHub 项目") { AboutAndUpdateController.openGitHub() }
+                Spacer()
+                if model.isInstallingUpdate { ProgressView().controlSize(.small) }
+                Button("立即更新并重启") { model.installAvailableUpdate() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isInstallingUpdate)
+                Button("关闭") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
     }
 }
 

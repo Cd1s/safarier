@@ -61,6 +61,7 @@ final class ProfileTests: XCTestCase {
         """
         let profile = try JSONDecoder().decode(Profile.self, from: Data(json.utf8))
         XCTAssertEqual(profile.name, "Legacy")
+        XCTAssertTrue(profile.hideApplePayCardStatus)
         XCTAssertEqual(profile.mode, .persistent)
         XCTAssertNil(profile.proxyID)
         XCTAssertEqual(profile.languages, [])
@@ -70,6 +71,14 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(profile.spi, [], "旧记录没有 spi 字段时保持关闭，不因默认值变化而改变已有环境")
         XCTAssertFalse(profile.followProxyLanguages)
         XCTAssertFalse(profile.followProxyTimeZone)
+    }
+
+    func testApplePayCardStatusSettingRoundTripsAndClones() throws {
+        XCTAssertTrue(Profile(name: "Default", mode: .persistent).hideApplePayCardStatus)
+        let profile = Profile(name: "Opt out", mode: .persistent, hideApplePayCardStatus: false)
+        let decoded = try JSONDecoder().decode(Profile.self, from: JSONEncoder().encode(profile))
+        XCTAssertFalse(decoded.hideApplePayCardStatus)
+        XCTAssertFalse(decoded.duplicated(name: "Copy").hideApplePayCardStatus)
     }
 
     func testFollowProxyFieldsRoundTrip() throws {

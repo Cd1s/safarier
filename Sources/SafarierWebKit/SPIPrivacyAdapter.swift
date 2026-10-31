@@ -189,7 +189,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             for: .webRTCDisabled
         )
         if features.contains(.safariAPIs) {
-            let state = enableSafariAPIs(configuration, report: &report)
+            let state = enableSafariAPIs(configuration, hideApplePayCardStatus: profile.hideApplePayCardStatus, report: &report)
             report.set(state, for: .safariAPIs)
         } else {
             report.set(.notRequested, for: .safariAPIs)
@@ -270,7 +270,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     /// 和内核版本无关。只让接口存在；真正支付、推送仍需要 Apple 的授权，调用会像没有配置 Wallet 的 Mac 一样失败。
     /// 字体同理（2026-10-25 实测）：同一台 Mac 上真 Safari 网页能探测到 24 个候选字体，WKWebView 默认 52 个，
     /// 关掉用户安装字体后和同一台 Mac 上的真 Safari 相同。
-    private func enableSafariAPIs(_ configuration: WKWebViewConfiguration, report: inout PrivacyCapabilityReport) -> CapabilityState {
+    private func enableSafariAPIs(_ configuration: WKWebViewConfiguration, hideApplePayCardStatus: Bool, report: inout PrivacyCapabilityReport) -> CapabilityState {
         let legacy = alignSafariFeatures(symbols.legacyEventFeatureKeys, enabled: false, label: "MutationEvent", configuration: configuration)
         if case .active(let detail) = legacy {
             // The local control stops legacy event dispatch, not constructor exposure.
@@ -291,7 +291,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         default:
             report.set(.unverified(boundary), for: .webAuthentication)
         }
-        return enableSafariPreferenceSwitches(configuration)
+        return enableSafariPreferenceSwitches(configuration, hideApplePayCardStatus: hideApplePayCardStatus)
     }
 
     /// Preflight every feature before writing. Roll back on failure; report only public labels.
@@ -341,7 +341,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         return .degraded("\(label) feature write/readback failed; \(restored ? "original values restored" : "rollback could not be verified").")
     }
 
-    private func enableSafariPreferenceSwitches(_ configuration: WKWebViewConfiguration) -> CapabilityState {
+    private func enableSafariPreferenceSwitches(_ configuration: WKWebViewConfiguration, hideApplePayCardStatus: Bool) -> CapabilityState {
         let feature = "safari"
         let preferences = preferences(configuration)
         var enabled: [String] = []
@@ -360,10 +360,11 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
                 return .degraded(text)
             }
         }
-        for (getter, setter, label) in [
-            (symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, "Apple Pay 银行卡状态披露"),
-            (symbols.userInstalledFontsGetter, symbols.userInstalledFontsSetter, "userFonts"),
-        ] {
+        var disabledSwitches = [(symbols.userInstalledFontsGetter, symbols.userInstalledFontsSetter, "userFonts")]
+        if hideApplePayCardStatus {
+            disabledSwitches.append((symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, "Apple Pay 银行卡状态披露"))
+        }
+        for (getter, setter, label) in disabledSwitches {
             if case .failure(let failure) = SPIRuntimeBridge.setBool(false, setter, on: preferences) {
                 return fallback(feature, failure)
             }
@@ -378,7 +379,8 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
                 break
             }
         }
-        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体和 Apple Pay 银行卡状态披露（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
+        let disclosureSummary = hideApplePayCardStatus ? "，关闭 Apple Pay 银行卡状态披露" : "，Apple Pay 银行卡状态披露保留系统默认"
+        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体\(disclosureSummary)（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
         diagnostics.record("\(feature)：\(text)")
         return .active(text)
     }

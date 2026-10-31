@@ -169,6 +169,25 @@ final class SPIPrivacyAdapterTests: XCTestCase {
         XCTAssertTrue(text.contains("关闭用户安装字体"), text)
     }
 
+    func testSafariDisclosureOptOutLeavesSystemValueUntouched() {
+        let preferences = FakeSafariAPIPreferences()
+        var symbols = mockSymbols
+        // 关闭开关后不能访问披露接口，即使旧系统没有它也不应降级。
+        symbols.applePayDisclosureGetter = "safarierMissingDisclosure"
+        symbols.applePayDisclosureSetter = "safarierMissingDisclosure:"
+        let profile = Profile(name: "Opt out", mode: .persistent, hideApplePayCardStatus: false)
+        let state = apply(adapter(.safariAPIs, symbols: symbols, preferences: preferences), profile: profile)[.safariAPIs]
+        XCTAssertEqual(state.name, "active")
+        XCTAssertTrue(preferences.applePayDisclosure)
+        XCTAssertTrue(state.summary.contains("保留系统默认"))
+    }
+
+    func testSafariDisclosureDoesNotApplyWithoutSafariAPIs() {
+        let preferences = FakeSafariAPIPreferences()
+        _ = apply(adapter([], preferences: preferences))
+        XCTAssertTrue(preferences.applePayDisclosure)
+    }
+
     func testSafariDisclosureIgnoredWriteIsDegraded() {
         let preferences = FakeSafariAPIPreferences()
         preferences.ignoreDisclosureWrites = true

@@ -27,6 +27,8 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     public var notes: String
     /// 开启的原生引擎接口能力。新建时默认 `SPIFeatures.defaultFeatures`；旧 JSON 没有这个字段时是空（保持当时的行为）。
     public var spi: SPIFeatures
+    /// Safari 接口开启时隐藏银行卡状态；仅影响检测，不授予支付权限。
+    public var hideApplePayCardStatus: Bool
     /// 绑定的订阅。节点按名字找：订阅刷新后节点的 id 会变，名字通常不变；重名时取第一个。
     public var subscriptionID: UUID?
     public var nodeName: String?
@@ -51,7 +53,8 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         subscriptionID: UUID? = nil,
         nodeName: String? = nil,
         deviceModel: String? = nil,
-        customOutboundJSON: String? = nil
+        customOutboundJSON: String? = nil,
+        hideApplePayCardStatus: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -65,6 +68,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         self.startURL = startURL
         self.notes = notes
         self.spi = spi
+        self.hideApplePayCardStatus = hideApplePayCardStatus
         self.subscriptionID = subscriptionID
         self.nodeName = nodeName
         self.deviceModel = deviceModel
@@ -75,7 +79,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, name, mode, proxyID, createdAt, languages, timeZoneIdentifier, startURL, notes, spi
         case subscriptionID, nodeName, deviceModel, followProxyLanguages, followProxyTimeZone
-        case customOutboundJSON
+        case customOutboundJSON, hideApplePayCardStatus
     }
 
     public init(from decoder: Decoder) throws {
@@ -90,6 +94,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         startURL = try container.decodeIfPresent(URL.self, forKey: .startURL)
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         spi = try container.decodeIfPresent(SPIFeatures.self, forKey: .spi) ?? []
+        hideApplePayCardStatus = try container.decodeIfPresent(Bool.self, forKey: .hideApplePayCardStatus) ?? true
         subscriptionID = try container.decodeIfPresent(UUID.self, forKey: .subscriptionID)
         nodeName = try container.decodeIfPresent(String.self, forKey: .nodeName)
         customOutboundJSON = try container.decodeIfPresent(String.self, forKey: .customOutboundJSON)
@@ -124,7 +129,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
             followProxyLanguages: followProxyLanguages, followProxyTimeZone: followProxyTimeZone,
             startURL: startURL, notes: notes, spi: spi,
             subscriptionID: subscriptionID, nodeName: nodeName, deviceModel: deviceModel,
-            customOutboundJSON: customOutboundJSON
+            customOutboundJSON: customOutboundJSON, hideApplePayCardStatus: hideApplePayCardStatus
         )
     }
 

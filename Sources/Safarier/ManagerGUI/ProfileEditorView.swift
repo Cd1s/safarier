@@ -37,6 +37,7 @@ struct ProfileEditorView: View {
     @State private var showNodePicker = false
     @State private var deviceModel: String?
     @State private var spi: SPIFeatures
+    @State private var hideApplePayCardStatus: Bool
     @State private var notes: String
     @State private var errorText: String?
     @State private var customJSON: String
@@ -85,6 +86,7 @@ struct ProfileEditorView: View {
         _nodeName = State(initialValue: original?.nodeName)
         _deviceModel = State(initialValue: original?.deviceModel)
         _spi = State(initialValue: original?.spi ?? Self.defaultSPI(for: .persistent))
+        _hideApplePayCardStatus = State(initialValue: original?.hideApplePayCardStatus ?? true)
         _notes = State(initialValue: original?.notes ?? "")
     }
 
@@ -242,6 +244,11 @@ struct ProfileEditorView: View {
                             Text(text.detail)
                         }
                     }
+                    Toggle(isOn: $hideApplePayCardStatus) {
+                        Text("隐藏 Apple Pay 银行卡状态")
+                        Text("仅在 Safari 专有接口开启时生效。关闭银行卡状态查询以改善检测兼容性；不提供 Apple Pay 支付权限。修改后重启环境生效。")
+                    }
+                    .disabled(!spi.contains(.safariAPIs))
                 } header: {
                     Text("隐私与指纹保护")
                 } footer: {
@@ -426,6 +433,7 @@ struct ProfileEditorView: View {
         }
         profile.deviceModel = deviceModel
         profile.spi = spi
+        profile.hideApplePayCardStatus = hideApplePayCardStatus
         profile.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         isSaving = true

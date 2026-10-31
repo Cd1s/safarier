@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # 编出 Universal（arm64 + x86_64）release 二进制，组装 dist/Safarier.app 并做本机 ad-hoc 签名。
 # Apple 芯片和 Intel 的 Mac 都能用。只在 Mac mini 上跑（需要 Xcode 工具链：多架构 swift build 和 lipo）。
-# 环境变量：SAFARIER_VERSION 覆盖版本号（默认 1.2.2），SAFARIER_BUILD 覆盖构建号（默认 git 提交数），
+# 环境变量：SAFARIER_VERSION 覆盖版本号（默认 1.2.3），SAFARIER_BUILD 覆盖构建号（默认 git 提交数），
 #           SINGBOX_DIR 覆盖自带 sing-box 的目录（默认 .build/sing-box，由 scripts/build-singbox.sh 在编译机上编出来）。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-VERSION="${SAFARIER_VERSION:-1.2.2}"
+VERSION="${SAFARIER_VERSION:-1.2.3}"
 BUILD="${SAFARIER_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 TARGET_ARCH="${SAFARIER_ARCH:-universal}"
 BUNDLE_ID="sh.safarier.app"

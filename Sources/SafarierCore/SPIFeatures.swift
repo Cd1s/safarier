@@ -26,9 +26,16 @@ public struct SPIFeatures: OptionSet, Hashable, Sendable, CustomStringConvertibl
     /// 宿主机按中日韩语言下载的字体包（如苹方），和真英文 Mac 一致。只在已验证的 WebKit 版本上尝试，失败时不改变行为。
     public static let fontAllowlist = SPIFeatures(rawValue: 1 << 5)
 
-    /// 新建环境默认开启的项：高级隐私保护、引擎层时区、Safari 专有接口与字体、按语言收窄字体。
-    /// WebRTC 关闭和 WebGPU 和真 Safari 的默认不同，不默认开。
+    /// 新建直连环境默认开启的项：高级隐私保护、引擎层时区、Safari 专有接口与字体、按语言收窄字体。
+    /// 直连环境下 WebRTC 关闭和 WebGPU 和真 Safari 的默认不同，不默认开；配置了代理/节点的环境默认使用 `defaultProxiedFeatures` 一并关闭 WebRTC。
     public static let defaultFeatures: SPIFeatures = [.fingerprintingProtections, .engineTimeZone, .safariAPIs, .fontAllowlist]
+
+    /// 配置了出站代理、订阅节点或自定义出站的环境默认开启的项：在 `defaultFeatures` 基础上默认关闭 WebRTC，防止 STUN/ICE 走 UDP 泄露真实 IP。
+    public static let defaultProxiedFeatures: SPIFeatures = defaultFeatures.union([.disableWebRTC])
+
+    public static func defaultFeatures(hasProxy: Bool) -> SPIFeatures {
+        hasProxy ? defaultProxiedFeatures : defaultFeatures
+    }
 
     /// `--spi all` 打开的集合。
     public static let all: SPIFeatures = [.fingerprintingProtections, .engineTimeZone, .disableWebRTC, .safariAPIs, .webGPU, .fontAllowlist]

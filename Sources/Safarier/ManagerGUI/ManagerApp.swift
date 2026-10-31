@@ -50,6 +50,15 @@ struct ManagerApp: App {
         .defaultSize(width: 1080, height: 700)
         .commands {
             SidebarCommands()
+            CommandGroup(replacing: .appInfo) {
+                Button("关于 Safarier") { AboutAndUpdateController.showAbout() }
+                Button("检查更新…") { AboutAndUpdateController.checkForUpdates() }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Safarier GitHub 主页") { AboutAndUpdateController.openGitHub() }
+                Button("查看最新版本 (GitHub Releases)") { AboutAndUpdateController.openReleases() }
+                Button("反馈问题 (GitHub Issues)") { AboutAndUpdateController.openIssues() }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("新建环境…") { model.sheet = .newProfile }
                     .keyboardShortcut("n")

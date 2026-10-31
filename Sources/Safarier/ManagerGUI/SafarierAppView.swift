@@ -42,6 +42,18 @@ struct SafarierAppView: View {
                 }
                 .help("同步 Skill 并查看 AI Agent 接入指南")
             }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("关于 Safarier") { AboutAndUpdateController.showAbout() }
+                    Button("检查更新…") { AboutAndUpdateController.checkForUpdates() }
+                    Divider()
+                    Button("Safarier GitHub 主页") { AboutAndUpdateController.openGitHub() }
+                    Button("查看最新版本 (GitHub Releases)") { AboutAndUpdateController.openReleases() }
+                } label: {
+                    Label("关于 / GitHub", systemImage: "info.circle")
+                }
+                .help("关于 Safarier、检查更新、打开 GitHub 页面")
+            }
         }
         .onAppear { model.startMonitoring() }
     }

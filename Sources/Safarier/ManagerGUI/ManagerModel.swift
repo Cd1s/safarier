@@ -89,6 +89,14 @@ final class ManagerModel: ObservableObject {
     @Published var confirmation: Confirmation?
     @Published var message: Message?
 
+    /// 启动时静默检查到的新版本；`isUpdateBannerDismissed` 只隐藏本轮横幅。
+    @Published var availableUpdate: ReleaseInfo?
+    @Published var isUpdateBannerDismissed = false
+    @Published var isInstallingUpdate = false
+    @Published var updateStatusText: String?
+    @Published var showingUpdateNotes: ReleaseInfo?
+
+    private var didCheckForUpdate = false
     private var monitor: Timer?
     private var activationObserver: NSObjectProtocol?
 
@@ -131,6 +139,7 @@ final class ManagerModel: ObservableObject {
     /// Runner 是独立进程，状态只能看锁：定时轮询，回到前台时顺便重读数据。
     func startMonitoring() {
         guard monitor == nil else { return }
+        checkForUpdateOnLaunch()
         monitor = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshRunningState() }
         }
@@ -140,6 +149,36 @@ final class ManagerModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
+        }
+    }
+
+    /// 启动后静默查一次；失败（断网、限流）不打扰用户。
+    func checkForUpdateOnLaunch() {
+        guard !didCheckForUpdate else { return }
+        didCheckForUpdate = true
+        let current = AboutAndUpdateController.currentVersion
+        Task { @MainActor [weak self] in
+            guard let status = try? await UpdateChecker.checkLatest(currentVersion: current),
+                  case .updateAvailable(_, let latest) = status else { return }
+            self?.availableUpdate = latest
+        }
+    }
+
+    func installAvailableUpdate() {
+        guard let release = availableUpdate, !isInstallingUpdate else { return }
+        isInstallingUpdate = true
+        updateStatusText = "准备更新…"
+        Task { @MainActor [weak self] in
+            do {
+                try await AboutAndUpdateController.installUpdateAndRelaunch(release) { text in
+                    Task { @MainActor in self?.updateStatusText = text }
+                }
+                self?.updateStatusText = nil
+            } catch {
+                self?.updateStatusText = nil
+                self?.message = .init(title: "更新失败", detail: DisplayText.describe(error))
+            }
+            self?.isInstallingUpdate = false
         }
     }
 

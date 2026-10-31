@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -100,5 +101,70 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(UpdateChecker.releasesURL.absoluteString, "https://github.com/Cd1s/safarier/releases/latest")
         XCTAssertEqual(UpdateChecker.issuesURL.absoluteString, "https://github.com/Cd1s/safarier/issues")
         XCTAssertEqual(UpdateChecker.latestReleaseAPIURL.absoluteString, "https://api.github.com/repos/Cd1s/safarier/releases/latest")
+    }
+
+    private let downloadBase = "https://github.com/Cd1s/safarier/releases/download/v1.3.0"
+
+    private func releaseJSON(assets: [(String, String)]) -> Data {
+        let list = assets.map { #"{"name":"\#($0.0)","browser_download_url":"\#($0.1)"}"# }.joined(separator: ",")
+        return Data(#"{"tag_name":"v1.3.0","assets":[\#(list)]}"#.utf8)
+    }
+
+    func testParseReleaseReadsAssets() throws {
+        let data = releaseJSON(assets: [
+            ("Safarier-v1.3.0-macOS-arm64.zip", "\(downloadBase)/Safarier-v1.3.0-macOS-arm64.zip"),
+            ("Safarier-v1.3.0-macOS-arm64.zip.sha256", "\(downloadBase)/Safarier-v1.3.0-macOS-arm64.zip.sha256"),
+        ])
+        let release = try UpdateChecker.parseRelease(from: data)
+        XCTAssertEqual(release.assets.map(\.name), ["Safarier-v1.3.0-macOS-arm64.zip", "Safarier-v1.3.0-macOS-arm64.zip.sha256"])
+        XCTAssertEqual(release.assets[0].downloadURL.absoluteString, "\(downloadBase)/Safarier-v1.3.0-macOS-arm64.zip")
+        XCTAssertEqual(try UpdateChecker.parseRelease(from: Data(#"{"tag_name":"v1.3.0"}"#.utf8)).assets, [])
+    }
+
+    func testParseReleaseDropsAssetsOutsideTheRepository() throws {
+        let data = releaseJSON(assets: [
+            ("a.zip", "https://evil.example/Cd1s/safarier/releases/download/v1/a.zip"),
+            ("b.zip", "http://github.com/Cd1s/safarier/releases/download/v1/b.zip"),
+            ("c.zip", "https://github.com/other/repo/releases/download/v1/c.zip"),
+            ("d.zip", "https://github.com/Cd1s/safarier/archive/main.zip"),
+            ("e.zip", "https://github.com/Cd1s/safarier/releases/download/../../../evil/e.zip"),
+            ("f.zip", "file:///tmp/f.zip"),
+            ("ok.zip", "\(downloadBase)/ok.zip"),
+        ])
+        XCTAssertEqual(try UpdateChecker.parseRelease(from: data).assets.map(\.name), ["ok.zip"])
+    }
+
+    func testPreferredZipAssetMatchesArchAndFallsBackToUniversal() {
+        func asset(_ name: String) -> ReleaseAsset { ReleaseAsset(name: name, downloadURL: URL(string: "\(downloadBase)/\(name)")!) }
+        func release(_ names: [String]) -> ReleaseInfo {
+            ReleaseInfo(tagName: "v1.3.0", name: "", body: "", htmlURL: UpdateChecker.releasesURL, assets: names.map(asset))
+        }
+        let all = release(["Safarier-v1.3.0-macOS-universal.zip", "Safarier-v1.3.0-macOS-x86_64.zip", "Safarier-v1.3.0-macOS-arm64.zip", "Safarier-v1.3.0-macOS-arm64.zip.sha256"])
+        XCTAssertEqual(all.preferredZipAsset(arch: "arm64")?.name, "Safarier-v1.3.0-macOS-arm64.zip")
+        XCTAssertEqual(all.preferredZipAsset(arch: "x86_64")?.name, "Safarier-v1.3.0-macOS-x86_64.zip")
+        let universalOnly = release(["Safarier-v1.3.0-macOS-universal.zip", "Safarier-v1.3.0-macOS-universal.zip.sha256"])
+        XCTAssertEqual(universalOnly.preferredZipAsset(arch: "arm64")?.name, "Safarier-v1.3.0-macOS-universal.zip")
+        XCTAssertNil(release(["Safarier-v1.3.0-macOS-arm64.zip.sha256", "notes.txt"]).preferredZipAsset(arch: "arm64"))
+        XCTAssertNil(release([]).preferredZipAsset(arch: "x86_64"))
+    }
+
+    func testSHA256AssetMatchesTheZipByName() {
+        let zip = ReleaseAsset(name: "Safarier-macOS-arm64.zip", downloadURL: URL(string: "\(downloadBase)/Safarier-macOS-arm64.zip")!)
+        let sha = ReleaseAsset(name: zip.name + ".sha256", downloadURL: URL(string: "\(downloadBase)/\(zip.name).sha256")!)
+        let other = ReleaseAsset(name: "Safarier-macOS-universal.zip.sha256", downloadURL: URL(string: "\(downloadBase)/x.sha256")!)
+        let release = ReleaseInfo(tagName: "v1.3.0", name: "", body: "", htmlURL: UpdateChecker.releasesURL, assets: [other, zip, sha])
+        XCTAssertEqual(release.sha256Asset(for: zip), sha)
+        XCTAssertNil(ReleaseInfo(tagName: "v1.3.0", name: "", body: "", htmlURL: UpdateChecker.releasesURL, assets: [zip, other]).sha256Asset(for: zip))
+    }
+
+    func testVerifySHA256() {
+        let data = Data("safarier".utf8)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        XCTAssertTrue(UpdateChecker.verifySHA256(data: data, expectedFileText: digest))
+        XCTAssertTrue(UpdateChecker.verifySHA256(data: data, expectedFileText: "\(digest.uppercased())  Safarier-macOS-arm64.zip\n"))
+        XCTAssertFalse(UpdateChecker.verifySHA256(data: data, expectedFileText: String(repeating: "0", count: 64)))
+        XCTAssertFalse(UpdateChecker.verifySHA256(data: Data("tampered".utf8), expectedFileText: digest))
+        XCTAssertFalse(UpdateChecker.verifySHA256(data: data, expectedFileText: ""))
+        XCTAssertFalse(UpdateChecker.verifySHA256(data: data, expectedFileText: "  \n"))
     }
 }

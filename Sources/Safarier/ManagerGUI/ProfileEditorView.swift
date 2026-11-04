@@ -59,28 +59,28 @@ struct ProfileEditorView: View {
                         ProfileDetailHeader(model: model, profile: original, editor: editor)
                     }
                 }
-                Section {
-                    TextField("名称", text: $editor.values.name, prompt: Text("例如：美国-工作"))
-                    Picker("沙盒模式", selection: $editor.values.mode) {
-                        Text("持久").tag(ProfileMode.persistent)
-                        Text("临时").tag(ProfileMode.ephemeral)
+                if !inline {
+                    Section {
+                        TextField("名称", text: $editor.values.name, prompt: Text("例如：美国-工作"))
+                        Picker("沙盒模式", selection: $editor.values.mode) {
+                            Text("持久").tag(ProfileMode.persistent)
+                            Text("临时").tag(ProfileMode.ephemeral)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(original != nil)
+                    } footer: {
+                        Text(DisplayText.modeDetail(editor.values.mode) + (original == nil ? "。" : "。模式创建后不能更改。"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .pickerStyle(.segmented)
-                    .disabled(original != nil)
-                } footer: {
-                    Text(DisplayText.modeDetail(editor.values.mode) + (original == nil ? "。" : "。模式创建后不能更改。"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 Section {
-                    Picker("出站", selection: $editor.values.outboundKind) {
-                        Text("直连").tag(OutboundKind.direct)
-                        Text("独立代理").tag(OutboundKind.proxy)
-                        Text("订阅节点").tag(OutboundKind.node)
-                        Text("高级 JSON").tag(OutboundKind.custom)
+                    if inline {
+                        outboundPicker.pickerStyle(.menu)
+                    } else {
+                        outboundPicker.pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                     switch editor.values.outboundKind {
                     case .direct:
                         EmptyView()
@@ -132,34 +132,11 @@ struct ProfileEditorView: View {
                 } header: {
                     Text("网络")
                 } footer: {
-                    Text(outboundFooter)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section {
-                    Picker("模拟机型", selection: $editor.values.deviceModel) {
-                        Text("跟随系统（默认）").tag(String?.none)
-                        ForEach(MacDeviceModel.categories, id: \.self) { category in
-                            Section(category) {
-                                ForEach(MacDeviceModel.presets.filter { $0.category == category }) { preset in
-                                    Text(preset.name).tag(String?.some(preset.id))
-                                }
-                            }
-                        }
+                    if !inline || editor.values.outboundKind == .custom {
+                        Text(outboundFooter)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    if let preset = editor.values.deviceModel.flatMap(MacDeviceModel.preset) {
-                        LabeledContent("芯片规格", value: DisplayText.hardware(preset))
-                        LabeledContent("屏幕", value: DisplayText.screen(preset))
-                        LabeledContent("网页看到的", value: DisplayText.webVisible(preset))
-                        LabeledContent("推荐视口", value: DisplayText.viewport(preset))
-                    }
-                } header: {
-                    Text("机型模拟")
-                } footer: {
-                    Text(DisplayText.deviceModelNote)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 Section {
@@ -197,7 +174,34 @@ struct ProfileEditorView: View {
                 } header: {
                     Text("区域与语言")
                 } footer: {
-                    Text(regionFooter)
+                    if !inline {
+                        Text(regionFooter)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    Picker(inline ? "机型" : "模拟机型", selection: $editor.values.deviceModel) {
+                        Text("跟随系统（默认）").tag(String?.none)
+                        ForEach(MacDeviceModel.categories, id: \.self) { category in
+                            Section(category) {
+                                ForEach(MacDeviceModel.presets.filter { $0.category == category }) { preset in
+                                    Text(preset.name).tag(String?.some(preset.id))
+                                }
+                            }
+                        }
+                    }
+                    if let preset = editor.values.deviceModel.flatMap(MacDeviceModel.preset) {
+                        LabeledContent("芯片规格", value: DisplayText.hardware(preset))
+                        LabeledContent("屏幕", value: DisplayText.screen(preset))
+                        LabeledContent("网页看到的", value: DisplayText.webVisible(preset))
+                        LabeledContent("推荐视口", value: DisplayText.viewport(preset))
+                    }
+                } header: {
+                    Text("机型模拟")
+                } footer: {
+                    Text(DisplayText.deviceModelNote)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -223,14 +227,21 @@ struct ProfileEditorView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if inline, let original {
+                    ProfileMetadataSections(model: model, profile: original)
+                }
+
                 Section("其他") {
                     TextField("起始网址", text: $editor.values.startURL, prompt: Text("https://example.com"))
                         .autocorrectionDisabled()
                     TextField("备注", text: $editor.values.notes, prompt: Text("可选"), axis: .vertical)
                         .lineLimit(2...4)
-                }
-                if inline, let original {
-                    ProfileMetadataSections(model: model, profile: original)
+                    if inline, let original {
+                        LabeledContent("创建时间", value: original.createdAt.formatted(date: .long, time: .shortened))
+                        LabeledContent("环境 ID") {
+                            Text(original.id.uuidString).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -309,6 +320,15 @@ struct ProfileEditorView: View {
         .onChange(of: [editor.values.languageSource, editor.values.timeZoneSource]) { editor.errorText = nil }
         .onChange(of: editor.values.mode) {
             if original == nil { editor.values.spi = Self.defaultSPI(for: editor.values.mode, hasProxy: editor.values.outboundKind != .direct) }
+        }
+    }
+
+    private var outboundPicker: some View {
+        Picker("出站", selection: $editor.values.outboundKind) {
+            Text("直连").tag(OutboundKind.direct)
+            Text("独立代理").tag(OutboundKind.proxy)
+            Text("订阅节点").tag(OutboundKind.node)
+            Text("高级 JSON").tag(OutboundKind.custom)
         }
     }
 

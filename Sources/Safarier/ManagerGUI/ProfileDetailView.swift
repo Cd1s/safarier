@@ -32,7 +32,11 @@ struct ProfileDetailHeader: View {
         HStack(alignment: .center, spacing: 16) {
             ProfileAvatar(profile: profile, size: 60)
             VStack(alignment: .leading, spacing: 6) {
-                Text(profile.name)
+                TextField("名称", text: $editor.values.name)
+                    .textFieldStyle(.plain)
+                    .labelsHidden()
+                    .multilineTextAlignment(.leading)
+                    .help("编辑环境名称")
                     .font(.title2.weight(.semibold))
                     .lineLimit(1)
                 HStack(spacing: 8) {
@@ -80,15 +84,19 @@ struct ProfileDetailHeader: View {
             .controlSize(.extraLarge)
             .disabled(true)
         case .running:
-            VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 8) {
                 Button { model.bringToFront(profile) } label: {
                     Label("切换到窗口", systemImage: "macwindow")
                         .frame(minWidth: 150)
                 }
                 .controlSize(.extraLarge)
-                Button("结束运行") { model.stop(profile) }
-                    .buttonStyle(.link)
-                    .font(.callout)
+                Button { model.stop(profile) } label: {
+                    Label("结束运行", systemImage: "stop.fill")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.extraLarge)
+                .help("结束运行")
             }
         }
     }
@@ -120,7 +128,13 @@ struct ProfileMetadataSections: View {
     let profile: Profile
 
     var body: some View {
-        Section("沙盒与日志") {
+        Section("沙盒") {
+            LabeledContent("模式") {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(DisplayText.mode(profile.mode))
+                    Text(DisplayText.modeDetail(profile.mode)).font(.caption).foregroundStyle(.secondary)
+                }
+            }
             if profile.mode == .persistent {
                 LabeledContent("网站数据") {
                     fileLocation(DisplayText.webKitDataDirectory(for: profile.id), missing: "尚未创建（首次启动后生成）")
@@ -130,12 +144,7 @@ struct ProfileMetadataSections: View {
                 fileLocation(model.workspace.runnerLogURL(for: profile.id), missing: "还没有日志")
             }
         }
-        Section("环境信息") {
-            LabeledContent("创建时间", value: profile.createdAt.formatted(date: .long, time: .shortened))
-            LabeledContent("环境 ID") {
-                Text(profile.id.uuidString).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-            }
-        }
+
     }
 
     @ViewBuilder

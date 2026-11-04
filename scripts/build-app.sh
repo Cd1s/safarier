@@ -15,11 +15,11 @@ BUNDLE_ID="sh.safarier.app"
 APP="${SAFARIER_APP_OUT:-$ROOT/dist/Safarier.app}"
 SINGBOX_DIR="${SINGBOX_DIR:-$ROOT/.build/sing-box}"
 
-# App 声明支持的语言：和 /Applications/Safari.app/Contents/Resources 下的 40 个 .lproj 一致，另加 zh-Hans、zh-Hant。
+# App 声明支持的语言：覆盖 /Applications/Safari.app/Contents/Resources 下的 .lproj，另加 zh-Hans、zh-Hant。
 # 只写开发区域时 CFBundle 把本 App 的本地化锁成 zh-Hans，WebKit / WebCore 跟着主 Bundle 走：不管环境语言是什么，
 # 网页读到的 navigator.mimeTypes 描述、表单校验提示（validationMessage）都是简体中文，和真 Safari 对不上（检测脚本会读）。
 LOCALIZATIONS=(
-  ar ca cs da de el en en_AU en_GB es es_419 fi fr fr_CA he hi hr hu id it ja ko ms nl no pl pt pt_PT ro ru sk sl sv th tr uk vi
+  ar ca cs da de el en en_AU en_CA en_GB en_IN en_PH es es_419 es_US fi fr fr_CA he hi hr hu id it ja ko ms nl no pl pt pt_PT ro ru sk sl sv th tr uk vi
   zh-Hans zh-Hant zh_CN zh_HK zh_TW
 )
 

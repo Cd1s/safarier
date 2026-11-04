@@ -36,10 +36,10 @@ final class BuildAppInfoPlistTests: XCTestCase {
 
         let localizations = try XCTUnwrap(info["CFBundleLocalizations"] as? [String])
         XCTAssertEqual(localizations.count, Set(localizations).count, "没有重复")
-        for language in ["en", "en_GB", "zh-Hans", "zh-Hant", "zh_CN", "zh_HK", "zh_TW", "ja", "ko", "fr", "de", "es", "pt_PT", "th", "vi"] {
+        for language in ["en", "en_GB", "en_CA", "en_IN", "en_PH", "es_US", "zh-Hans", "zh-Hant", "zh_CN", "zh_HK", "zh_TW", "ja", "ko", "fr", "de", "es", "pt_PT", "th", "vi"] {
             XCTAssertTrue(localizations.contains(language), "缺少 \(language)")
         }
-        XCTAssertEqual(localizations.count, 42)
+        XCTAssertEqual(localizations.count, 46)
 
         // 模板里的变量照常替换，其它键不受影响。
         XCTAssertEqual(info["CFBundleShortVersionString"] as? String, "9.9.9")

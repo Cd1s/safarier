@@ -110,6 +110,7 @@ final class ManagerModel: ObservableObject {
     }
 
     private var didCheckForUpdate = false
+    private var orphanCleanupTask: Task<Void, Never>?
     private var monitor: Timer?
     private var activationObserver: NSObjectProtocol?
 
@@ -120,6 +121,10 @@ final class ManagerModel: ObservableObject {
         self.proxyTester = proxyTester
         reload()
         selection = profiles.first.map { .profile($0.id) } ?? proxies.first.map { .proxy($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
+    }
+
+    deinit {
+        orphanCleanupTask?.cancel()
     }
 
     // MARK: - 读取
@@ -203,13 +208,27 @@ final class ManagerModel: ObservableObject {
     }
 
     func refreshRunningState() {
-        let now = Set(profiles.map(\.id).filter(workspace.isRunning))
+        // 后台清理也会暂时持有 profile 锁；管理器自己的锁不能当成运行中的 Runner。
+        let now = Set(profiles.map(\.id).filter {
+            workspace.isRunning($0) && workspace.runnerPID($0) != getpid()
+        })
         if now != running { running = now }
         if !starting.isDisjoint(with: now) { starting.subtract(now) }
-        // Runner 被 SIGKILL 或崩溃时留下的 sing-box：没有 Runner 在跑的 profile 才清理。
-        for profile in profiles where !now.contains(profile.id) && !starting.contains(profile.id) {
-            SingboxProcessManager.reapOrphanIfIdle(profileID: profile.id, workspace: workspace)
+        guard orphanCleanupTask == nil else { return }
+        let idle = profiles.map(\.id).filter { !now.contains($0) && !starting.contains($0) }
+        guard !idle.isEmpty else { return }
+        // SIGTERM 的等待最多两秒；连同拿锁和进程身份核验一起放到后台，同一时间只清理一批。
+        orphanCleanupTask = Task.detached(priority: .utility) { [weak self, workspace] in
+            for id in idle {
+                guard !Task.isCancelled else { break }
+                SingboxProcessManager.reapOrphanIfIdle(profileID: id, workspace: workspace)
+            }
+            await self?.orphanCleanupFinished()
         }
+    }
+
+    private func orphanCleanupFinished() {
+        orphanCleanupTask = nil
     }
 
     /// 绑定了这个订阅里某个节点的环境。
@@ -342,9 +361,33 @@ final class ManagerModel: ObservableObject {
 
     func launch(_ profile: Profile) {
         guard requireSavedProfile(profile), runState(profile.id) == .stopped else { return }
+        starting.insert(profile.id)
+        if let cleanup = orphanCleanupTask {
+            // 清理持锁期间仍允许点击启动；异步等锁释放，避免 Runner 因竞争锁而启动失败。
+            Task { [weak self] in
+                await cleanup.value
+                guard let self else { return }
+                guard let current = self.profile(profile.id) else {
+                    self.starting.remove(profile.id)
+                    return
+                }
+                self.launchRunner(current)
+            }
+        } else {
+            launchRunner(profile)
+        }
+    }
+
+    private func launchRunner(_ profile: Profile) {
+        // 清理等待期间仍可编辑配置，真正启动前再次检查草稿。
+        guard requireSavedProfile(profile) else {
+            starting.remove(profile.id)
+            return
+        }
         // Runner 找不到 sing-box 也会失败退出，这里先拦下来，提示更直接。
         let singbox = SingboxProcessManager.defaultExecutableURL
         if profile.subscriptionID != nil || profile.customOutboundJSON != nil, !FileManager.default.isExecutableFile(atPath: singbox.path) {
+            starting.remove(profile.id)
             report("无法启动「\(profile.name)」", SingboxProcessError.executableNotFound(singbox))
             return
         }
@@ -364,6 +407,7 @@ final class ManagerModel: ObservableObject {
                 self?.starting.remove(profile.id)
             }
         } catch {
+            starting.remove(profile.id)
             report("无法启动「\(profile.name)」", error)
         }
     }
@@ -377,13 +421,21 @@ final class ManagerModel: ObservableObject {
         message = Message(title: "「\(profile.name)」启动失败或异常退出", detail: detail.joined(separator: "\n\n"))
     }
 
-    /// 本次启动之后新写入日志的最后几行。
-    private static func logTail(_ url: URL, from offset: UInt64, maxLines: Int = 12) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    /// 只读本次启动后的末尾 64 KiB，避免异常退出时把整份日志搬进主线程。
+    static func logTail(_ url: URL, from offset: UInt64, maxLines: Int = 12) -> String? {
+        guard maxLines > 0, let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        guard (try? handle.seek(toOffset: offset)) != nil,
-              let data = try? handle.readToEnd(),
-              let text = String(data: data, encoding: .utf8) else { return nil }
+        let limit: UInt64 = 64 * 1024
+        guard let end = try? handle.seekToEnd(), end > offset else { return nil }
+        let start = max(offset, end > limit ? end - limit : 0)
+        guard (try? handle.seek(toOffset: start)) != nil,
+              let data = try? handle.read(upToCount: Int(end - start)) else { return nil }
+        // 截断点可能落在 UTF-8 字符中间；保留后面的有效文本，而不是丢掉全部诊断。
+        var bytes = data[...]
+        if start > offset, let newline = bytes.firstIndex(of: 0x0A) {
+            bytes = bytes[bytes.index(after: newline)...]
+        }
+        let text = String(decoding: bytes, as: UTF8.self)
         let lines = text.split(separator: "\n").suffix(maxLines)
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
@@ -396,7 +448,7 @@ final class ManagerModel: ObservableObject {
 
     /// 和在 Runner 里按 ⌘Q 一样，正常退出、释放锁。
     func stop(_ profile: Profile) {
-        guard let pid = workspace.runnerPID(profile.id) else { return }
+        guard let pid = workspace.runnerPID(profile.id), pid != getpid() else { return }
         if let app = NSRunningApplication(processIdentifier: pid), app.terminate() { return }
         kill(pid, SIGTERM)
     }

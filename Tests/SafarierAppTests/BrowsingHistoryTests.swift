@@ -190,6 +190,27 @@ final class BrowsingHistoryTests: XCTestCase {
         XCTAssertTrue(TestBrowserEnvironment.wait(15) { controller.webView.url == beta || controller.failedURL == beta })
     }
 
+    func testHiddenHistoryDefersUpdatesUntilShown() throws {
+        let session = try environment.makeSession(mode: .persistent)
+        let controller = session.openWindow(url: nil)
+        let first = url("https://first.example.invalid/")
+        let second = url("https://second.example.invalid/")
+        session.history.recordVisit(first, title: "First")
+        controller.displayHistory()
+        let history = try XCTUnwrap(controller.historyPage)
+        let previous = history.rows
+        controller.hideHistory()
+
+        session.history.recordVisit(second, title: "Second")
+        session.history.updateTitle("Updated", for: second)
+        XCTAssertEqual(history.rows, previous, "隐藏时不重建表格")
+        controller.displayHistory()
+        XCTAssertEqual(history.entry(at: 1)?.url, second)
+        XCTAssertEqual(history.entry(at: 1)?.title, "Updated")
+        session.history.remove(session.history.entries[0].id)
+        XCTAssertEqual(history.entry(at: 1)?.url, first, "可见时仍实时刷新")
+    }
+
     func testClearHistoryButtonAsksThenClears() throws {
         let session = try environment.makeSession(mode: .persistent)
         let controller = session.openWindow(url: nil)

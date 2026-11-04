@@ -20,29 +20,12 @@ struct ProfileEditorView: View {
     }
 
     @ObservedObject var model: ManagerModel
-    let original: Profile?
+    private let inline: Bool
+    @StateObject private var editor: ProfileEditorState
+    private var original: Profile? { editor.original }
 
     @Environment(\.dismiss) private var dismiss
-    @State private var name: String
-    @State private var mode: ProfileMode
-    @State private var languageSource: RegionSource
-    @State private var languages: String
-    @State private var timeZoneSource: RegionSource
-    @State private var timeZone: String
-    @State private var startURL: String
-    @State private var outboundKind: OutboundKind
-    @State private var proxyID: UUID?
-    @State private var subscriptionID: UUID?
-    @State private var nodeName: String?
     @State private var showNodePicker = false
-    @State private var deviceModel: String?
-    @State private var spi: SPIFeatures
-    @State private var userToggledWebRTC = false
-    @State private var hideApplePayCardStatus: Bool
-    @State private var notes: String
-    @State private var errorText: String?
-    @State private var customJSON: String
-    @State private var isSaving = false
 
     private static let languagePresets: [(title: String, value: String)] = [
         ("英语（美国）", "en-US, en"),
@@ -58,77 +41,59 @@ struct ProfileEditorView: View {
         ("西班牙语", "es-ES, es"),
     ]
 
-    init(model: ManagerModel, original: Profile?) {
+    init(model: ManagerModel, original: Profile?, inline: Bool = false) {
         self.model = model
-        self.original = original
-        _name = State(initialValue: original?.name ?? "")
-        _mode = State(initialValue: original?.mode ?? .persistent)
-        _languageSource = State(initialValue: original.map {
-            $0.followProxyLanguages ? .proxy : $0.languages.isEmpty ? .system : .custom
-        } ?? .system)
-        _languages = State(initialValue: original?.languages.joined(separator: ", ") ?? "")
-        _timeZoneSource = State(initialValue: original.map {
-            $0.followProxyTimeZone ? .proxy : $0.timeZoneIdentifier == nil ? .system : .custom
-        } ?? .system)
-        _timeZone = State(initialValue: original?.timeZoneIdentifier ?? "")
-        _startURL = State(initialValue: original?.startURL?.absoluteString ?? "")
-        _customJSON = State(initialValue: original?.customOutboundJSON ?? CustomOutbound.defaultJSON)
-        let outbound: OutboundKind
-        if original?.customOutboundJSON != nil {
-            outbound = .custom
-        } else if original?.subscriptionID != nil {
-            outbound = .node
+        self.inline = inline
+        if inline, let original {
+            _editor = StateObject(wrappedValue: model.editor(for: original))
         } else {
-            outbound = original?.proxyID != nil ? .proxy : .direct
+            _editor = StateObject(wrappedValue: ProfileEditorState(original: original))
         }
-        _outboundKind = State(initialValue: outbound)
-        _proxyID = State(initialValue: original?.proxyID)
-        _subscriptionID = State(initialValue: original?.subscriptionID)
-        _nodeName = State(initialValue: original?.nodeName)
-        _deviceModel = State(initialValue: original?.deviceModel)
-        _spi = State(initialValue: original?.spi ?? Self.defaultSPI(for: .persistent))
-        _hideApplePayCardStatus = State(initialValue: original?.hideApplePayCardStatus ?? true)
-        _notes = State(initialValue: original?.notes ?? "")
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Form {
-                Section {
-                    TextField("名称", text: $name, prompt: Text("例如：美国-工作"))
-                    Picker("沙盒模式", selection: $mode) {
-                        Text("持久").tag(ProfileMode.persistent)
-                        Text("临时").tag(ProfileMode.ephemeral)
+                if inline, let original {
+                    Section {
+                        ProfileDetailHeader(model: model, profile: original, editor: editor)
                     }
-                    .pickerStyle(.segmented)
-                    .disabled(original != nil)
-                } footer: {
-                    Text(DisplayText.modeDetail(mode) + (original == nil ? "。" : "。模式创建后不能更改。"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                }
+                if !inline {
+                    Section {
+                        TextField("名称", text: $editor.values.name, prompt: Text("例如：美国-工作"))
+                        Picker("沙盒模式", selection: $editor.values.mode) {
+                            Text("持久").tag(ProfileMode.persistent)
+                            Text("临时").tag(ProfileMode.ephemeral)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(original != nil)
+                    } footer: {
+                        Text(DisplayText.modeDetail(editor.values.mode) + (original == nil ? "。" : "。模式创建后不能更改。"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section {
-                    Picker("出站", selection: $outboundKind) {
-                        Text("直连").tag(OutboundKind.direct)
-                        Text("独立代理").tag(OutboundKind.proxy)
-                        Text("订阅节点").tag(OutboundKind.node)
-                        Text("高级 JSON").tag(OutboundKind.custom)
+                    if inline {
+                        outboundPicker.pickerStyle(.menu)
+                    } else {
+                        outboundPicker.pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
-                    switch outboundKind {
+                    switch editor.values.outboundKind {
                     case .direct:
                         EmptyView()
                     case .custom:
-                        CustomOutboundJSONEditor(json: $customJSON)
+                        CustomOutboundJSONEditor(json: $editor.values.customJSON)
                     case .proxy:
-                        Picker("代理", selection: $proxyID) {
+                        Picker("代理", selection: $editor.values.proxyID) {
                             Text("选择代理").tag(UUID?.none)
                             ForEach(model.proxies) { proxy in
                                 Text(verbatim: "\(proxy.name) — \(DisplayText.proxyKind(proxy.kind)) \(proxy.host):\(proxy.port)")
                                     .tag(UUID?.some(proxy.id))
                             }
-                            if let proxyID, !model.proxies.contains(where: { $0.id == proxyID }) {
+                            if let proxyID = editor.values.proxyID, !model.proxies.contains(where: { $0.id == proxyID }) {
                                 Text("已被删除的代理（\(proxyID.uuidString.prefix(8))）").tag(UUID?.some(proxyID))
                             }
                         }
@@ -137,7 +102,7 @@ struct ProfileEditorView: View {
                                 .foregroundStyle(.secondary)
                         }
                     case .node:
-                        Picker("订阅", selection: $subscriptionID) {
+                        Picker("订阅", selection: $editor.values.subscriptionID) {
                             Text("选择订阅").tag(UUID?.none)
                             ForEach(model.subscriptions) { subscription in
                                 Text(verbatim: "\(subscription.name)（\(subscription.nodes.count) 个节点）").tag(UUID?.some(subscription.id))
@@ -150,15 +115,15 @@ struct ProfileEditorView: View {
                                         Text(node.name).lineLimit(1)
                                         ProtocolBadge(type: node.type)
                                     } else {
-                                        Text(nodeName.map { "「\($0)」已不在订阅里" } ?? "选择节点…")
+                                        Text(editor.values.nodeName.map { "「\($0)」已不在订阅里" } ?? "选择节点…")
                                     }
                                     Image(systemName: "chevron.up.chevron.down").font(.caption)
                                 }
                             }
                             .disabled(selectedSubscription == nil)
                             .popover(isPresented: $showNodePicker, arrowEdge: .trailing) {
-                                NodePickerView(nodes: selectedSubscription?.nodes ?? [], selection: nodeName) { name in
-                                    nodeName = name
+                                NodePickerView(nodes: selectedSubscription?.nodes ?? [], selection: editor.values.nodeName) { name in
+                                    editor.values.nodeName = name
                                     showNodePicker = false
                                 }
                             }
@@ -167,13 +132,57 @@ struct ProfileEditorView: View {
                 } header: {
                     Text("网络")
                 } footer: {
-                    Text(outboundFooter)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if !inline || editor.values.outboundKind == .custom {
+                        Text(outboundFooter)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section {
-                    Picker("模拟机型", selection: $deviceModel) {
+                    regionSourcePicker("语言", selection: $editor.values.languageSource)
+                    if editor.values.languageSource == .custom {
+                        LabeledContent("语言标签") {
+                            HStack(spacing: 6) {
+                                TextField("语言标签", text: $editor.values.languages, prompt: Text("例如 en-US, en"))
+                                    .labelsHidden()
+                                    .autocorrectionDisabled()
+                                Menu {
+                                    ForEach(Self.languagePresets, id: \.value) { preset in
+                                        Button("\(preset.title)  \(preset.value)") { editor.values.languages = preset.value }
+                                    }
+                                } label: {
+                                    Image(systemName: "character.bubble")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .fixedSize()
+                                .help("常用语言")
+                            }
+                        }
+                    }
+                    regionSourcePicker("时区", selection: $editor.values.timeZoneSource)
+                    if editor.values.timeZoneSource == .custom {
+                        LabeledContent("时区标识") {
+                            HStack(spacing: 6) {
+                                TextField("时区标识", text: $editor.values.timeZone, prompt: Text("例如 America/Los_Angeles"))
+                                    .labelsHidden()
+                                    .autocorrectionDisabled()
+                                TimeZoneMenu(selection: $editor.values.timeZone)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("区域与语言")
+                } footer: {
+                    if !inline {
+                        Text(regionFooter)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    Picker(inline ? "机型" : "模拟机型", selection: $editor.values.deviceModel) {
                         Text("跟随系统（默认）").tag(String?.none)
                         ForEach(MacDeviceModel.categories, id: \.self) { category in
                             Section(category) {
@@ -183,7 +192,7 @@ struct ProfileEditorView: View {
                             }
                         }
                     }
-                    if let preset = deviceModel.flatMap(MacDeviceModel.preset) {
+                    if let preset = editor.values.deviceModel.flatMap(MacDeviceModel.preset) {
                         LabeledContent("芯片规格", value: DisplayText.hardware(preset))
                         LabeledContent("屏幕", value: DisplayText.screen(preset))
                         LabeledContent("网页看到的", value: DisplayText.webVisible(preset))
@@ -198,46 +207,6 @@ struct ProfileEditorView: View {
                 }
 
                 Section {
-                    regionSourcePicker("语言", selection: $languageSource)
-                    if languageSource == .custom {
-                        LabeledContent("语言标签") {
-                            HStack(spacing: 6) {
-                                TextField("语言标签", text: $languages, prompt: Text("例如 en-US, en"))
-                                    .labelsHidden()
-                                    .autocorrectionDisabled()
-                                Menu {
-                                    ForEach(Self.languagePresets, id: \.value) { preset in
-                                        Button("\(preset.title)  \(preset.value)") { languages = preset.value }
-                                    }
-                                } label: {
-                                    Image(systemName: "character.bubble")
-                                }
-                                .menuStyle(.borderlessButton)
-                                .fixedSize()
-                                .help("常用语言")
-                            }
-                        }
-                    }
-                    regionSourcePicker("时区", selection: $timeZoneSource)
-                    if timeZoneSource == .custom {
-                        LabeledContent("时区标识") {
-                            HStack(spacing: 6) {
-                                TextField("时区标识", text: $timeZone, prompt: Text("例如 America/Los_Angeles"))
-                                    .labelsHidden()
-                                    .autocorrectionDisabled()
-                                TimeZoneMenu(selection: $timeZone)
-                            }
-                        }
-                    }
-                } header: {
-                    Text("区域与语言")
-                } footer: {
-                    Text(regionFooter)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section {
                     ForEach(SPIFeatures.tokens, id: \.name) { token in
                         let text = DisplayText.spi(token.feature)
                         Toggle(isOn: binding(for: token.feature)) {
@@ -245,11 +214,11 @@ struct ProfileEditorView: View {
                             Text(text.detail)
                         }
                     }
-                    Toggle(isOn: $hideApplePayCardStatus) {
+                    Toggle(isOn: $editor.values.hideApplePayCardStatus) {
                         Text("隐藏 Apple Pay 银行卡状态")
                         Text("仅在 Safari 专有接口开启时生效。关闭银行卡状态查询以改善检测兼容性；不提供 Apple Pay 支付权限。修改后重启环境生效。")
                     }
-                    .disabled(!spi.contains(.safariAPIs))
+                    .disabled(!editor.values.spi.contains(.safariAPIs))
                 } header: {
                     Text("隐私与指纹保护")
                 } footer: {
@@ -258,18 +227,28 @@ struct ProfileEditorView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if inline, let original {
+                    ProfileMetadataSections(model: model, profile: original)
+                }
+
                 Section("其他") {
-                    TextField("起始网址", text: $startURL, prompt: Text("https://example.com"))
+                    TextField("起始网址", text: $editor.values.startURL, prompt: Text("https://example.com"))
                         .autocorrectionDisabled()
-                    TextField("备注", text: $notes, prompt: Text("可选"), axis: .vertical)
+                    TextField("备注", text: $editor.values.notes, prompt: Text("可选"), axis: .vertical)
                         .lineLimit(2...4)
+                    if inline, let original {
+                        LabeledContent("创建时间", value: original.createdAt.formatted(date: .long, time: .shortened))
+                        LabeledContent("环境 ID") {
+                            Text(original.id.uuidString).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)
 
             Divider()
             HStack(spacing: 10) {
-                if let errorText {
+                if let errorText = editor.errorText {
                     Label(errorText, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                         .lineLimit(2)
@@ -278,61 +257,92 @@ struct ProfileEditorView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                if isSaving { ProgressView().controlSize(.small) }
-                Button("取消", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                if editor.isSaving { ProgressView().controlSize(.small) }
+                if inline, let original {
+                    if editor.hasChanges { Text("未保存的修改").foregroundStyle(.secondary) }
+                    Button("还原") { editor.reset(to: model.profile(original.id) ?? original) }
+                        .disabled(!editor.hasChanges && editor.errorText == nil)
+                } else {
+                    Button("取消", role: .cancel) { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                }
                 Button(original == nil ? "创建" : "保存") { save() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(editor.values.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (inline && !editor.hasChanges))
             }
             .padding(16)
         }
-        .frame(width: 580, height: 600)
-        .disabled(isSaving)
-        .interactiveDismissDisabled(isSaving)
-        .onChange(of: [name, languages, timeZone, startURL]) { errorText = nil }
-        .onChange(of: subscriptionID) {
+        .frame(width: inline ? nil : 580, height: inline ? nil : 600)
+        .disabled(editor.isSaving)
+        .interactiveDismissDisabled(editor.isSaving)
+        .toolbar {
+            if inline, let original {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { model.duplicate(original) } label: {
+                        Label("复制环境", systemImage: "plus.square.on.square")
+                    }
+                    .help("复制环境（不复制网站数据）")
+                    .disabled(editor.hasChanges || editor.isSaving)
+                    Button { model.launch(original) } label: {
+                        Label("启动浏览器", systemImage: "play.fill")
+                    }
+                    .help(editor.hasChanges ? "请先保存或还原修改" : "启动浏览器")
+                    .disabled(model.runState(original.id) != .stopped || editor.hasChanges || editor.isSaving)
+                }
+            }
+        }
+        .onChange(of: [editor.values.name, editor.values.languages, editor.values.timeZone, editor.values.startURL]) { editor.errorText = nil }
+        .onChange(of: editor.values.subscriptionID) {
             // 单节点订阅直接选中；多节点订阅保留仍然有效的原选择。
             if let nodes = selectedSubscription?.nodes, nodes.count == 1 {
-                nodeName = nodes[0].name
-            } else if let nodeName, selectedSubscription?.nodes.contains(where: { $0.name == nodeName }) != true {
-                self.nodeName = nil
+                editor.values.nodeName = nodes[0].name
+            } else if let nodeName = editor.values.nodeName, selectedSubscription?.nodes.contains(where: { $0.name == nodeName }) != true {
+                editor.values.nodeName = nil
             }
-            errorText = nil
+            editor.errorText = nil
         }
-        .onChange(of: outboundKind) {
-            errorText = nil
-            let follow = outboundKind != .direct
+        .onChange(of: editor.values.outboundKind) {
+            editor.errorText = nil
+            let follow = editor.values.outboundKind != .direct
             // 未手动改过 WebRTC 开关时：新环境或原本直连的环境切到代理/节点/自定义出站自动开启「关闭 WebRTC」，新环境切回直连则恢复默认。
-            if !userToggledWebRTC, original == nil || original?.hasOutboundProxy == false {
+            if !editor.userToggledWebRTC, original == nil || original?.hasOutboundProxy == false {
                 if follow {
-                    spi.insert(.disableWebRTC)
+                    editor.values.spi.insert(.disableWebRTC)
                 } else if original == nil {
-                    spi.remove(.disableWebRTC)
+                    editor.values.spi.remove(.disableWebRTC)
                 }
             }
             // 新环境：选了代理或节点就默认跟随代理出口，改回直连就回到跟随系统（自定义的不动）。
             guard original == nil else { return }
-            if follow ? languageSource == .system : languageSource == .proxy { languageSource = follow ? .proxy : .system }
-            if follow ? timeZoneSource == .system : timeZoneSource == .proxy { timeZoneSource = follow ? .proxy : .system }
+            if follow ? editor.values.languageSource == .system : editor.values.languageSource == .proxy { editor.values.languageSource = follow ? .proxy : .system }
+            if follow ? editor.values.timeZoneSource == .system : editor.values.timeZoneSource == .proxy { editor.values.timeZoneSource = follow ? .proxy : .system }
         }
-        .onChange(of: [languageSource, timeZoneSource]) { errorText = nil }
-        .onChange(of: mode) {
-            if original == nil { spi = Self.defaultSPI(for: mode, hasProxy: outboundKind != .direct) }
+        .onChange(of: [editor.values.languageSource, editor.values.timeZoneSource]) { editor.errorText = nil }
+        .onChange(of: editor.values.mode) {
+            if original == nil { editor.values.spi = Self.defaultSPI(for: editor.values.mode, hasProxy: editor.values.outboundKind != .direct) }
+        }
+    }
+
+    private var outboundPicker: some View {
+        Picker("出站", selection: $editor.values.outboundKind) {
+            Text("直连").tag(OutboundKind.direct)
+            Text("独立代理").tag(OutboundKind.proxy)
+            Text("订阅节点").tag(OutboundKind.node)
+            Text("高级 JSON").tag(OutboundKind.custom)
         }
     }
 
     private var selectedSubscription: Subscription? {
-        subscriptionID.flatMap(model.subscription)
+        editor.values.subscriptionID.flatMap(model.subscription)
     }
 
     private var selectedNode: SubscriptionNode? {
-        guard let nodeName else { return nil }
+        guard let nodeName = editor.values.nodeName else { return nil }
         return selectedSubscription?.nodes.first { $0.name == nodeName }
     }
 
     private var outboundFooter: String {
-        switch outboundKind {
+        switch editor.values.outboundKind {
         case .direct: return "不经过代理。"
         case .custom: return "保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。"
         case .proxy: return "在左侧「代理」中统一管理 HTTP / SOCKS5 代理，供多个环境复用。由 WebKit 直接连接，修改后需重启环境。"
@@ -341,7 +351,7 @@ struct ProfileEditorView: View {
     }
 
     private var regionFooter: String {
-        guard languageSource == .proxy || timeZoneSource == .proxy else {
+        guard editor.values.languageSource == .proxy || editor.values.timeZoneSource == .proxy else {
             return "跟随系统时使用宿主机的语言和时区。"
         }
         return "跟随代理：每次启动经代理查询出口 IP 所在国家，自动设置语言和时区（时区跟随时一并开启引擎层时区同步）；查询失败时按节点名称推断，仍无法判断则跟随系统。"
@@ -373,90 +383,20 @@ struct ProfileEditorView: View {
 
     private func binding(for feature: SPIFeatures) -> Binding<Bool> {
         Binding(
-            get: { spi.contains(feature) },
+            get: { editor.values.spi.contains(feature) },
             set: { enabled in
-                if feature == .disableWebRTC { userToggledWebRTC = true }
-                if enabled { spi.insert(feature) } else { spi.remove(feature) }
+                if feature == .disableWebRTC { editor.userToggledWebRTC = true }
+                if enabled { editor.values.spi.insert(feature) } else { editor.values.spi.remove(feature) }
             }
         )
     }
 
     private func save() {
-        errorText = nil
-        var url: URL?
-        let rawURL = startURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !rawURL.isEmpty {
-            // 和浏览窗口的地址栏一样规范化（去掉看不见的字符、没写协议时补上），但起始网址必须是有主机的网页地址，不当成搜索。
-            url = AddressInput.webURL(for: rawURL)
-            guard url != nil else {
-                errorText = "起始网址不合法：\(rawURL)"
-                return
-            }
-        }
-
-        if outboundKind == .direct, languageSource == .proxy || timeZoneSource == .proxy {
-            errorText = "「跟随代理」需要选择独立代理或订阅节点。"
-            return
-        }
-        if let message = Self.customRegionError(languageSource: languageSource, languages: languages, timeZoneSource: timeZoneSource, timeZone: timeZone) {
-            errorText = message
-            return
-        }
-
-        var profile = original ?? Profile(name: name, mode: mode)
-        profile.customOutboundJSON = nil
-        profile.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        profile.followProxyLanguages = languageSource == .proxy
-        profile.languages = languageSource != .custom ? [] : languages.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        profile.followProxyTimeZone = timeZoneSource == .proxy
-        let zone = timeZone.trimmingCharacters(in: .whitespacesAndNewlines)
-        profile.timeZoneIdentifier = timeZoneSource != .custom || zone.isEmpty ? nil : zone
-        profile.startURL = url
-        switch outboundKind {
-        case .custom:
-            profile.customOutboundJSON = customJSON
-            profile.proxyID = nil
-            profile.subscriptionID = nil
-            profile.nodeName = nil
-        case .direct:
-            profile.proxyID = nil
-            profile.subscriptionID = nil
-            profile.nodeName = nil
-        case .proxy:
-            guard proxyID != nil else {
-                errorText = "请选择代理。"
-                return
-            }
-            profile.proxyID = proxyID
-            profile.subscriptionID = nil
-            profile.nodeName = nil
-        case .node:
-            guard subscriptionID != nil, nodeName != nil else {
-                errorText = "请选择订阅和节点。"
-                return
-            }
-            profile.proxyID = nil
-            profile.subscriptionID = subscriptionID
-            profile.nodeName = nodeName
-        }
-        profile.deviceModel = deviceModel
-        profile.spi = spi
-        profile.hideApplePayCardStatus = hideApplePayCardStatus
-        profile.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        isSaving = true
         Task { @MainActor in
-            defer { isSaving = false }
-            do {
-                try await model.saveValidated(profile, isNew: original == nil)
-                dismiss()
-            } catch {
-                errorText = DisplayText.describe(error)
-            }
+            if await editor.save(using: model, selectSavedProfile: !inline), !inline { dismiss() }
         }
     }
+
 }
 
 /// 常用时区 + 按地区分组的完整列表。

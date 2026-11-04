@@ -68,6 +68,14 @@
 
 需要 macOS 14 及以上和较新的 Xcode（Swift 5.10+）。只有重新编译自带的 `sing-box` 才需要 Go。
 
+### 启动开发界面
+
+```sh
+scripts/dev.sh
+```
+
+修改源码后退出开发进程并重新运行。此入口显式传入当前 macOS SDK 的路径与版本，并在启动前校验产物；最低系统版本仍为 macOS 14。部分 SwiftBuild 版本会把 SDK 版本误写成最低系统版本，直接 `swift run Safarier` 因此可能显示旧系统外观，即使源码已更新。在 macOS 26+ 上使用 Xcode 26+ 的 SDK 构建才能采用 Liquid Glass。开发入口也支持 `SAFARIER_HOME` 隔离数据和传入 CLI 子命令。
+
 ### 单元测试
 
 ```sh

@@ -68,6 +68,14 @@ Common changes and where they go:
 
 Requirements: macOS 14+ and a recent Xcode (Swift 5.10+). Go is only needed to rebuild the bundled `sing-box`.
 
+### Launch the development UI
+
+```sh
+scripts/dev.sh
+```
+
+Quit the development process and rerun after source changes. This entry point explicitly passes the selected macOS SDK path and version, then verifies the executable before launching; the minimum OS stays macOS 14. Some SwiftBuild versions incorrectly record the deployment target as the SDK version, so plain `swift run Safarier` may show legacy system styling even with updated sources. Liquid Glass requires macOS 26+ and a build using an Xcode 26+ SDK. The script also accepts CLI subcommands and honors `SAFARIER_HOME` for isolated data.
+
 ### Unit tests
 
 ```sh

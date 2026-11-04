@@ -7,6 +7,14 @@ import SafarierCore
 @MainActor
 final class ManagerPerformanceTests: XCTestCase {
     func testOrphanCleanupKeepsMainActorResponsiveAndDoesNotAppearAsRunner() async throws {
+        try await checkQueuedLaunch(editDuringCleanup: false)
+    }
+
+    func testQueuedLaunchRejectsDraftCreatedDuringCleanup() async throws {
+        try await checkQueuedLaunch(editDuringCleanup: true)
+    }
+
+    private func checkQueuedLaunch(editDuringCleanup: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("manager-perf-\(UUID())")
         let workspace = SafarierWorkspace(root: root)
         let profile = Profile(name: "orphan", mode: .ephemeral)
@@ -54,9 +62,13 @@ final class ManagerPerformanceTests: XCTestCase {
         model.launch(profile)
         XCTAssertEqual(model.runState(profile.id), .starting, "清理期间启动只排队，不争抢锁")
         XCTAssertNil(model.message)
-        // 等待期间环境被外部删除，不应再拉起 Runner。
-        try workspace.profiles.delete(id: profile.id)
-        model.reload()
+        // 等待期间新建草稿或外部删除环境，都不应再拉起 Runner。
+        if editDuringCleanup {
+            model.editor(for: profile).values.name = "Unsaved draft"
+        } else {
+            try workspace.profiles.delete(id: profile.id)
+            model.reload()
+        }
 
         let finishedDeadline = Date().addingTimeInterval(5)
         while FileManager.default.fileExists(atPath: pidFile.path), Date() < finishedDeadline {
@@ -73,7 +85,14 @@ final class ManagerPerformanceTests: XCTestCase {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertFalse(model.starting.contains(profile.id))
-        XCTAssertNil(model.message)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.runnerLogURL(for: profile.id).path))
+        if editDuringCleanup {
+            XCTAssertNotNil(model.message)
+            XCTAssertTrue(model.editor(for: profile).hasChanges)
+            XCTAssertEqual(try workspace.profiles.record(id: profile.id), profile)
+        } else {
+            XCTAssertNil(model.message)
+        }
     }
 
     func testLogTailIsBoundedAndRespectsLaunchOffset() throws {

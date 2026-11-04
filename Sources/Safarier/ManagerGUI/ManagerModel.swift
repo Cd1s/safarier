@@ -40,7 +40,6 @@ final class ManagerModel: ObservableObject {
 
     enum Sheet: Identifiable {
         case newProfile
-        case editProfile(Profile)
         case newSubscription
         case newProxy
         case editProxy(ProxySettings)
@@ -48,7 +47,6 @@ final class ManagerModel: ObservableObject {
         var id: String {
             switch self {
             case .newProfile: return "new-profile"
-            case .editProfile(let profile): return "edit-\(profile.id.uuidString)"
             case .newSubscription: return "new-subscription"
             case .newProxy: return "new-proxy"
             case .editProxy(let proxy): return "edit-proxy-\(proxy.id.uuidString)"
@@ -96,6 +94,21 @@ final class ManagerModel: ObservableObject {
     @Published var updateStatusText: String?
     @Published var showingUpdateNotes: ReleaseInfo?
 
+    private var profileEditors: [UUID: ProfileEditorState] = [:]
+
+    func editor(for profile: Profile) -> ProfileEditorState {
+        if let editor = profileEditors[profile.id] { return editor }
+        let editor = ProfileEditorState(original: profile)
+        profileEditors[profile.id] = editor
+        return editor
+    }
+
+    private func requireSavedProfile(_ profile: Profile) -> Bool {
+        guard let editor = profileEditors[profile.id], editor.hasChanges || editor.isSaving else { return true }
+        message = Message(title: "环境还有未保存的修改", detail: "请先在详情页保存或还原修改。")
+        return false
+    }
+
     private var didCheckForUpdate = false
     private var orphanCleanupTask: Task<Void, Never>?
     private var monitor: Timer?
@@ -121,6 +134,13 @@ final class ManagerModel: ObservableObject {
             let profiles = try workspace.profiles.all()
             let proxies = try workspace.proxies.all()
             let subscriptions = try workspace.subscriptions.all()
+            for (id, editor) in profileEditors {
+                if let profile = profiles.first(where: { $0.id == id }) {
+                    editor.receive(profile)
+                } else {
+                    profileEditors.removeValue(forKey: id)
+                }
+            }
             if profiles != self.profiles { self.profiles = profiles }
             if proxies != self.proxies {
                 for previous in self.proxies where proxies.first(where: { $0.id == previous.id }) != previous {
@@ -340,7 +360,7 @@ final class ManagerModel: ObservableObject {
     // MARK: - Runner
 
     func launch(_ profile: Profile) {
-        guard runState(profile.id) == .stopped else { return }
+        guard requireSavedProfile(profile), runState(profile.id) == .stopped else { return }
         starting.insert(profile.id)
         if let cleanup = orphanCleanupTask {
             // 清理持锁期间仍允许点击启动；异步等锁释放，避免 Runner 因竞争锁而启动失败。
@@ -359,6 +379,11 @@ final class ManagerModel: ObservableObject {
     }
 
     private func launchRunner(_ profile: Profile) {
+        // 清理等待期间仍可编辑配置，真正启动前再次检查草稿。
+        guard requireSavedProfile(profile) else {
+            starting.remove(profile.id)
+            return
+        }
         // Runner 找不到 sing-box 也会失败退出，这里先拦下来，提示更直接。
         let singbox = SingboxProcessManager.defaultExecutableURL
         if profile.subscriptionID != nil || profile.customOutboundJSON != nil, !FileManager.default.isExecutableFile(atPath: singbox.path) {
@@ -431,7 +456,8 @@ final class ManagerModel: ObservableObject {
     // MARK: - profile
 
     /// 校验期间不修改磁盘记录；失败时旧配置仍然完整保留。
-    func saveValidated(_ profile: Profile, isNew: Bool, executableURL: URL = SingboxProcessManager.defaultExecutableURL) async throws {
+    func saveValidated(_ profile: Profile, isNew: Bool, executableURL: URL = SingboxProcessManager.defaultExecutableURL,
+                       expectedProfile: Profile? = nil, selectSavedProfile: Bool = true) async throws {
         try profile.validate()
         var checkedProfile = profile
         if let json = profile.customOutboundJSON {
@@ -439,22 +465,26 @@ final class ManagerModel: ObservableObject {
                 try CustomOutbound.checked(json, executableURL: executableURL)
             }.value
         }
-        try save(checkedProfile, isNew: isNew)
+        if let expectedProfile, try workspace.profiles.record(id: profile.id) != expectedProfile {
+            throw ProfileEditorError.changedExternally
+        }
+        try save(checkedProfile, isNew: isNew, selectSavedProfile: selectSavedProfile)
     }
 
-    func save(_ profile: Profile, isNew: Bool) throws {
+    func save(_ profile: Profile, isNew: Bool, selectSavedProfile: Bool = true) throws {
         if isNew {
             try workspace.profiles.insert(profile)
         } else {
             try workspace.profiles.update(profile)
         }
         reload()
-        selection = .profile(profile.id)
+        if selectSavedProfile { selection = .profile(profile.id) }
     }
 
     /// 复制环境：设置全部照抄、换新 ID，名字加「副本」后缀；网站数据（Cookie、登录状态）不复制。
     @discardableResult
     func duplicate(_ profile: Profile) -> Profile? {
+        guard requireSavedProfile(profile) else { return nil }
         let name = Profile.duplicateName(for: profile.name, existing: Set(profiles.map(\.name)))
         let copy = profile.duplicated(name: name)
         do {

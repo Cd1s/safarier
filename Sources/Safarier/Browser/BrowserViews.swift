@@ -985,7 +985,11 @@ final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate,
 
     // MARK: 内容
 
-    @objc private func storeDidChange(_ notification: Notification) { reload() }
+    @objc private func storeDidChange(_ notification: Notification) {
+        // displayHistory() 在显示前重新加载；隐藏时不为其它标签的导航重建列表。
+        guard !isHidden else { return }
+        reload()
+    }
     @objc private func searchChanged(_ sender: Any?) { reload() }
 
     func controlTextDidChange(_ notification: Notification) { reload() }

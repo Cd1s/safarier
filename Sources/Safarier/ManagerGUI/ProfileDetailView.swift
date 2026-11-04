@@ -159,15 +159,19 @@ struct ProfileDetailView: View {
             .controlSize(.extraLarge)
             .disabled(true)
         case .running:
-            VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 8) {
                 Button { model.bringToFront(profile) } label: {
                     Label("切换到窗口", systemImage: "macwindow")
                         .frame(minWidth: 150)
                 }
                 .controlSize(.extraLarge)
-                Button("结束运行") { model.stop(profile) }
-                    .buttonStyle(.link)
-                    .font(.callout)
+                Button { model.stop(profile) } label: {
+                    Label("结束运行", systemImage: "stop.fill")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.extraLarge)
+                .help("结束运行")
             }
         }
     }

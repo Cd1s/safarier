@@ -73,6 +73,7 @@ struct SafarierAppView: View {
                 } label: {
                     Label("关于 / GitHub", systemImage: "info.circle")
                 }
+                .menuIndicator(.hidden)
                 .help("关于 Safarier、检查更新、打开 GitHub 页面")
             }
         }

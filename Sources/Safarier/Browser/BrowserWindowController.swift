@@ -826,6 +826,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         case Item.address:
             let item = NSToolbarItem(itemIdentifier: identifier)
             item.view = addressBar
+            // 地址栏自己绘制背景，避免系统玻璃与自绘底色叠成双层框。
+            item.isBordered = false
             item.label = "地址"
             item.visibilityPriority = .high
             return item

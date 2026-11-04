@@ -70,9 +70,6 @@ struct ManagerApp: App {
                 Button("启动浏览器") { model.selectedProfile.map(model.launch) }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(model.selectedProfile.map { model.runState($0.id) != .stopped } ?? true)
-                Button("编辑…") { model.selectedProfile.map { model.sheet = .editProfile($0) } }
-                    .keyboardShortcut("e")
-                    .disabled(model.selectedProfile == nil)
                 Button("复制环境") { model.selectedProfile.map { _ = model.duplicate($0) } }
                     .keyboardShortcut("d", modifiers: .command)
                     .disabled(model.selectedProfile == nil)

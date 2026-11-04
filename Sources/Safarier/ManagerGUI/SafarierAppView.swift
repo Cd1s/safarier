@@ -24,7 +24,6 @@ struct SafarierAppView: View {
         .sheet(item: $model.sheet) { sheet in
             switch sheet {
             case .newProfile: ProfileEditorView(model: model, original: nil)
-            case .editProfile(let profile): ProfileEditorView(model: model, original: profile)
             case .newSubscription: SubscriptionEditorView(model: model)
             case .newProxy: ProxyEditorView(model: model, original: nil)
             case .editProxy(let proxy): ProxyEditorView(model: model, original: proxy)
@@ -326,7 +325,6 @@ struct ManagerSidebar: View {
             Button("启动浏览器") { model.launch(profile) }
                 .disabled(state != .stopped)
         }
-        Button("编辑…") { model.sheet = .editProfile(profile) }
         Button("复制环境") { model.duplicate(profile) }
         Divider()
         Button("清理沙盒数据…") { model.confirmation = .purgeProfile(profile) }

@@ -32,32 +32,36 @@ public final class RecordRepository<Record: ValidatableRecord>: @unchecked Senda
         try locked { try store.load().first { $0.id == id } }
     }
 
-    public func insert(_ record: Record) throws {
+    /// `check` 在文件锁内拿到写入前的全部记录，用于跨记录的约束；抛错时不写入。
+    public func insert(_ record: Record, check: ([Record]) throws -> Void = { _ in }) throws {
         try record.validate()
         try mutate { records in
             guard !records.contains(where: { $0.id == record.id }) else {
                 throw RepositoryError.duplicateID(record.id)
             }
+            try check(records)
             records.append(record)
         }
     }
 
-    public func update(_ record: Record) throws {
+    public func update(_ record: Record, check: ([Record]) throws -> Void = { _ in }) throws {
         try record.validate()
         try mutate { records in
             guard let index = records.firstIndex(where: { $0.id == record.id }) else {
                 throw RepositoryError.notFound(record.id)
             }
+            try check(records)
             records[index] = record
         }
     }
 
     @discardableResult
-    public func delete(id: UUID) throws -> Record {
+    public func delete(id: UUID, check: ([Record]) throws -> Void = { _ in }) throws -> Record {
         try mutate { records in
             guard let index = records.firstIndex(where: { $0.id == id }) else {
                 throw RepositoryError.notFound(id)
             }
+            try check(records)
             return records.remove(at: index)
         }
     }
@@ -106,7 +110,7 @@ public extension RecordRepository where Record == ProxySettings {
     /// 文件位于 `directory/proxies.json`。
     static func proxies(in directory: URL) -> ProxyRepository {
         RecordRepository(store: JSONDocumentStore<ProxySettings>(
-            fileURL: directory.appendingPathComponent("proxies.json")
+            fileURL: directory.appendingPathComponent("proxies.json"), privateFile: true
         ))
     }
 }

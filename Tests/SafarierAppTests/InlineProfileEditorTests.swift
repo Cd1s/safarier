@@ -135,4 +135,28 @@ final class InlineProfileEditorTests: XCTestCase {
         XCTAssertEqual(profile.mode, .ephemeral)
         XCTAssertEqual(model.selection, .profile(profile.id))
     }
+
+    func testInlineEditPreservesChainedProxyAndConnectionPath() async throws {
+        let entry = ProxySettings(name: "Entry", kind: .socks5, host: "192.0.2.1", port: 1080)
+        let exit = ProxySettings(name: "Exit", kind: .httpConnect, host: "192.0.2.2", port: 8080, upstream: .proxy(entry.id))
+        try workspace.insertProxy(entry)
+        try workspace.insertProxy(exit)
+        let profile = Profile(name: "Chained", mode: .ephemeral, proxyID: exit.id)
+        try workspace.profiles.insert(profile)
+        let model = ManagerModel(workspace: workspace, credentials: InMemoryCredentialStore())
+        let editor = model.editor(for: profile)
+        XCTAssertEqual(editor.values.outboundKind, .proxy)
+        let selected = try XCTUnwrap(editor.values.proxyID.flatMap(model.proxy))
+        XCTAssertEqual(selected.upstream, .proxy(entry.id))
+        XCTAssertEqual(model.connectionPath(selected), "Entry → Exit → 网站")
+
+        editor.values.notes = "Edited inline"
+        let saved = await editor.save(using: model, selectSavedProfile: false)
+        XCTAssertTrue(saved)
+        let record = try XCTUnwrap(workspace.profiles.record(id: profile.id))
+        XCTAssertEqual(record.proxyID, exit.id)
+        XCTAssertEqual(record.notes, "Edited inline")
+        XCTAssertEqual(try workspace.proxies.record(id: exit.id), exit)
+        XCTAssertFalse(editor.hasChanges)
+    }
 }

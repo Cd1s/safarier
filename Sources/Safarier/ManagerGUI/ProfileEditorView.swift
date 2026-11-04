@@ -101,6 +101,9 @@ struct ProfileEditorView: View {
                             Text("还没有独立代理。请先在管理窗口左侧的「代理」中添加 HTTP 或 SOCKS5 代理。")
                                 .foregroundStyle(.secondary)
                         }
+                        if let proxy = editor.values.proxyID.flatMap(model.proxy), proxy.upstream != nil {
+                            Text(model.connectionPath(proxy)).font(.caption).foregroundStyle(.secondary)
+                        }
                     case .node:
                         Picker("订阅", selection: $editor.values.subscriptionID) {
                             Text("选择订阅").tag(UUID?.none)
@@ -345,7 +348,7 @@ struct ProfileEditorView: View {
         switch editor.values.outboundKind {
         case .direct: return "不经过代理。"
         case .custom: return "保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。"
-        case .proxy: return "在左侧「代理」中统一管理 HTTP / SOCKS5 代理，供多个环境复用。由 WebKit 直接连接，修改后需重启环境。"
+        case .proxy: return "在左侧「代理」中统一管理 HTTP / SOCKS5 代理和前置连接，供多个环境复用。已配置前置时使用完整两跳链路，修改后需重启环境。"
         case .node: return "启动时为这个环境单独起一个 sing-box，把节点转成本地 SOCKS5 交给 WebKit；节点连不上时页面加载失败，不会退回直连。节点按名字匹配，订阅刷新后仍然有效。"
         }
     }

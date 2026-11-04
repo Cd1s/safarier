@@ -553,7 +553,7 @@ final class BrowserFixesTests: XCTestCase {
 }
 
 /// 只监听 127.0.0.1 的极简 HTTP 服务：按路径（不含 query）返回固定响应，每个连接只答一次。测试用，不出本机。
-private final class LoopbackHTTPServer: @unchecked Sendable {
+final class LoopbackHTTPServer: @unchecked Sendable {
     struct Response {
         var status: Int
         var headers: [String: String]

@@ -9,7 +9,8 @@ public final class JSONDocumentStore<Record: Codable & Sendable>: @unchecked Sen
         public var records: [Record]
     }
 
-    public static var currentVersion: Int { 1 }
+    // 旧版不认识 upstream，却能把代理解码成单跳；只有代理文档支持版本 2。
+    public static var currentVersion: Int { Record.self == ProxySettings.self ? 2 : 1 }
 
     public let fileURL: URL
     private let privateFile: Bool
@@ -51,7 +52,9 @@ public final class JSONDocumentStore<Record: Codable & Sendable>: @unchecked Sen
         // 用默认的参考日秒数（Double）：能精确往返。ISO 8601 会丢掉秒以下精度，读回的记录就不再相等。
         encoder.dateEncodingStrategy = .deferredToDate
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(Document(version: currentVersion, records: records))
+        // 含任一前置时，整个文件必须让旧版拒绝读取。无前置的代理仍保留旧版兼容性。
+        let hasUpstream = (records as? [ProxySettings])?.contains { $0.upstream != nil } == true
+        return try encoder.encode(Document(version: hasUpstream ? 2 : 1, records: records))
     }
 
     public static func decode(_ data: Data) throws -> [Record] {

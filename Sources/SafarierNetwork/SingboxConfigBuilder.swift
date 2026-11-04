@@ -89,7 +89,7 @@ public struct SingboxConfigBuilder: Sendable {
     }
 
     static func makeConfiguration(
-        inboundPort: Int, outbound: [String: SingboxJSONValue],
+        inboundPort: Int, outbound: [String: SingboxJSONValue], upstream: [String: SingboxJSONValue]? = nil,
         inboundAddress: String = defaultInboundAddress, logLevel: String = "warn"
     ) throws -> SingboxConfiguration {
         guard (1...65535).contains(inboundPort) else { throw SingboxConfigError.invalidInboundPort(inboundPort) }
@@ -100,10 +100,19 @@ public struct SingboxConfigBuilder: Sendable {
             "listen_port": .number(inboundPort),
         ]
 
+        var exit = outbound
+        var outbounds = [outbound, ["type": .string("direct"), "tag": .string(directTag)]]
+        if var entry = upstream {
+            entry["tag"] = .string("upstream")
+            exit["tag"] = .string(proxyTag)
+            exit["detour"] = .string("upstream")
+            // 两跳不提供任何直连或自动切换出口。
+            outbounds = [entry, exit]
+        }
         return SingboxConfiguration(
             log: ["level": .string(logLevel)],
             inbounds: [inbound],
-            outbounds: [outbound, ["type": .string("direct"), "tag": .string(directTag)]],
+            outbounds: outbounds,
             route: ["final": .string(proxyTag)]
         )
     }
@@ -120,7 +129,7 @@ public struct SingboxConfigBuilder: Sendable {
         try Self.build(inboundPort: inboundPort, node: node)
     }
 
-    private static func makeOutbound(_ node: SubscriptionNode) -> [String: SingboxJSONValue] {
+    static func makeOutbound(_ node: SubscriptionNode) -> [String: SingboxJSONValue] {
         var result: [String: SingboxJSONValue] = [
             "type": .string(node.type.singboxType),
             "tag": .string(proxyTag),

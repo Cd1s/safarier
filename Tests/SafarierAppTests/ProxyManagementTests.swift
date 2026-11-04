@@ -1,5 +1,6 @@
 import XCTest
 import SafarierCore
+import SafarierNetwork
 import SafarierWebKit
 @testable import Safarier
 
@@ -114,5 +115,59 @@ final class ProxyManagementTests: XCTestCase {
         try model.save(switched, isNew: false)
         XCTAssertEqual(try workspace.profiles.record(id: old.id)?.proxyID, proxy.id)
         XCTAssertNil(try workspace.profiles.record(id: old.id)?.customOutboundJSON)
+    }
+
+    func testUpstreamReferencesProtectUnusedProxiesAndSubscriptions() throws {
+        var entry = ProxySettings(name: "Entry", kind: .socks5, host: "192.0.2.1", port: 1080)
+        try model.saveProxy(entry, password: nil, isNew: true)
+        var exit = ProxySettings(name: "Exit", kind: .httpConnect, host: "192.0.2.2", port: 8080, upstream: .proxy(entry.id))
+        try model.saveProxy(exit, password: nil, isNew: true)
+        XCTAssertThrowsError(try model.deleteProxy(entry))
+        XCTAssertEqual(model.proxies(using: entry).map(\.id), [exit.id])
+        entry.upstream = .custom(#"{"type":"socks","server":"192.0.2.3","server_port":1080}"#)
+        XCTAssertThrowsError(try model.saveProxy(entry, password: nil, isNew: false))
+        let subscription = Subscription(name: "Entry nodes", url: URL(string: "https://example.com/sub")!, nodes: [
+            SubscriptionNode(name: "Node", type: .socks, server: "192.0.2.3", serverPort: 1080),
+        ])
+        try workspace.subscriptions.insert(subscription)
+        exit.upstream = .node(subscriptionID: subscription.id, name: "Node")
+        try model.saveProxy(exit, password: nil, isNew: false)
+        model.delete(subscription)
+        XCTAssertNotNil(try workspace.subscriptions.record(id: subscription.id))
+        XCTAssertNotNil(model.message)
+        try model.deleteProxy(entry)
+        exit.upstream = nil
+        try model.saveProxy(exit, password: nil, isNew: false)
+        model.delete(subscription)
+        XCTAssertNil(try workspace.subscriptions.record(id: subscription.id))
+    }
+
+    func testChainedProxyCannotBeAppliedDirectlyToWebKit() throws {
+        let proxy = ProxySettings(name: "Chain", kind: .socks5, host: "192.0.2.1", port: 1080, upstream: .proxy(UUID()))
+        XCTAssertThrowsError(try ProxyConfigurationBuilder.makeConfiguration(for: proxy, password: nil)) {
+            XCTAssertEqual($0 as? ProxyConfigurationError, .unresolvedChain)
+        }
+        for kind in ProxyKind.allCases {
+            let single = ProxySettings(name: "Single", kind: kind, host: "192.0.2.1", port: 1080)
+            XCTAssertFalse(try ProxyConfigurationBuilder.makeConfiguration(for: single, password: nil).allowFailover)
+        }
+    }
+
+    func testInvalidCustomUpstreamDoesNotReplaceSavedConfigOrPassword() async throws {
+        guard SingboxProcessManager.locateExecutable() != nil else { throw XCTSkip("本机没有 sing-box") }
+        let proxy = ProxySettings(name: "Original", kind: .socks5, host: "192.0.2.1", port: 1080, username: "user")
+        try model.saveProxy(proxy, password: "old-password", isNew: true)
+        var draft = proxy
+        draft.upstream = .custom(#"{"type":"socks","server":"192.0.2.2","server_port":1080,"invalid_option":true}"#)
+        do {
+            try await model.saveProxyValidated(draft, password: "new-password", isNew: false)
+            XCTFail("无效自定义前置不能覆盖旧配置")
+        } catch { }
+        XCTAssertEqual(try workspace.proxies.record(id: proxy.id), proxy)
+        XCTAssertEqual(try credentials.password(forKey: proxy.credentialKey), "old-password")
+        draft.upstream = .custom(#"{"type":"socks","server":"192.0.2.2","server_port":1080}"#)
+        try await model.saveProxyValidated(draft, password: nil, isNew: false)
+        XCTAssertNotNil(try workspace.proxies.record(id: proxy.id)?.upstream)
+        XCTAssertEqual(try credentials.password(forKey: proxy.credentialKey), "old-password")
     }
 }

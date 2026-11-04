@@ -123,4 +123,78 @@ final class ProxyConnectionModelTests: XCTestCase {
         await fulfillment(of: [calls], timeout: 2)
         XCTAssertNil(model.proxyTests[proxy.id])
     }
+
+    func testReloadKeepsResultsOfUnrelatedProxies() async throws {
+        let first = try proxy()
+        let second = ProxySettings(name: "Other", kind: .socks5, host: "127.0.0.1", port: 1081)
+        try workspace.proxies.insert(second)
+        let result = ProxyConnectionResult(exitIP: "203.0.113.8", duration: 0.1)
+        let model = ManagerModel(workspace: workspace, credentials: credentials, proxyTester: { _, _ in result })
+        model.testProxy(first)
+        try await waitUntilFinished(model, first.id)
+        XCTAssertEqual(model.proxyTests[first.id], .success(result))
+        var changed = second
+        changed.port = 1082
+        try workspace.proxies.update(changed)
+        model.reload()
+        XCTAssertEqual(model.proxyTests[first.id], .success(result))
+        // 别的出口的前置变了，也不影响无关代理。
+        let exit = ProxySettings(name: "Exit", kind: .httpConnect, host: "exit.invalid", port: 8080, upstream: .proxy(changed.id))
+        try workspace.proxies.insert(exit)
+        model.reload()
+        model.testProxy(first)
+        try await waitUntilFinished(model, first.id)
+        changed.port = 1083
+        try workspace.proxies.update(changed)
+        model.reload()
+        XCTAssertEqual(model.proxyTests[first.id], .success(result))
+    }
+
+    func testChainTestsUseLocalTunnelAndInvalidateWhenEntryPasswordChanges() async throws {
+        guard SingboxProcessManager.locateExecutable() != nil else { throw XCTSkip("本机没有 sing-box") }
+        let entry = try proxy()
+        let exit = ProxySettings(name: "Exit", kind: .httpConnect, host: "exit.invalid", port: 8080, upstream: .proxy(entry.id))
+        try workspace.proxies.insert(exit)
+        let result = ProxyConnectionResult(exitIP: "203.0.113.7", duration: 0.1)
+        let model = ManagerModel(workspace: workspace, credentials: credentials, proxyTester: { local, password in
+            XCTAssertEqual(local.kind, .socks5)
+            XCTAssertEqual(local.host, "127.0.0.1")
+            XCTAssertNil(local.upstream)
+            XCTAssertNil(password)
+            return result
+        })
+        model.testProxy(exit)
+        try await waitUntilFinished(model, exit.id)
+        XCTAssertEqual(model.proxyTests[exit.id], .success(result))
+        try model.saveProxy(entry, password: "new-secret", isNew: false)
+        XCTAssertNil(model.proxyTests[exit.id])
+        // 失效前置在发起请求之前报错，不会用出口代理单跳测试。
+        try workspace.proxies.delete(id: entry.id)
+        model.testProxy(exit)
+        XCTAssertEqual(model.proxyTests[exit.id], .failure(ProxyChainError.missingProxy.localizedDescription))
+    }
+
+    func testSubscriptionRefreshDuringTestDiscardsOldResultWithoutReload() async throws {
+        guard SingboxProcessManager.locateExecutable() != nil else { throw XCTSkip("本机没有 sing-box") }
+        var subscription = Subscription(name: "Nodes", url: URL(string: "https://example.com/sub")!, nodes: [
+            SubscriptionNode(name: "Entry", type: .socks, server: "192.0.2.1", serverPort: 1080),
+        ])
+        try workspace.subscriptions.insert(subscription)
+        let exit = ProxySettings(name: "Exit", kind: .httpConnect, host: "exit.invalid", port: 8080,
+                                 upstream: .node(subscriptionID: subscription.id, name: "Entry"))
+        try workspace.insertProxy(exit)
+        let started = expectation(description: "链路测试已经开始")
+        let model = ManagerModel(workspace: workspace, credentials: credentials, proxyTester: { _, _ in
+            started.fulfill()
+            try await Task.sleep(for: .milliseconds(200))
+            return ProxyConnectionResult(exitIP: "203.0.113.7", duration: 0.2)
+        })
+        model.testProxy(exit)
+        await fulfillment(of: [started], timeout: 3)
+        // 模拟外部进程刷新：管理器没有收到 reload，节点名相同但服务器已改变。
+        subscription.nodes[0].server = "192.0.2.2"
+        try workspace.subscriptions.update(subscription)
+        try await waitUntilFinished(model, exit.id)
+        XCTAssertNil(model.proxyTests[exit.id])
+    }
 }

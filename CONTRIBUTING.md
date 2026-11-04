@@ -34,6 +34,7 @@ Capabilities that require runtime lookup belong in the Native Engine Bridge (`Sa
 ### Proxy fail-closed and credential safety
 
 - Each environment routes through its own `sing-box` process (subscription nodes) or `WKWebsiteDataStore.proxyConfigurations` (standalone SOCKS5 / HTTP CONNECT). If the proxy is down, the page fails to load. **Never fall back to a direct connection.**
+- Saved proxies with an upstream also use the environment's own `sing-box`: the exit's `detour` references the upstream and the default route uses only the exit, with no direct or fallback outbound. Only two hops are supported. Validate references on save, test and launch; never apply an unresolved chained `ProxySettings` directly to WebKit.
 - Passwords live in the Keychain. Helper processes get credentials through stdin (curl's `-K -`, with `F_SETNOSIGPIPE` on the pipe) or a `0600` config file. They never go into command-line arguments, logs or error messages.
 - Tests and docs use `example.com` / `.invalid` hosts and RFC 5737 / 3849 addresses, never real nodes.
 
@@ -53,7 +54,7 @@ Runtime data lives in `~/Library/Application Support/Safarier/`. Set `SAFARIER_H
 
 | Path | Contents |
 |---|---|
-| `profiles.json`, `proxies.json`, `subscriptions.json` | Metadata (no passwords; those are in the Keychain) |
+| `profiles.json`, `proxies.json`, `subscriptions.json` | Metadata. Standalone proxy passwords are in Keychain; custom outbounds and subscription nodes may contain credentials. `profiles.json` and `proxies.json` use `0600` permissions. |
 | `subscriptions-inline/<ID>.txt` | Node links pasted directly as a subscription (`0600`) |
 | `logs/<PROFILE_ID>.log` | Runner log: `[capability]`, `[spi]`, `[geo]`, `[load-error]` lines |
 | `locks/`, `sing-box/` | Per-environment lock files, and `sing-box` configs / pids while running |

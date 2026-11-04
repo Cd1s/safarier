@@ -75,6 +75,7 @@ struct SafarierAppView: View {
                 }
                 .help("关于 Safarier、检查更新、打开 GitHub 页面")
             }
+            .withoutSharedBackground()
         }
         .onAppear { model.startMonitoring() }
     }
@@ -169,6 +170,17 @@ struct SafarierAppView: View {
             return Text("只删除本地保存的订阅链接和节点缓存。")
         case .deleteProxy:
             return Text("删除代理配置及钥匙串中的密码。被环境使用的代理不能删除。")
+        }
+    }
+}
+
+private extension ToolbarContent {
+    @ToolbarContentBuilder
+    func withoutSharedBackground() -> some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            self.sharedBackgroundVisibility(.hidden)
+        } else {
+            self
         }
     }
 }

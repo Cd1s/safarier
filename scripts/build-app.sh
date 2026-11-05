@@ -114,6 +114,11 @@ for file in sing-box LICENSE COPYING SOURCE; do
 done
 is_universal "$SINGBOX_DIR/sing-box" \
   || { echo "$SINGBOX_DIR/sing-box 不是 Universal（需要 $ARCHS_EXPECTED，实际：$(lipo -archs "$SINGBOX_DIR/sing-box" 2>/dev/null || echo 不是 Mach-O)）" >&2; exit 1; }
+# Hysteria2 requires QUIC; refuse stale helpers that would import successfully but fail at launch.
+if ! "$SINGBOX_DIR/sing-box" version | grep -q 'with_quic'; then
+  echo "缺少 with_quic：请重新运行 scripts/build-singbox.sh 构建支持 Hysteria2 的引擎" >&2
+  exit 1
+fi
 # VLESS Reality 和 fp 指纹要 uTLS；不带 with_utls 编的 sing-box 遇到这类节点会启动失败。
 if ! "$SINGBOX_DIR/sing-box" version | grep -q 'with_utls'; then
   echo "警告：$SINGBOX_DIR/sing-box 没有编进 with_utls，VLESS Reality 节点会连不上" >&2
@@ -145,6 +150,8 @@ esac
 chmod 755 "$APP/Contents/MacOS/Safarier" "$APP/Contents/Helpers/sing-box"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 cp "$SINGBOX_DIR/LICENSE" "$SINGBOX_DIR/COPYING" "$SINGBOX_DIR/SOURCE" "$APP/Contents/Resources/ThirdParty/sing-box/"
+mkdir -p "$APP/Contents/Resources/ThirdParty/Yams"
+cp "$ROOT/.build/checkouts/Yams/LICENSE" "$APP/Contents/Resources/ThirdParty/Yams/"
 
 echo "==> 生成图标"
 ICON_WORK="$(mktemp -d)"

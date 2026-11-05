@@ -39,8 +39,9 @@ final class SingboxConfigBuilderTests: XCTestCase {
             SubscriptionNode(name: "s", type: .shadowsocks, server: "s.example", serverPort: 8388, password: "secret", method: "aes-128-gcm"),
             SubscriptionNode(name: "k", type: .socks, server: "k.example", serverPort: 1080),
             SubscriptionNode(name: "a", type: .anytls, server: "a.example", serverPort: 443, password: "secret"),
+            SubscriptionNode(name: "h", type: .hysteria2, server: "h.example", serverPort: 443, password: "secret"),
         ]
-        let expected = ["vless", "vmess", "trojan", "shadowsocks", "socks", "anytls"]
+        let expected = ["vless", "vmess", "trojan", "shadowsocks", "socks", "anytls", "hysteria2"]
         for (node, type) in zip(nodes, expected) {
             let config = try SingboxConfigBuilder.makeConfiguration(inboundPort: 20_001, node: node)
             XCTAssertEqual(config.outbounds.first?["type"], .string(type))
@@ -266,6 +267,8 @@ final class SingboxConfigBuilderTests: XCTestCase {
         let executables = Self.singboxExecutables
         guard !executables.isEmpty else { throw XCTSkip("本机没有 sing-box") }
         let nodes = [
+            try XCTUnwrap(SubscriptionParser.parse(ClashSubscriptionParserTests.subscription).first),
+            SubscriptionNode(name: "hy2-single", type: .hysteria2, server: "h.example", serverPort: 443, password: "sample"),
             SubscriptionNode(name: "v", type: .vless, server: "v.example", serverPort: 443, uuid: UUID().uuidString, tls: true, serverName: "v.example", transport: "ws", transportPath: "/ws"),
             try SubscriptionParser.parseLine("vless://00000000-0000-0000-0000-000000000001@v.example:443?security=tls&sni=v.example&type=ws&host=cdn.example.com&path=%2Fws%3Fed%3D2048#ws-host"),
             try SubscriptionParser.parseLine("vless://00000000-0000-0000-0000-000000000001@v.example:443?security=tls&type=grpc&serviceName=svc#grpc"),

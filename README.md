@@ -66,6 +66,8 @@ Choose the package for your Mac from [GitHub Releases](https://github.com/Cd1s/s
 | **Built-in All-Protocol Proxy** | No external proxy client needed. Paste a subscription URL or paste node links (`VLESS` / `Reality`, `VMess`, `Trojan`, `Shadowsocks` / `SS2022`, `AnyTLS`, `SOCKS5`, `HTTP`) directly. |
 | **Zero-Leak Protection** | Every environment routes traffic and DNS strictly through its assigned node. If a proxy disconnects, page loading stops immediately and **never** falls back to your real local IP. |
 
+[Clash YAML subscriptions](docs/hysteria2-subscriptions.md) containing Hysteria2 nodes (including port hopping) are also supported. Other Clash node types are skipped; Clash DNS, rules and listeners are not imported.
+
 ---
 
 ## Authentic Safari Browsing Experience

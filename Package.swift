@@ -13,11 +13,14 @@ let package = Package(
         .library(name: "SafarierNetwork", targets: ["SafarierNetwork"]),
         .library(name: "SafarierWebKit", targets: ["SafarierWebKit"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2"),
+    ],
     targets: [
         // 只依赖 Foundation/Security：Profile、代理、存储、凭据、Runner 启动协议、能力报告。
         .target(name: "SafarierCore"),
         // sing-box process lifecycle and subscription parsing.
-        .target(name: "SafarierNetwork", dependencies: ["SafarierCore"]),
+        .target(name: "SafarierNetwork", dependencies: ["SafarierCore", .product(name: "Yams", package: "Yams")]),
         // 动态调用私有接口的最小 ObjC 层：先检查 selector 和类型编码，再在 @try 里调用，NSException 不进 Swift。
         .target(name: "SafarierObjCSupport"),
         // 公开 WebKit/Network API：DataStore、代理配置、WKWebViewConfiguration 组装。

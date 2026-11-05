@@ -5,14 +5,14 @@
 # 有 lipo 时另有合并好的 Universal sing-box）：
 #   remote-build --fetch out/sing-box:.build -- scripts/build-singbox.sh
 # 环境变量：SINGBOX_VERSION（默认 1.14.4，和 SingboxConfigBuilder 实测过的版本一致），
-#           SINGBOX_TAGS（默认 with_utls：VLESS Reality 和节点链接里的 fp 指纹要用 uTLS；设成空字符串只编核心——
+#           SINGBOX_TAGS（默认 with_utls,with_quic：VLESS Reality 和节点链接里的 fp 指纹要用 uTLS；设成空字符串只编核心——
 #           socks 入站，vless / vmess / trojan / shadowsocks（含 SS2022）/ socks / anytls 出站，ws / http / grpc-lite 传输，TLS。
-#           TUN、QUIC、WireGuard、Tailscale、Clash API 等可选功能都不编进来），
+#           Hysteria2 需要 with_quic；TUN、WireGuard、Tailscale、Clash API 等可选功能都不编进来），
 #           SINGBOX_ARCHS（默认 "arm64 amd64"）。
 set -euo pipefail
 
 VERSION="${SINGBOX_VERSION:-1.14.4}"
-TAGS="${SINGBOX_TAGS-with_utls}"
+TAGS="${SINGBOX_TAGS-with_utls,with_quic}"
 ARCHS="${SINGBOX_ARCHS:-arm64 amd64}"
 cd "$(dirname "$0")/.."
 OUT="$PWD/out/sing-box"
@@ -31,7 +31,7 @@ sha256() {
 rm -rf "$OUT"
 mkdir -p "$OUT"
 for arch in $ARCHS; do
-  echo "==> darwin/$arch（tags: ${TAGS:-无}）"
+  echo "==> darwin/${arch}（tags: ${TAGS:-无}）"
   (
     cd "$SRC"
     CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" go build -trimpath -tags "$TAGS" -ldflags "$LDFLAGS" -o "$OUT/sing-box-$arch" ./cmd/sing-box
@@ -49,12 +49,12 @@ cp "$SRC/LICENSE" "$OUT/LICENSE"
 curl -fsSL https://www.gnu.org/licenses/gpl-3.0.txt -o "$OUT/COPYING"
 grep -q 'GNU GENERAL PUBLIC LICENSE' "$OUT/COPYING"
 {
-  echo "sing-box $VERSION，GPL-3.0-or-later（版权声明见 LICENSE，许可证全文见 COPYING），未修改源码。"
-  echo "源码：https://github.com/SagerNet/sing-box/tree/v$VERSION（commit $(git -C "$SRC" rev-parse HEAD)）"
+  echo "sing-box ${VERSION}，GPL-3.0-or-later（版权声明见 LICENSE，许可证全文见 COPYING），未修改源码。"
+  echo "源码：https://github.com/SagerNet/sing-box/tree/v${VERSION}（commit $(git -C "$SRC" rev-parse HEAD)）"
   echo "工具链：$(go version)；build tags：${TAGS:-无}；CGO_ENABLED=0"
   echo "Safarier.app 里的 sing-box 是下面各切片用 lipo -create 合并的 Universal 文件："
   for arch in $ARCHS; do
-    echo "  darwin/$arch：CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -tags \"$TAGS\" -ldflags \"$LDFLAGS\" ./cmd/sing-box"
+    echo "  darwin/${arch}：CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath -tags \"$TAGS\" -ldflags \"$LDFLAGS\" ./cmd/sing-box"
     echo "    sha256 $(sha256 "$OUT/sing-box-$arch")"
   done
 } > "$OUT/SOURCE"

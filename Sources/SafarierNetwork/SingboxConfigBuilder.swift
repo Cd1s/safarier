@@ -161,12 +161,21 @@ public struct SingboxConfigBuilder: Sendable {
             result["version"] = .string("5")
             if let username = node.username, !username.isEmpty { result["username"] = .string(username) }
             if let password = node.password, !password.isEmpty { result["password"] = .string(password) }
+        case .hysteria2:
+            if let password = node.password { result["password"] = .string(password) }
+            if let ports = node.parameters["server_ports"] {
+                result.removeValue(forKey: "server_port")
+                result["server_ports"] = .array(ports.split(separator: ",").map { .string(String($0)) })
+            }
+            if let obfs = node.parameters["obfs"], let password = node.parameters["obfs-password"] {
+                result["obfs"] = .object(["type": .string(obfs), "password": .string(password)])
+            }
         case .anytls:
             if let password = node.password { result["password"] = .string(password) }
         }
 
-        // AnyTLS 没有不带 TLS 的形式。
-        if node.tls || node.type == .anytls || node.reality != nil {
+        // AnyTLS 和 Hysteria2 都必须启用 TLS。
+        if node.tls || node.type == .anytls || node.type == .hysteria2 || node.reality != nil {
             var tls: [String: SingboxJSONValue] = ["enabled": .bool(true)]
             if let serverName = node.serverName { tls["server_name"] = .string(serverName) }
             if node.allowsInsecureTLS { tls["insecure"] = .bool(true) }
@@ -254,6 +263,7 @@ private extension SubscriptionNodeType {
         case .shadowsocks: return "shadowsocks"
         case .socks: return "socks"
         case .anytls: return "anytls"
+        case .hysteria2: return "hysteria2"
         }
     }
 }

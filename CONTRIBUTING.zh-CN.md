@@ -65,6 +65,16 @@
 - **新协议或新链接格式**：`SubscriptionParser` 和 `SingboxConfigBuilder`，加解析测试，并在 `testGeneratedConfigsPassSingboxCheck` 里加一例。
 - **新的 WebKit 能力**：加一个 `SPIFeatures` 开关，在 `SPIPrivacyAdapter` 里加一个分支并报告 `CapabilityState`，用注入的桥写测试（参考 `FontAllowlistAdapterTests`）。
 
+### 界面文案与英文
+
+界面同时提供简体中文和英文。源码里的中文字面量就是本地化的键，英文放在 `Resources/en.lproj/Localizable.strings`，加翻译不用改视图：
+
+- 接受 `LocalizedStringKey` 的 SwiftUI 初始化器（`Text`、`Button`、`Label`、`Section`、`Toggle`、`Picker`、`.help`）会自动查表，普通字面量不要包。
+- 会变成 `String` 的地方（返回值、`NSMenuItem` / `NSButton` / `NSAlert` 文案、窗口标题、带插值的文案）统一走 `L10n.text("中文", 参数…)`。带插值的键写成 `%@` / `%lld` / `%lf`，不要写 `\(…)`。
+- `Resources/zh-Hans.lproj` 由 `scripts/make-zh-strings.swift` 在构建时从英文表生成（开发区域是 zh-Hans），不要提交到仓库。
+- 新增用户可见文案时补上英文条目。`LocalizationCoverageTests` 会检查缺键、占位符不一致，以及生成的中文表是否漂移。
+- 管理器自带界面语言开关（App 菜单 → **语言** → 跟随系统 / English / 简体中文）：二级菜单按实际安装的 `.lproj` 生成，新增语言会自动出现。选择存进 `UserDefaults`，再带 `-AppleLanguages` 重新启动自己，因为 macOS 只在进程启动时解析 Bundle 本地化。浏览窗口仍按各自环境的语言设置显示。
+
 ## 3. 本地构建与验证流程
 
 需要 macOS 14 及以上和较新的 Xcode（Swift 5.10+）。只有重新编译自带的 `sing-box` 才需要 Go。
@@ -143,7 +153,7 @@ scripts/update-cask.sh v1.2.5       # 指定 tag
 1. 一个 PR 只解决一个问题，改了的行为都要加或更新测试。
 2. 填写 PR 检查清单：没有页面脚本，运行时方法签名与能力已核验且能安全降级，代理仍然 Fail-Closed，参数和日志里没有密钥。
 3. 贴上 `swift test` 的最后几行。涉及环境模拟或代理的改动，再附探针输出或界面实测记录。
-4. 照周围代码的风格写：注释用平实的话说明为什么这样做，界面文案和其它界面一样用中文。
+4. 照周围代码的风格写：注释用平实的话说明为什么这样做。界面文案在源码里保持中文（它就是本地化的键），另在 `Resources/en.lproj/Localizable.strings` 里补英文，见[界面文案与英文](#界面文案与英文)。
 5. 原生引擎桥接层的改动，先开 Issue 附上运行时方法签名与能力核验结果，再写代码。
 
 自带的 `sing-box` 是未修改的上游代码，许可证为 GPL-3.0-or-later。`scripts/build-singbox.sh` 会把确切的源码 commit 和编译参数写进 `SOURCE`，随应用放在 `Contents/Resources/ThirdParty/sing-box/`。如果改了编译方式，请同步更新这份说明。

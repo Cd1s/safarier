@@ -65,6 +65,16 @@ Common changes and where they go:
 - **New node protocol or link format**: `SubscriptionParser` plus `SingboxConfigBuilder`, with a parser test and a case in `testGeneratedConfigsPassSingboxCheck`.
 - **New WebKit capability**: an `SPIFeatures` token, a branch in `SPIPrivacyAdapter` reporting a `CapabilityState`, and tests with injected bridges (see `FontAllowlistAdapterTests`).
 
+### Localization
+
+The UI ships in Simplified Chinese and English. Chinese source literals are the keys; English lives in `Resources/en.lproj/Localizable.strings`, so adding a translation never touches the views:
+
+- SwiftUI initializers that take a `LocalizedStringKey` (`Text`, `Button`, `Label`, `Section`, `Toggle`, `Picker`, `.help`) localize a plain literal automatically. Leave those literals alone.
+- Anything that becomes a `String` — return values, `NSMenuItem`/`NSButton`/`NSAlert` text, window titles, interpolated text — goes through `L10n.text("中文", args…)`. Interpolated keys use `%@` / `%lld` / `%lf` instead of `\(…)`.
+- `Resources/zh-Hans.lproj` is generated at build time by `scripts/make-zh-strings.swift` from the English table (the development region is zh-Hans), so do not add it to the repository.
+- Add the English entry for every new user-facing string. `LocalizationCoverageTests` fails when a key is missing, a placeholder does not match, or the generated Chinese table drifts.
+- The manager has an in-app language switch (app menu → **Language** → Follow System / English / 简体中文). The submenu is built from the installed `.lproj` tables, so adding a language adds an entry automatically. The choice persists in `UserDefaults` and relaunches with `-AppleLanguages`, because macOS resolves bundle localization only at process start. Browser windows keep following each profile's language.
+
 ## 3. How to Build & Verify
 
 Requirements: macOS 14+ and a recent Xcode (Swift 5.10+). Go is only needed to rebuild the bundled `sing-box`.
@@ -143,7 +153,7 @@ If upstream later creates a dedicated tap repository (e.g. `Cd1s/homebrew-safari
 1. Keep each PR focused on one problem, and add or update tests for every behavior you change.
 2. Fill in the PR checklist: no page scripts, runtime signatures and capabilities verified with safe fallback, proxy still fail-closed, no secrets in arguments or logs.
 3. Paste the end of your `swift test` output. For simulation or proxy changes, also attach probe output or a manual check.
-4. Follow the surrounding code style. Comments explain *why* in plain words, and user-facing strings stay in Chinese like the rest of the UI.
+4. Follow the surrounding code style. Comments explain *why* in plain words. User-facing strings stay in Chinese in the source (they are the localization keys) and get an English entry in `Resources/en.lproj/Localizable.strings`; see [Localization](#localization).
 5. Changes to the Native Engine Bridge need an issue with runtime signature and capability verification results first.
 
 The bundled `sing-box` is unmodified upstream code under GPL-3.0-or-later. `scripts/build-singbox.sh` writes the exact source commit and build flags to `SOURCE`, which ships in `Contents/Resources/ThirdParty/sing-box/`. Keep that notice accurate if you change how it is built.

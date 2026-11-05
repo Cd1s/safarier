@@ -6,10 +6,12 @@ import SafarierCore
 @MainActor
 enum ManagerGUI {
     static func start() -> Never {
+        // 保存的界面语言要在建窗口前套用：没按它启动过就带 -AppleLanguages 重启自己。
+        UILanguage.applyAtLaunch()
         do {
             ManagerApp.workspace = try SafarierWorkspace.default()
         } catch {
-            ManagerCLI.printError("无法打开元数据目录：\(error)")
+            ManagerCLI.printError(L10n.text("无法打开元数据目录：%@", String(describing: error)))
             exit(1)
         }
         _ = try? AgentSkillGuide.install()
@@ -19,15 +21,15 @@ enum ManagerGUI {
 
     static func showAgentSetup() {
         let alert = NSAlert()
-        alert.messageText = "AI Agent 接入"
+        alert.messageText = L10n.text("AI Agent 接入")
         do {
             _ = try AgentSkillGuide.install()
-            alert.informativeText = "已同步 safarier-browser Skill 到 Claude Code 与 Codex 的技能目录。重新加载 Agent 的技能列表后，即可操作环境、填表和截图。其他客户端可导入指南。\n\n遇到验证码或需要确认的步骤，可用 agent focus 切回窗口人工完成。"
+            alert.informativeText = L10n.text("已同步 safarier-browser Skill 到 Claude Code 与 Codex 的技能目录。重新加载 Agent 的技能列表后，即可操作环境、填表和截图。其他客户端可导入指南。\n\n遇到验证码或需要确认的步骤，可用 agent focus 切回窗口人工完成。")
         } catch {
-            alert.informativeText = "Skill 同步失败：\(error.localizedDescription)\n可拷贝指南后手动导入。"
+            alert.informativeText = L10n.text("Skill 同步失败：%@\n可拷贝指南后手动导入。", error.localizedDescription)
         }
-        alert.addButton(withTitle: "拷贝接入指南")
-        alert.addButton(withTitle: "关闭")
+        alert.addButton(withTitle: L10n.text("拷贝接入指南"))
+        alert.addButton(withTitle: L10n.text("关闭"))
         if alert.runModal() == .alertFirstButtonReturn {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(AgentSkillGuide.markdown, forType: .string)
@@ -103,6 +105,9 @@ final class ManagerAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // SwiftUI 的 Commands 会把嵌套语言菜单摊平，二级菜单用 AppKit 插进 App 菜单；
+        // 放到下一个 runloop，等 SwiftUI 把主菜单建好。
+        DispatchQueue.main.async { LanguageMenuController.shared.install() }
         NSApp.activate(ignoringOtherApps: true)
         // SwiftUI 菜单不能放隐藏的备用快捷键：⌘·（中文输入法下的 ⌘`）和 ⇧⌘` 等反向组合在这里接住。⌘` 本身交给菜单。
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

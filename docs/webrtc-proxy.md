@@ -71,3 +71,14 @@ R1–R4 仍为发布阻塞，不以本地测试、编译或 XPC 注册成功消�
 
 协议/入口验证：`swift test --filter 'SafarierProxyTests|WebViewConfigurationFactoryTests|DataStoreManagerTests|ProxyManagementTests|PopupPrivacyTests.testFailedPopupRTCProtection'`。
 签名配置纯校验：`PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-network-extension-package.py`，使用合成字典验证拒绝条件，不生成 profile，不证明实际签名可用。
+
+## 本轮验证记录（2026-11-04）
+
+最终代码基于上游 main `90c78af`，只移入 WebRTC 提交；不包含原工作树的独立 UI 改动或误落分支的订阅提交。
+
+- `swift test`：530 项，6 项跳过，0 失败（WebKit 130 / Proxy 10 / Network 119 / Core 116 / App 155）。跳过项沿用本机能力/缺少 sing-box 的测试条件。早期未修改代码的 UI 基线有失败，最终全量运行未复现；本变更未修复那些无关 UI 断言。
+- Proxy 10 项包含真实 loopback SOCKS5 认证与双向 UDP、不同目的/来源保留、wildcard relay、控制连接 EOF、畸形 FRAG、认证拒绝、10 秒静默握手超时、HTTP UDP 提前拒绝、SOCKS/HTTP TCP 半关闭后反向数据，以及 codec/路由撤销/容量检查。
+- `swift build -c release --arch arm64 --arch x86_64 --product SafarierProxyExtension`：通过；`lipo` 验证两种架构，两个切片都保留 plist 指定的 Objective-C provider 类。未运行/安装该扩展。
+- `PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-network-extension-package.py`：3 项通过；只验证合成字典与生成 plist，不代表真实 profile/签名验收。
+- 当前基线探针对 SOCKS5、HTTP 各复现 1 个直接 STUN 包、0 个 RTC 代理连接、1 个 HTTPS 代理连接。它证明原始问题，**不是修复后的媒体证明**。
+- `Safarier network-extension status`：未配置实验网络扩展；无系统配置写入。缺少 provisioning profiles，签名打包/激活/真实媒体/崩溃和禁用故障注入均未执行。R1–R4 保持开放。

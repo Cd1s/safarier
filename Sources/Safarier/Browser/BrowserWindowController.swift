@@ -940,12 +940,12 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
                 width: CGFloat(windowFeatures.width?.doubleValue ?? Double(window.contentLayoutRect.width)),
                 height: CGFloat(windowFeatures.height?.doubleValue ?? Double(window.contentLayoutRect.height))
             )
-            return session.openWindow(url: nil, configuration: configuration, contentSize: size).webView
+            return session.openPopup(configuration: configuration, in: nil, contentSize: size, background: false)?.webView
         }
         // ⌘点按 / 中键点按 target=_blank 链接也走这里：开在后台（加 ⇧ 切过去），和普通链接一致。
         let flags = navigationAction.modifierFlags
         let background = forcedBackground || ((flags.contains(.command) || navigationAction.buttonNumber == 2) && !flags.contains(.shift))
-        return session.openTab(in: self, url: nil, configuration: configuration, background: background).webView
+        return session.openPopup(configuration: configuration, in: self, contentSize: nil, background: background)?.webView
     }
 
     func webViewDidClose(_ webView: WKWebView) {

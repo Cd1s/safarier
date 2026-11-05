@@ -133,3 +133,7 @@ Safarier is built natively with Swift and Apple WebKit for macOS. `Safarier.app`
 
 - Community & Links: [LINUX DO](https://linux.do)
 
+
+### Experimental WebRTC proxy development
+
+WebKit's per-profile HTTP/SOCKS configuration does not route WebRTC UDP. An opt-in macOS 15+ Network Extension implementation is under development; see [the design, setup and release blockers](docs/webrtc-proxy.md). It is **not a verified production fix**. Keeping RTC enabled in a proxied session requires explicit experimental opt-in and a ready extension; HTTP proxies require site-provided TURN/TCP for calls.

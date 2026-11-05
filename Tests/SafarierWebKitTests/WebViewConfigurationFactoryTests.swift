@@ -54,10 +54,25 @@ final class WebViewConfigurationFactoryTests: XCTestCase {
         try credentials.setPassword("secret", forKey: proxy.credentialKey)
         let profile = Profile(name: "p", mode: .ephemeral, proxyID: proxy.id)
 
-        let output = try makeFactory(credentials: credentials).make(profile: profile, proxy: proxy, processLanguages: [])
+        let output = try WebViewConfigurationFactory(credentials: credentials, privacy: SPIPrivacyAdapter(features: .disableWebRTC)).make(profile: profile, proxy: proxy, processLanguages: [])
 
         XCTAssertEqual(output.configuration.websiteDataStore.proxyConfigurations.count, 1)
         guard case .active = output.report[.proxy] else { return XCTFail("proxy: \(output.report[.proxy])") }
+    }
+
+    @MainActor
+    func testProxyWithUnprotectedRTCRefusesCreationEvenWithExperimentalFlag() throws {
+        let proxy = ProxySettings(name: "test", kind: .socks5, host: "127.0.0.1", port: 20001)
+        let profile = Profile(name: "test", mode: .ephemeral, proxyID: proxy.id)
+        for readiness in [false, true] {
+            XCTAssertThrowsError(try makeFactory().make(profile: profile, proxy: proxy, experimentalRTCProxyReady: { readiness })) {
+                XCTAssertEqual($0 as? WebViewConfigurationError, .unsafeWebRTC)
+            }
+        }
+        let enabledRTC = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), privacy: SPIPrivacyAdapter(features: []))
+        XCTAssertThrowsError(try enabledRTC.make(profile: profile, proxy: proxy)) {
+            XCTAssertEqual($0 as? WebViewConfigurationError, .unsafeWebRTC)
+        }
     }
 
     @MainActor

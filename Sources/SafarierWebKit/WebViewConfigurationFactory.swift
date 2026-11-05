@@ -3,6 +3,7 @@ import WebKit
 import SafarierCore
 
 public enum WebViewConfigurationError: Error, Equatable {
+    case unsafeWebRTC
     case proxyNotFound(UUID)
     case proxyMismatch(expected: UUID, got: UUID)
 }
@@ -18,7 +19,7 @@ public struct WebViewConfigurationFactory {
         public var report: PrivacyCapabilityReport
         /// 网页打开的弹窗建 WebView 之前调用：用这次 make 实际生效的隐私适配器（含 --spi 覆盖）在 WebKit 交来的
         /// configuration 上补齐页面级设置，返回弹窗上的落实情况。不替换进程池和网站数据存储。
-        public let preparePopup: @MainActor (WKWebViewConfiguration) -> PrivacyCapabilityReport
+        public let preparePopup: @MainActor (WKWebViewConfiguration) throws -> PrivacyCapabilityReport
         /// 4 参数导航决策回调放行前调用：同一个隐私适配器在单次导航的 WKWebpagePreferences 上确保高级隐私保护位。
         public let prepareNavigationPreferences: @MainActor (WKWebpagePreferences) -> Void
     }
@@ -76,7 +77,8 @@ public struct WebViewConfigurationFactory {
     public func make(
         profile: Profile,
         proxy: ProxySettings?,
-        processLanguages: [String] = UserDefaults.standard.stringArray(forKey: "AppleLanguages") ?? []
+        processLanguages: [String] = UserDefaults.standard.stringArray(forKey: "AppleLanguages") ?? [],
+        experimentalRTCProxyReady: @escaping @MainActor () -> Bool = { false }
     ) throws -> Output {
         var report = PrivacyCapabilityReport(engineBaseline: engineBaseline)
         let baselineState: CapabilityState
@@ -123,7 +125,7 @@ public struct WebViewConfigurationFactory {
             let password = proxy.username == nil ? nil : try credentials.password(forKey: proxy.credentialKey)
             try ProxyConfigurationBuilder.apply(proxy, password: password, to: store)
             report.set(
-                .active("\(proxy.kind.rawValue) \(proxy.host):\(proxy.port)（DNS/WebRTC 泄漏见 M0-3、M0-4）"),
+                .active("\(proxy.kind.rawValue) \(proxy.host):\(proxy.port)（WebRTC 另行检查；不代表 DNS 隔离）"),
                 for: .proxy
             )
         } else {
@@ -173,14 +175,23 @@ public struct WebViewConfigurationFactory {
             for: .displayCapabilities
         )
         privacy.apply(to: configuration, for: profile, report: &report)
+        try Self.validateWebRTC(hasProxy: profile.proxyID != nil, report: report, experimentalReady: experimentalRTCProxyReady())
         let privacy = privacy
         return Output(configuration: configuration, extensionRuntime: extensionMount.runtime, report: report, preparePopup: { popup in
             var popupReport = PrivacyCapabilityReport()
             privacy.applyToPopup(popup, for: profile, report: &popupReport)
+            try Self.validateWebRTC(hasProxy: profile.proxyID != nil, report: popupReport, experimentalReady: experimentalRTCProxyReady())
             return popupReport
         }, prepareNavigationPreferences: { preferences in
             privacy.alignNavigationPreferences(preferences)
         })
+    }
+    static func validateWebRTC(hasProxy: Bool, report: PrivacyCapabilityReport, experimentalReady: Bool) throws {
+        guard hasProxy else { return }
+        if case .active = report[.webRTCDisabled] { return }
+        // A requested disable that failed cannot silently become an enabled experimental session.
+        if experimentalReady, report[.webRTCDisabled] == .notRequested { return }
+        throw WebViewConfigurationError.unsafeWebRTC
     }
 }
 

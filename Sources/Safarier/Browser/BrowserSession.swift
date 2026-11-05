@@ -21,7 +21,7 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     let downloads = DownloadsController()
     private(set) var report: PrivacyCapabilityReport
     /// 网页打开的弹窗建 WebView 前补齐页面级隐私设置（本会话实际生效的那一套，见 `WebViewConfigurationFactory.Output.preparePopup`）。
-    private let preparePopup: @MainActor (WKWebViewConfiguration) -> PrivacyCapabilityReport
+    private let preparePopup: @MainActor (WKWebViewConfiguration) throws -> PrivacyCapabilityReport
     /// 4 参数导航决策回调放行前，在单次导航的 WKWebpagePreferences 上确保高级隐私保护位（同一个隐私适配器）。
     private let prepareNavigationPreferences: @MainActor (WKWebpagePreferences) -> Void
     /// 最近一个弹窗配置上的落实情况（测试和诊断用）。
@@ -189,9 +189,22 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         return controller
     }
 
+    /// The only production popup entry: reject before allocating a WebView or window.
+    func openPopup(configuration: WKWebViewConfiguration, in host: BrowserWindowController?, contentSize: NSSize?, background: Bool) -> BrowserWindowController? {
+        guard alignPopupConfiguration(configuration) else { return nil }
+        preparedPopups.add(configuration)
+        if let contentSize { return openWindow(url: nil, configuration: configuration, contentSize: contentSize, background: background) }
+        return openTab(in: host, url: nil, configuration: configuration, background: background)
+    }
+
+    private let preparedPopups = NSHashTable<WKWebViewConfiguration>.weakObjects()
+
     private func makeWebView(configuration popupConfiguration: WKWebViewConfiguration?) -> BrowserWebView {
         // 网页打开的视图必须原样用 WebKit 交来的配置（window.opener 在里面），只在它上面补齐页面级设置。
-        if let popupConfiguration { alignPopupConfiguration(popupConfiguration) }
+        if let popupConfiguration, !preparedPopups.contains(popupConfiguration) {
+            // Internal callers must obey the same gate; stop this Runner rather than create an unsafe view.
+            guard alignPopupConfiguration(popupConfiguration) else { exit(1) }
+        }
         let webView = BrowserWebView(frame: NSRect(origin: .zero, size: Self.defaultContentSize), configuration: popupConfiguration ?? configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
@@ -206,13 +219,20 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     }
 
     /// 本会话里生效的项，在弹窗上没生效就记一行日志（逐项明细不打，每个弹窗都会走一遍）。
-    private func alignPopupConfiguration(_ popupConfiguration: WKWebViewConfiguration) {
-        let popup = preparePopup(popupConfiguration)
+    @discardableResult
+    private func alignPopupConfiguration(_ popupConfiguration: WKWebViewConfiguration) -> Bool {
+        let popup: PrivacyCapabilityReport
+        do { popup = try preparePopup(popupConfiguration) }
+        catch {
+            FileHandle.standardError.write(Data("[proxy] 拒绝创建未满足 WebRTC 代理条件的弹窗\n".utf8))
+            return false
+        }
         lastPopupReport = popup
         for feature in [PrivacyFeature.advancedPrivacyProtections, .webRTCDisabled, .safariAPIs, .webGPU]
         where report[feature].name == "active" && popup[feature].name != "active" {
             FileHandle.standardError.write(Data("[spi] popup：\(feature.rawValue) \(popup[feature].summary)\n".utf8))
         }
+        return true
     }
 
     /// 新窗口内容区大小：选了机型就按机型视口（屏幕放不下等比缩小），否则沿用当前窗口或默认大小。

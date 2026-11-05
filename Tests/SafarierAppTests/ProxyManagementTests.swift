@@ -29,7 +29,7 @@ final class ProxyManagementTests: XCTestCase {
         for name in ["One", "Two"] {
             let profile = Profile(name: name, mode: .ephemeral, proxyID: proxy.id)
             try model.save(profile, isNew: true)
-            let output = try WebViewConfigurationFactory(credentials: credentials).make(profile: profile, proxy: proxy)
+            let output = try WebViewConfigurationFactory(credentials: credentials, privacy: SPIPrivacyAdapter(features: .disableWebRTC)).make(profile: profile, proxy: proxy)
             XCTAssertEqual(output.configuration.websiteDataStore.proxyConfigurations.count, 1)
             XCTAssertNil(profile.customOutboundJSON)
         }

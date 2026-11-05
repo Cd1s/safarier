@@ -13,6 +13,7 @@ enum ManagerCLI {
       safarier profile update PROFILE_ID [--name NAME] [--lang proxy|system|en-US,en] [--tz proxy|system|ZONE] [--url URL|none] [--proxy PROXY_ID|none | --sub SUBSCRIPTION_ID --node NODE_NAME | --node none] [--device MODEL|none] [--notes TEXT] [--spi default|none|all|afp,tz,webrtc,safari,webgpu,fontlist]
       safarier profile clone PROFILE_ID [--name NAME]
       safarier profile delete PROFILE_ID [--purge-data]
+      safarier network-extension install|status
       safarier proxy list
       safarier proxy add --name NAME --kind socks5|httpConnect --host HOST --port PORT [--username USER] [--password-stdin]
       safarier proxy delete PROXY_ID
@@ -64,6 +65,7 @@ enum ManagerCLI {
             case ("profile", "update"): return try updateProfile(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("profile", "clone"): return try cloneProfile(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("profile", "delete"): return try deleteProfile(workspace, try ParsedArguments(arguments.dropFirst(2), flags: ["--purge-data"]))
+            case ("network-extension", _): return NetworkExtensionCLI.run(Array(arguments.dropFirst()))
             case ("proxy", "list"): return try listProxies(workspace)
             case ("proxy", "add"): return try addProxy(workspace, try ParsedArguments(arguments.dropFirst(2), flags: ["--password-stdin"]))
             case ("proxy", "delete"): return try deleteProxy(workspace, try ParsedArguments(arguments.dropFirst(2)))

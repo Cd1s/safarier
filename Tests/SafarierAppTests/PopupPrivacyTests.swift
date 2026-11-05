@@ -33,6 +33,20 @@ final class PopupPrivacyTests: XCTestCase {
 
     private let processPoolGetter = SFRSymbolDecoder.decode([0x2A, 0x28, 0x35, 0x39, 0x3F, 0x29, 0x29, 0x0A, 0x35, 0x35, 0x36])
 
+    func testFailedPopupRTCProtectionDoesNotAllocateWindow() throws {
+        _ = NSApplication.shared
+        let proxy = ProxySettings(name: "test", kind: .socks5, host: "127.0.0.1", port: 20001)
+        let profile = Profile(name: "test", mode: .ephemeral, proxyID: proxy.id)
+        let output = try WebViewConfigurationFactory(credentials: InMemoryCredentialStore(), privacy: InitialOnlyRTCAdapter())
+            .make(profile: profile, proxy: proxy)
+        let session = BrowserSession(profile: profile, output: output, outboundDescription: "test", diagnostics: SPIDiagnostics())
+        self.session = session
+        XCTAssertEqual(output.report[.webRTCDisabled].name, "active")
+        let popup = WKWebViewConfiguration()
+        XCTAssertNil(session.openPopup(configuration: popup, in: nil, contentSize: NSSize(width: 400, height: 300), background: true))
+        XCTAssertTrue(session.openControllers.isEmpty)
+    }
+
     func testWindowOpenKeepsOpenerAndAlignsAdvancedPrivacy() throws {
         _ = NSApplication.shared
         let profile = Profile(name: "popup", mode: .ephemeral, timeZoneIdentifier: "Asia/Tokyo")
@@ -79,5 +93,17 @@ final class PopupPrivacyTests: XCTestCase {
         let openerSees = try XCTUnwrap(evaluate(probe, in: opener.webView) as? String)
         XCTAssertEqual(evaluate(probe, in: popup.webView) as? String, openerSees, "弹窗和打开它的网页看到的 Safari 接口、WebRTC、时区一致")
         XCTAssertTrue(openerSees.hasSuffix("|Asia/Tokyo"), openerSees)
+    }
+}
+
+/// Simulate an unavailable popup SPI boundary; initial protection uses the real engine adapter.
+@MainActor
+private struct InitialOnlyRTCAdapter: PrivacyProtectionAdapter {
+    let identifier = "test-initial-only-rtc"
+    func apply(to configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {
+        SPIPrivacyAdapter(features: .disableWebRTC).apply(to: configuration, for: profile, report: &report)
+    }
+    func applyToPopup(_ configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {
+        PublicAPIPrivacyAdapter().apply(to: configuration, for: profile, report: &report)
     }
 }

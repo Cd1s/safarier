@@ -101,7 +101,7 @@ final class DataStoreManagerTests: XCTestCase {
         var withProxy = profile
         withProxy.proxyID = proxy.id
         let safari = WebViewConfigurationFactory(credentials: InMemoryCredentialStore(),
-                                                 privacy: CompositePrivacyAdapter([PublicAPIPrivacyAdapter(), SPIPrivacyAdapter(features: .safariAPIs)]),
+                                                 privacy: CompositePrivacyAdapter([PublicAPIPrivacyAdapter(), SPIPrivacyAdapter(features: [.safariAPIs, .disableWebRTC])]),
                                                  safariApplicationName: nil)
         let output = try safari.make(profile: withProxy, proxy: proxy, processLanguages: [])
         XCTAssertFalse(output.configuration.websiteDataStore.isPersistent)

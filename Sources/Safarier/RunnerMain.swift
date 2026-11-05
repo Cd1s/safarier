@@ -3,10 +3,14 @@ import WebKit
 import SafarierCore
 import SafarierNetwork
 import SafarierWebKit
+import SafarierProxyControl
+import SafarierProxyTransport
 
 /// Runner 进程入口：一个进程只服务一个 profile。
 @MainActor
 enum RunnerMain {
+    /// Experimental registration is retained for this Runner only; connection loss terminates it.
+    private static var rtcProxyClient: ProxyExtensionClient?
     /// 进程存活期间一直持有，退出（含崩溃）时内核自动释放。
     private static var lock: ProfileLock?
     private static var controller: AnyObject?
@@ -96,12 +100,23 @@ enum RunnerMain {
                     FileHandle.standardError.write(Data("[geo] 跟随代理没能确定出口国家，语言和时区沿用系统\n".utf8))
                 }
             }
+            if let proxy, !spiFeatures.contains(.disableWebRTC) {
+                guard #available(macOS 15.0, *), ProcessInfo.processInfo.environment["SAFARIER_EXPERIMENTAL_RTC_PROXY"] == "1" else {
+                    fail("保留 WebRTC 的代理环境需要 macOS 15+ 及已安装的实验网络扩展；尚未满足条件，拒绝直连。详见 docs/webrtc-proxy.md")
+                }
+                let secret = proxy.username == nil ? nil : try KeychainCredentialStore().password(forKey: proxy.credentialKey)
+                let route = try ProxyRoute(proxy: proxy, credentialSecret: secret)
+                rtcProxyClient = try ProxyExtensionClient(profileID: profile.id, route: route) {
+                    FileHandle.standardError.write(Data("[proxy] 网络扩展连接已失效，结束 Runner\n".utf8))
+                    exit(1)
+                }
+            }
             let privacy = CompositePrivacyAdapter([
                 PublicAPIPrivacyAdapter(),
                 SPIPrivacyAdapter(features: spiFeatures, diagnostics: diagnostics),
             ])
             let factory = WebViewConfigurationFactory(credentials: KeychainCredentialStore(), privacy: privacy, extensionWorkspace: workspace)
-            var output = try factory.make(profile: effectiveProfile, proxy: proxy)
+            var output = try factory.make(profile: effectiveProfile, proxy: proxy, experimentalRTCProxyReady: { rtcProxyClient?.isReady == true })
             if let displayState { output.report.set(displayState, for: .displayCapabilities) }
 
             let app = NSApplication.shared
@@ -127,7 +142,11 @@ enum RunnerMain {
                 session.start(url: spec.startURL, background: spec.background)
             }
             app.run()
+            rtcProxyClient?.close()
+            rtcProxyClient = nil
             exit(0)
+        } catch WebViewConfigurationError.unsafeWebRTC {
+            fail("无法确认 WebRTC 已关闭，且没有就绪的实验代理会话；已阻止创建页面以免直连。")
         } catch {
             fail("Runner 启动失败：\(error)")
         }

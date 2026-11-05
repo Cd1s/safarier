@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "Safarier", targets: ["Safarier"]),
+        .executable(name: "SafarierProxyExtension", targets: ["SafarierProxyExtension"]),
         .library(name: "SafarierCore", targets: ["SafarierCore"]),
         .library(name: "SafarierNetwork", targets: ["SafarierNetwork"]),
         .library(name: "SafarierWebKit", targets: ["SafarierWebKit"]),
@@ -19,6 +20,10 @@ let package = Package(
     targets: [
         // 只依赖 Foundation/Security：Profile、代理、存储、凭据、Runner 启动协议、能力报告。
         .target(name: "SafarierCore"),
+        .target(name: "SafarierProxyTransport", dependencies: ["SafarierCore"]),
+        .target(name: "SafarierProxyControl", dependencies: ["SafarierProxyTransport", "SafarierCore"]),
+        .executableTarget(name: "SafarierProxyExtension", dependencies: ["SafarierProxyControl", "SafarierProxyTransport", "SafarierCore"]),
+        .testTarget(name: "SafarierProxyTests", dependencies: ["SafarierProxyTransport", "SafarierProxyControl", "SafarierCore"]),
         // sing-box process lifecycle and subscription parsing.
         .target(name: "SafarierNetwork", dependencies: ["SafarierCore", .product(name: "Yams", package: "Yams")]),
         // 动态调用私有接口的最小 ObjC 层：先检查 selector 和类型编码，再在 @try 里调用，NSException 不进 Swift。
@@ -27,7 +32,7 @@ let package = Package(
         // 私有接口只出现在可选的 SPIPrivacyAdapter 里，经 SafarierObjCSupport 动态探测、失败降级。
         .target(name: "SafarierWebKit", dependencies: ["SafarierCore", "SafarierObjCSupport"]),
         // 命令行 Manager + AppKit Runner（同一个二进制，`run` 子命令进入 Runner 模式）。
-        .executableTarget(name: "Safarier", dependencies: ["SafarierCore", "SafarierNetwork", "SafarierWebKit"]),
+        .executableTarget(name: "Safarier", dependencies: ["SafarierCore", "SafarierNetwork", "SafarierWebKit", "SafarierProxyControl", "SafarierProxyTransport"]),
         .testTarget(name: "SafarierCoreTests", dependencies: ["SafarierCore"]),
         .testTarget(name: "SafarierNetworkTests", dependencies: ["SafarierNetwork", "SafarierCore"]),
         .testTarget(name: "SafarierWebKitTests", dependencies: ["SafarierWebKit", "SafarierObjCSupport"]),

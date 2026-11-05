@@ -13,8 +13,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Skip non-latest or pre-releases
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "Pre-release $TAG, skipping"
+            echo "should_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          if [ "$latest" != "$TAG" ]; then
+            echo "$TAG is not the latest release ($latest), skipping"
+            echo "should_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "should_update=true" >> "$GITHUB_OUTPUT"
 
       - name: Update cask from release assets
+        if: steps.check.outputs.should_update == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}
@@ -22,6 +45,7 @@ jobs:
           scripts/update-cask.sh "$TAG" || { sleep 60; scripts/update-cask.sh "$TAG"; }
 
       - name: Commit and push
+        if: steps.check.outputs.should_update == 'true'
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -33,4 +57,4 @@ jobs:
           fi
           git add Casks/safarier.rb
           git commit -m "chore(cask): bump to ${TAG}"
-          git push
+          git push origin HEAD:main

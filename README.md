@@ -39,6 +39,19 @@ Most multi-account or "fingerprint" browsers on the market are built on modified
 
 ## Download & Install
 
+### Install with Homebrew
+
+This repository doubles as a Homebrew tap — tap it by URL and install:
+
+```sh
+brew tap cd1s/safarier https://github.com/Cd1s/safarier
+brew install --cask cd1s/safarier/safarier
+```
+
+The cask picks the Apple Silicon or Intel build automatically and can be upgraded with `brew upgrade --cask safarier`. Later releases are also picked up by the app's own **About → Check for Updates…**.
+
+### Download the zip
+
 Choose the package for your Mac from [GitHub Releases](https://github.com/Cd1s/safarier/releases/latest) (supports **macOS 14 Sonoma**, **macOS 15 Sequoia**, and later):
 
 | Edition | Recommended For | Download Package |
@@ -52,6 +65,8 @@ Choose the package for your Mac from [GitHub Releases](https://github.com/Cd1s/s
    ```bash
    xattr -dr com.apple.quarantine /Applications/Safarier.app
    ```
+
+The app is ad-hoc signed rather than signed with an Apple Developer ID and notarized, so it is distributed through this repository as a Homebrew tap (via `brew tap` with an explicit URL) instead of the official `homebrew-cask` repository.
 
 ---
 

@@ -39,6 +39,19 @@
 
 ## 下载与安装
 
+### 用 Homebrew 安装
+
+本仓库自身就是 Homebrew tap——用显式 URL tap 后即可安装：
+
+```sh
+brew tap cd1s/safarier https://github.com/Cd1s/safarier
+brew install --cask cd1s/safarier/safarier
+```
+
+Cask 会自动选择 Apple Silicon 或 Intel 版本，后续用 `brew upgrade --cask safarier` 升级；应用自带的 **关于 → 检查更新…** 也能收到新版本。
+
+### 下载安装包
+
 前往 [Releases 页面](https://github.com/Cd1s/safarier/releases/latest) 下载适合你 Mac 的版本（支持 **macOS 14 Sonoma**、**macOS 15 Sequoia** 及以上系统）：
 
 | 版本 | 适用电脑 | 下载安装包 |
@@ -52,6 +65,8 @@
    ```bash
    xattr -dr com.apple.quarantine /Applications/Safarier.app
    ```
+
+应用只有 ad-hoc 签名，没有 Apple Developer ID 签名和公证，所以不放进官方 `homebrew-cask` 仓库，而是把本仓库当作 Homebrew tap 分发（`brew tap` 支持显式 URL）。
 
 ---
 

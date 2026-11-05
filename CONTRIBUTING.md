@@ -106,6 +106,25 @@ SAFARIER_ARCH=universal scripts/build-app.sh    # universal | arm64 | x86_64 →
 
 `SAFARIER_VERSION` overrides the version and `SAFARIER_ICON_STYLE` picks the icon (`meridian`, `prism`, `titanium`, `shield`). The app is ad-hoc signed. Check it with `codesign --verify --deep --strict dist/Safarier.app` and `lipo -archs`.
 
+### Update the Homebrew Cask
+
+This repository doubles as a Homebrew tap: `Casks/safarier.rb` sits at the repo root, and users install via an explicit URL (`brew tap cd1s/safarier https://github.com/Cd1s/safarier` → `brew install --cask cd1s/safarier/safarier`).
+
+After a release, the cask is updated automatically by GitHub Actions (`.github/workflows/update-cask.yml` listens for `release: published`, runs `scripts/update-cask.sh`, and pushes to main); running the same script locally is only a fallback (or hand-edit `version` and the two `sha256` lines — three lines in total):
+
+```sh
+scripts/update-cask.sh              # latest release
+scripts/update-cask.sh v1.2.5       # a specific tag
+```
+
+The script reads checksums from the release's published `*.zip.sha256` assets; it fails instead of writing a half-updated file when a zip or its sha256 asset is missing. Commit the change together with the release — the upstream PR carries it. `brew tap` clones committed content, so the cask only takes effect for tap users once committed; verify after pushing with the two install commands above.
+
+The app is not signed with an Apple Developer ID or notarized, which the official `homebrew-cask` repository rejects (signing audit plus repository age requirements), so it ships with this repository acting as the tap. Do **not** add a postflight that strips `com.apple.quarantine`: Homebrew treats a download without quarantine as trusted, which removes the user's first-launch confirmation. Users approve the app through System Settings → Privacy & Security like any other unsigned download.
+
+Because the app downloads and replaces itself, the Cask sets `auto_updates true`; both `brew upgrade --cask` and the in-app **Check for Updates…** work.
+
+If upstream later creates a dedicated tap repository (e.g. `Cd1s/homebrew-safarier`), move `Casks/safarier.rb` there as-is and the install shortens to a single `brew install --cask cd1s/safarier/safarier` (shorthand auto-tap).
+
 ## 4. Submitting Issues & PRs
 
 **Issues**: use the Bug report or Feature request form. Include the macOS version, chip, outbound type, device model and language / time-zone settings. Redact everything sensitive: no subscription URLs, node links, passwords or real IPs.

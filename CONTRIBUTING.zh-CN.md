@@ -106,6 +106,25 @@ SAFARIER_ARCH=universal scripts/build-app.sh    # universal | arm64 | x86_64 →
 
 `SAFARIER_VERSION` 覆盖版本号，`SAFARIER_ICON_STYLE` 选图标（`meridian`、`prism`、`titanium`、`shield`）。应用是 ad-hoc 签名，可以用 `codesign --verify --deep --strict dist/Safarier.app` 和 `lipo -archs` 检查。
 
+### 更新 Homebrew Cask
+
+本仓库自身就是 Homebrew tap：`Casks/safarier.rb` 在仓库根，用户用显式 URL tap 安装（`brew tap cd1s/safarier https://github.com/Cd1s/safarier` → `brew install --cask cd1s/safarier/safarier`）。
+
+发新版后更新 cask 由 GitHub Actions 自动完成（`.github/workflows/update-cask.yml` 监听 `release: published`，跑 `scripts/update-cask.sh` 后提交到 main）；本地手动跑同一脚本只作为兜底（也可以手改 `version` 和两个 `sha256`，共三行）：
+
+```sh
+scripts/update-cask.sh              # 用最新 Release
+scripts/update-cask.sh v1.2.5       # 指定 tag
+```
+
+脚本从 Release 里发布的 `*.zip.sha256` 读取校验值；缺 zip 或 sha256 资产时直接失败，不写半套数据。改完随发版 commit 提交，上游 PR 会带上它。注意 `brew tap` 克隆的是已提交内容，所以 cask 要提交后才会对 tap 用户生效；推上去后用上面的两行安装命令验证即可。
+
+应用没有 Apple Developer ID 签名和公证，官方 `homebrew-cask` 会拒绝（签名审计 + 仓库年龄要求），所以走仓库即 tap 的自分发。Cask 里**不要**加 `xattr -dr com.apple.quarantine` 之类的 postflight 来绕过 Gatekeeper：Homebrew 会把去掉隔离属性的下载包视为可信来源，这会削弱用户首次启动时的系统确认。首次启动由用户按正常流程在「系统设置 → 隐私与安全性」里点「仍要打开」。
+
+因为应用会自己下载并原地替换，Cask 标了 `auto_updates true`；`brew upgrade --cask` 和应用内的「检查更新」都能升级。
+
+将来如果上游建了专门的 tap 仓库（如 `Cd1s/homebrew-safarier`），把 `Casks/safarier.rb` 原样搬过去即可，安装命令也会简化成一行 `brew install --cask cd1s/safarier/safarier`（简写自动 tap）。
+
 ## 4. 提交 Issue 与 PR 指南
 
 **Issue**：使用「问题反馈」或「功能建议」表单，写明 macOS 版本、芯片、出站方式、模拟机型和语言时区设置。敏感信息一律脱敏：不贴订阅链接、节点链接、密码和真实 IP。

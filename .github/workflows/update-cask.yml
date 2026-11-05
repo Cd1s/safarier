@@ -1,0 +1,29 @@
+name: Update Homebrew Cask
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-cask:
+    if: github.repository == 'Cd1s/safarier'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update cask from release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: scripts/update-cask.sh "$TAG"
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git add Casks/safarier.rb
+          git commit -m "chore(cask): bump to ${TAG}"
+          git push

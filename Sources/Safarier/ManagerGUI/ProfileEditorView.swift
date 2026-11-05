@@ -69,7 +69,7 @@ struct ProfileEditorView: View {
                         .pickerStyle(.segmented)
                         .disabled(original != nil)
                     } footer: {
-                        Text(DisplayText.modeDetail(editor.values.mode) + (original == nil ? "。" : "。模式创建后不能更改。"))
+                        Text(DisplayText.modeDetail(editor.values.mode) + (original == nil ? L10n.text("。") : L10n.text("。模式创建后不能更改。")))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -94,7 +94,7 @@ struct ProfileEditorView: View {
                                     .tag(UUID?.some(proxy.id))
                             }
                             if let proxyID = editor.values.proxyID, !model.proxies.contains(where: { $0.id == proxyID }) {
-                                Text("已被删除的代理（\(proxyID.uuidString.prefix(8))）").tag(UUID?.some(proxyID))
+                                Text(L10n.text("已被删除的代理（%@）", String(proxyID.uuidString.prefix(8)))).tag(UUID?.some(proxyID))
                             }
                         }
                         if model.proxies.isEmpty {
@@ -108,7 +108,7 @@ struct ProfileEditorView: View {
                         Picker("订阅", selection: $editor.values.subscriptionID) {
                             Text("选择订阅").tag(UUID?.none)
                             ForEach(model.subscriptions) { subscription in
-                                Text(verbatim: "\(subscription.name)（\(subscription.nodes.count) 个节点）").tag(UUID?.some(subscription.id))
+                                Text(L10n.text("%@（%lld 个节点）", subscription.name, subscription.nodes.count)).tag(UUID?.some(subscription.id))
                             }
                         }
                         LabeledContent("节点") {
@@ -118,7 +118,7 @@ struct ProfileEditorView: View {
                                         Text(node.name).lineLimit(1)
                                         ProtocolBadge(type: node.type)
                                     } else {
-                                        Text(editor.values.nodeName.map { "「\($0)」已不在订阅里" } ?? "选择节点…")
+                                        Text(editor.values.nodeName.map { L10n.text("「%@」已不在订阅里", $0) } ?? L10n.text("选择节点…"))
                                     }
                                     Image(systemName: "chevron.up.chevron.down").font(.caption)
                                 }
@@ -143,7 +143,7 @@ struct ProfileEditorView: View {
                 }
 
                 Section {
-                    regionSourcePicker("语言", selection: $editor.values.languageSource)
+                    regionSourcePicker(L10n.text("语言"), selection: $editor.values.languageSource)
                     if editor.values.languageSource == .custom {
                         LabeledContent("语言标签") {
                             HStack(spacing: 6) {
@@ -152,7 +152,7 @@ struct ProfileEditorView: View {
                                     .autocorrectionDisabled()
                                 Menu {
                                     ForEach(Self.languagePresets, id: \.value) { preset in
-                                        Button("\(preset.title)  \(preset.value)") { editor.values.languages = preset.value }
+                                        Button(L10n.text(preset.title) + "  " + preset.value) { editor.values.languages = preset.value }
                                     }
                                 } label: {
                                     Image(systemName: "character.bubble")
@@ -163,7 +163,7 @@ struct ProfileEditorView: View {
                             }
                         }
                     }
-                    regionSourcePicker("时区", selection: $editor.values.timeZoneSource)
+                    regionSourcePicker(L10n.text("时区"), selection: $editor.values.timeZoneSource)
                     if editor.values.timeZoneSource == .custom {
                         LabeledContent("时区标识") {
                             HStack(spacing: 6) {
@@ -185,10 +185,10 @@ struct ProfileEditorView: View {
                 }
 
                 Section {
-                    Picker(inline ? "机型" : "模拟机型", selection: $editor.values.deviceModel) {
+                    Picker(inline ? L10n.text("机型") : L10n.text("模拟机型"), selection: $editor.values.deviceModel) {
                         Text("跟随系统（默认）").tag(String?.none)
                         ForEach(MacDeviceModel.categories, id: \.self) { category in
-                            Section(category) {
+                            Section(L10n.text(category)) {
                                 ForEach(MacDeviceModel.presets.filter { $0.category == category }) { preset in
                                     Text(preset.name).tag(String?.some(preset.id))
                                 }
@@ -269,7 +269,7 @@ struct ProfileEditorView: View {
                     Button("取消", role: .cancel) { dismiss() }
                         .keyboardShortcut(.cancelAction)
                 }
-                Button(original == nil ? "创建" : "保存") { save() }
+                Button(original == nil ? L10n.text("创建") : L10n.text("保存")) { save() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(editor.values.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (inline && !editor.hasChanges))
             }
@@ -289,7 +289,7 @@ struct ProfileEditorView: View {
                     Button { model.launch(original) } label: {
                         Label("启动浏览器", systemImage: "play.fill")
                     }
-                    .help(editor.hasChanges ? "请先保存或还原修改" : "启动浏览器")
+                    .help(editor.hasChanges ? L10n.text("请先保存或还原修改") : L10n.text("启动浏览器"))
                     .disabled(model.runState(original.id) != .stopped || editor.hasChanges || editor.isSaving)
                 }
             }
@@ -346,27 +346,27 @@ struct ProfileEditorView: View {
 
     private var outboundFooter: String {
         switch editor.values.outboundKind {
-        case .direct: return "不经过代理。"
-        case .custom: return "保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。"
-        case .proxy: return "在左侧「代理」中统一管理 HTTP / SOCKS5 代理和前置连接，供多个环境复用。已配置前置时使用完整两跳链路，修改后需重启环境。"
-        case .node: return "启动时为这个环境单独起一个 sing-box，把节点转成本地 SOCKS5 交给 WebKit；节点连不上时页面加载失败，不会退回直连。节点按名字匹配，订阅刷新后仍然有效。"
+        case .direct: return L10n.text("不经过代理。")
+        case .custom: return L10n.text("保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。")
+        case .proxy: return L10n.text("在左侧「代理」中统一管理 HTTP / SOCKS5 代理和前置连接，供多个环境复用。已配置前置时使用完整两跳链路，修改后需重启环境。")
+        case .node: return L10n.text("启动时为这个环境单独起一个 sing-box，把节点转成本地 SOCKS5 交给 WebKit；节点连不上时页面加载失败，不会退回直连。节点按名字匹配，订阅刷新后仍然有效。")
         }
     }
 
     private var regionFooter: String {
         guard editor.values.languageSource == .proxy || editor.values.timeZoneSource == .proxy else {
-            return "跟随系统时使用宿主机的语言和时区。"
+            return L10n.text("跟随系统时使用宿主机的语言和时区。")
         }
-        return "跟随代理：每次启动经代理查询出口 IP 所在国家，自动设置语言和时区（时区跟随时一并开启引擎层时区同步）；查询失败时按节点名称推断，仍无法判断则跟随系统。"
+        return L10n.text("跟随代理：每次启动经代理查询出口 IP 所在国家，自动设置语言和时区（时区跟随时一并开启引擎层时区同步）；查询失败时按节点名称推断，仍无法判断则跟随系统。")
     }
 
     /// 选了「自定义」却没填：报错，不悄悄存成「跟随系统」。
     static func customRegionError(languageSource: RegionSource, languages: String, timeZoneSource: RegionSource, timeZone: String) -> String? {
         if languageSource == .custom, !languages.split(separator: ",").contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            return "请填写语言标签（例如 en-US, en），或改选「跟随系统」。"
+            return L10n.text("请填写语言标签（例如 en-US, en），或改选「跟随系统」。")
         }
         if timeZoneSource == .custom, timeZone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "请填写时区（例如 America/Los_Angeles），或改选「跟随系统」。"
+            return L10n.text("请填写时区（例如 America/Los_Angeles），或改选「跟随系统」。")
         }
         return nil
     }
@@ -489,7 +489,7 @@ struct NodePickerView: View {
             }
             .listStyle(.plain)
             Divider()
-            Text(query.isEmpty ? "共 \(nodes.count) 个节点" : "\(filtered.count) / \(nodes.count) 个节点")
+            Text(query.isEmpty ? L10n.text("共 %lld 个节点", nodes.count) : L10n.text("%lld / %lld 个节点", filtered.count, nodes.count))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(6)

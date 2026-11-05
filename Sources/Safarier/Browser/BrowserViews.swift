@@ -13,16 +13,16 @@ final class FindBar: NSView, NSSearchFieldDelegate {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        searchField.placeholderString = "在页面中查找"
+        searchField.placeholderString = L10n.text("在页面中查找")
         searchField.delegate = self
         searchField.sendsSearchStringImmediately = false
         searchField.target = self
         searchField.action = #selector(findNext)
 
-        let previous = NSButton(image: NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "上一个")!, target: self, action: #selector(findPrevious))
-        let next = NSButton(image: NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "下一个")!, target: self, action: #selector(findNext))
+        let previous = NSButton(image: NSImage(systemSymbolName: "chevron.left", accessibilityDescription: L10n.text("上一个"))!, target: self, action: #selector(findPrevious))
+        let next = NSButton(image: NSImage(systemSymbolName: "chevron.right", accessibilityDescription: L10n.text("下一个"))!, target: self, action: #selector(findNext))
         for button in [previous, next] { button.bezelStyle = .texturedRounded }
-        let done = NSButton(title: "完成", target: self, action: #selector(close))
+        let done = NSButton(title: L10n.text("完成"), target: self, action: #selector(close))
         done.bezelStyle = .rounded
         status.textColor = .secondaryLabelColor
         status.font = .systemFont(ofSize: 11)
@@ -55,7 +55,7 @@ final class FindBar: NSView, NSSearchFieldDelegate {
     func show(found: Bool?) {
         switch found {
         case .some(true): status.stringValue = ""
-        case .some(false): status.stringValue = "未找到"
+        case .some(false): status.stringValue = L10n.text("未找到")
         case .none: status.stringValue = ""
         }
     }
@@ -108,16 +108,17 @@ final class StartPageView: NSView {
             }
             name = profile.name
             isPrivate = profile.mode == .ephemeral
-            mode = isPrivate ? "临时环境" : "持久环境"
-            device = value(after: "机型：")
-            outbound = value(after: "出站：") ?? "直连"
-            isDirect = outbound == "直连"
+            mode = isPrivate ? L10n.text("临时环境") : L10n.text("持久环境")
+            device = value(after: L10n.text("机型："))
+            outbound = value(after: L10n.text("出站：")) ?? L10n.text("直连")
+            isDirect = outbound == L10n.text("直连")
             let following = profile.followProxyLanguages || profile.followProxyTimeZone
-            region = details.first { $0.hasPrefix("语言：") || $0.hasPrefix("时区：") }
-                ?? (following ? "语言和时区跟随代理出口" : "语言和时区跟随系统")
+            let languagePrefix = L10n.text("语言："), timeZonePrefix = L10n.text("时区：")
+            region = details.first { $0.hasPrefix(languagePrefix) || $0.hasPrefix(timeZonePrefix) }
+                ?? (following ? L10n.text("语言和时区跟随代理出口") : L10n.text("语言和时区跟随系统"))
             let named: [(SPIFeatures, String)] = [
-                (.fingerprintingProtections, "高级隐私保护"), (.engineTimeZone, "引擎层时区"), (.disableWebRTC, "关闭 WebRTC"),
-                (.safariAPIs, "Safari 专有接口"), (.fontAllowlist, "字体白名单"),
+                (.fingerprintingProtections, L10n.text("高级隐私保护")), (.engineTimeZone, L10n.text("引擎层时区")), (.disableWebRTC, L10n.text("关闭 WebRTC")),
+                (.safariAPIs, L10n.text("Safari 专有接口")), (.fontAllowlist, L10n.text("字体白名单")),
             ]
             protections = named.filter { profile.spi.contains($0.0) }.map(\.1)
             advancedPrivacy = profile.spi.contains(.fingerprintingProtections)
@@ -159,7 +160,7 @@ final class StartPageView: NSView {
         self.store = store ?? .shared
         self.accent = accent
         summary = Summary(profile: profile, details: details)
-        editButton = NSButton(title: "编辑", target: nil, action: nil)
+        editButton = NSButton(title: L10n.text("编辑"), target: nil, action: nil)
         super.init(frame: .zero)
         wantsLayer = true
         // 无痕环境和真 Safari 无痕窗口一样，起始页总是深色。
@@ -181,10 +182,10 @@ final class StartPageView: NSView {
         editButton.layer?.cornerRadius = Self.editButtonSize.height / 2
         editButton.layer?.borderWidth = 0.5
         editButton.layer?.borderColor = NSColor.black.withAlphaComponent(0.12).cgColor
-        editButton.attributedTitle = NSAttributedString(string: "编辑", attributes: [
+        editButton.attributedTitle = NSAttributedString(string: L10n.text("编辑"), attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: NSColor.black,
         ])
-        editButton.setAccessibilityLabel("编辑起始页")
+        editButton.setAccessibilityLabel(L10n.text("编辑起始页"))
         addSubview(editButton)
 
         NotificationCenter.default.addObserver(self, selector: #selector(storeDidChange(_:)), name: StartPageStore.didChangeNotification, object: store)
@@ -260,9 +261,9 @@ final class StartPageView: NSView {
         showAllButton = nil
 
         if store.isVisible(.favorites) {
-            sectionTitles[.favorites] = addSectionTitle("个人收藏")
-            let add = Self.headerButton("添加 +", target: self, action: #selector(showEditor(_:)))
-            let showAll = Self.headerButton(showsAllFavorites ? "收起 ⌃" : "显示全部 ›", target: self, action: #selector(toggleShowAll(_:)))
+            sectionTitles[.favorites] = addSectionTitle(L10n.text("个人收藏"))
+            let add = Self.headerButton(L10n.text("添加 +"), target: self, action: #selector(showEditor(_:)))
+            let showAll = Self.headerButton(showsAllFavorites ? L10n.text("收起 ⌃") : L10n.text("显示全部 ›"), target: self, action: #selector(toggleShowAll(_:)))
             showAllButton = showAll
             let accessory = NSStackView(views: [showAll, add])
             accessory.spacing = 14
@@ -278,18 +279,18 @@ final class StartPageView: NSView {
             }
         }
         if store.isVisible(.suggestions) {
-            sectionTitles[.suggestions] = addSectionTitle("建议")
+            sectionTitles[.suggestions] = addSectionTitle(L10n.text("建议"))
             let environment = StartPageCard(
                 icon: .glyph(summary.name.first.map { String($0).uppercased() } ?? "?", accent),
                 title: summary.name,
                 subtitle: [summary.mode, summary.device].compactMap { $0 }.joined(separator: " · "),
-                source: "来自 Safarier 环境护盾 ›"
+                source: L10n.text("来自 Safarier 环境护盾 ›")
             )
-            let network = StartPageCard(icon: .symbol("network", .systemBlue), title: summary.outbound, subtitle: summary.region, source: "点击检测出口 IP ›")
+            let network = StartPageCard(icon: .symbol("network", .systemBlue), title: summary.outbound, subtitle: summary.region, source: L10n.text("点击检测出口 IP ›"))
             network.onClick = { [weak self] in self?.open(Self.exitIPCheckURL) }
             let claude = StartPageCard(
                 icon: .symbol("asterisk", NSColor(srgbRed: 0xC9 / 255, green: 0x64 / 255, blue: 0x42 / 255, alpha: 1)),
-                title: "Claude", subtitle: "claude.ai · AI 账号快捷入口", source: "前往 claude.ai ›"
+                title: "Claude", subtitle: L10n.text("claude.ai · AI 账号快捷入口"), source: L10n.text("前往 claude.ai ›")
             )
             claude.onClick = { [weak self] in self?.open(Self.claudeURL) }
             for card in [environment, network, claude] {
@@ -298,7 +299,7 @@ final class StartPageView: NSView {
             }
         }
         if store.isVisible(.privacyReport) {
-            sectionTitles[.privacyReport] = addSectionTitle("隐私报告")
+            sectionTitles[.privacyReport] = addSectionTitle(L10n.text("隐私报告"))
             let report = StartPagePrivacyBanner(summary: summary)
             document.addSubview(report)
             banner = report
@@ -551,13 +552,13 @@ final class StartPageTile: NSView {
 
     func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        for (title, action) in [("打开", #selector(openFromMenu(_:))), ("删除此收藏", #selector(deleteFromMenu(_:)))] {
+        for (title, action) in [(L10n.text("打开"), #selector(openFromMenu(_:))), (L10n.text("删除此收藏"), #selector(deleteFromMenu(_:)))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let restore = NSMenuItem(title: "恢复默认收藏", action: #selector(restoreFromMenu(_:)), keyEquivalent: "")
+        let restore = NSMenuItem(title: L10n.text("恢复默认收藏"), action: #selector(restoreFromMenu(_:)), keyEquivalent: "")
         restore.target = self
         menu.addItem(restore)
         return menu
@@ -628,7 +629,7 @@ final class StartPageCard: NSView {
         for view in [iconBox, titleLabel, subtitleLabel, capsule] { addSubview(view) }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("\(title)，\(subtitle)")
+        setAccessibilityLabel(L10n.text("%@，%@", title, subtitle))
     }
 
     @available(*, unavailable)
@@ -688,21 +689,21 @@ final class StartPagePrivacyBanner: NSView {
     private let rightBox = NSView()
 
     init(summary: StartPageView.Summary) {
-        protectionValue = NSTextField(labelWithString: "\(summary.protections.count) 项原生保护")
+        protectionValue = NSTextField(labelWithString: L10n.text("%lld 项原生保护", summary.protections.count))
         protectionDetail = NSTextField(wrappingLabelWithString: summary.advancedPrivacy
-            ? "Safari 原生防指纹护盾已阻止跨站追踪器剖析此环境"
-            : "高级隐私保护没有开启，可以在环境设置里打开")
-        isolationValue = NSTextField(labelWithString: summary.isPrivate ? "临时沙盒" : "独立沙盒")
-        var isolation = ["独立数据沙盒"]
-        if summary.fontAllowlist { isolation.append("字体白名单隔离") }
-        if !summary.isDirect { isolation.append("代理断连阻断（Fail-Closed）") }
+            ? L10n.text("Safari 原生防指纹护盾已阻止跨站追踪器剖析此环境")
+            : L10n.text("高级隐私保护没有开启，可以在环境设置里打开"))
+        isolationValue = NSTextField(labelWithString: summary.isPrivate ? L10n.text("临时沙盒") : L10n.text("独立沙盒"))
+        var isolation = [L10n.text("独立数据沙盒")]
+        if summary.fontAllowlist { isolation.append(L10n.text("字体白名单隔离")) }
+        if !summary.isDirect { isolation.append(L10n.text("代理断连阻断（Fail-Closed）")) }
         isolationDetail = NSTextField(wrappingLabelWithString: isolation.joined(separator: " · "))
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 14
         layer?.cornerCurve = .continuous
         layer?.borderWidth = 0.5
-        shield.image = NSImage(systemSymbolName: "shield.lefthalf.filled", accessibilityDescription: "隐私保护")
+        shield.image = NSImage(systemSymbolName: "shield.lefthalf.filled", accessibilityDescription: L10n.text("隐私保护"))
         shield.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 34, weight: .semibold)
             .applying(.init(paletteColors: [.systemGreen, NSColor.systemGreen.blended(withFraction: 0.45, of: .white) ?? .systemGreen]))
         addSubview(shield)
@@ -723,7 +724,7 @@ final class StartPagePrivacyBanner: NSView {
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("隐私报告：\(protectionValue.stringValue)，\(isolationDetail.stringValue)")
+        setAccessibilityLabel(L10n.text("隐私报告：%@，%@", protectionValue.stringValue, isolationDetail.stringValue))
     }
 
     @available(*, unavailable)
@@ -769,7 +770,7 @@ final class StartPageEditor: NSViewController {
     let addressField = NSTextField()
     let messageLabel = NSTextField(labelWithString: "")
 
-    static let sectionTitles: [(StartPageSection, String)] = [(.favorites, "个人收藏"), (.suggestions, "建议"), (.privacyReport, "隐私报告")]
+    static let sectionTitles: [(StartPageSection, String)] = [(.favorites, L10n.text("个人收藏")), (.suggestions, L10n.text("建议")), (.privacyReport, L10n.text("隐私报告"))]
 
     init(store: StartPageStore) {
         self.store = store
@@ -780,7 +781,7 @@ final class StartPageEditor: NSViewController {
     required init?(coder: NSCoder) { fatalError() }
 
     override func loadView() {
-        let heading = NSTextField(labelWithString: "自定义起始页")
+        let heading = NSTextField(labelWithString: L10n.text("自定义起始页"))
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
         var rows: [NSView] = [heading]
         for (section, title) in Self.sectionTitles {
@@ -792,15 +793,15 @@ final class StartPageEditor: NSViewController {
         }
         let separator = NSBox()
         separator.boxType = .separator
-        let addHeading = NSTextField(labelWithString: "添加个人收藏")
+        let addHeading = NSTextField(labelWithString: L10n.text("添加个人收藏"))
         addHeading.font = .systemFont(ofSize: 12, weight: .semibold)
-        nameField.placeholderString = "网站名称（可不填）"
-        addressField.placeholderString = "网址，例如 example.com"
-        let add = NSButton(title: "添加", target: self, action: #selector(addFavorite(_:)))
+        nameField.placeholderString = L10n.text("网站名称（可不填）")
+        addressField.placeholderString = L10n.text("网址，例如 example.com")
+        let add = NSButton(title: L10n.text("添加"), target: self, action: #selector(addFavorite(_:)))
         add.keyEquivalent = "\r"
         messageLabel.font = .systemFont(ofSize: 11)
         messageLabel.textColor = .secondaryLabelColor
-        let restore = NSButton(title: "恢复默认收藏", target: self, action: #selector(restoreDefaults(_:)))
+        let restore = NSButton(title: L10n.text("恢复默认收藏"), target: self, action: #selector(restoreDefaults(_:)))
         restore.bezelStyle = .inline
         rows += [separator, addHeading, nameField, addressField, add, messageLabel, restore]
         let stack = NSStackView(views: rows)
@@ -824,22 +825,22 @@ final class StartPageEditor: NSViewController {
         switch store.addFavorite(title: nameField.stringValue, address: addressField.stringValue) {
         case .success(let favorite):
             messageLabel.textColor = .secondaryLabelColor
-            messageLabel.stringValue = "已添加「\(favorite.title)」"
+            messageLabel.stringValue = L10n.text("已添加「%@」", favorite.title)
             nameField.stringValue = ""
             addressField.stringValue = ""
         case .failure(.invalidAddress):
             messageLabel.textColor = .systemRed
-            messageLabel.stringValue = "网址无效：需要 http / https 网页地址"
+            messageLabel.stringValue = L10n.text("网址无效：需要 http / https 网页地址")
         case .failure(.duplicate):
             messageLabel.textColor = .systemRed
-            messageLabel.stringValue = "这个网站已经在个人收藏里了"
+            messageLabel.stringValue = L10n.text("这个网站已经在个人收藏里了")
         }
     }
 
     @objc func restoreDefaults(_ sender: Any?) {
         store.restoreDefaultFavorites()
         messageLabel.textColor = .secondaryLabelColor
-        messageLabel.stringValue = "已恢复默认收藏"
+        messageLabel.stringValue = L10n.text("已恢复默认收藏")
     }
 }
 
@@ -860,9 +861,9 @@ final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate,
 
     let store: BrowsingHistoryStore
     let isPrivate: Bool
-    let titleLabel = NSTextField(labelWithString: "历史记录")
+    let titleLabel = NSTextField(labelWithString: L10n.text("历史记录"))
     let searchField = NSSearchField()
-    let clearButton = NSButton(title: "清除历史记录…", target: nil, action: nil)
+    let clearButton = NSButton(title: L10n.text("清除历史记录…"), target: nil, action: nil)
     let tableView = HistoryTableView()
     let emptyLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
@@ -872,16 +873,17 @@ final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate,
     /// 分组用的「现在」（测试固定它）。
     var now: () -> Date = { Date() }
 
+    // 时间格式跟随进程语言（Runner 的 -AppleLanguages 就是环境语言），不要写死中文日期。
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "HH:mm"
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
         return formatter
     }()
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年M月d日 HH:mm"
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
         return formatter
     }()
 
@@ -894,7 +896,7 @@ final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         if isPrivate { appearance = NSAppearance(named: .darkAqua) }
 
         titleLabel.font = .systemFont(ofSize: 26, weight: .bold)
-        searchField.placeholderString = "搜索历史记录"
+        searchField.placeholderString = L10n.text("搜索历史记录")
         searchField.delegate = self
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
@@ -920,7 +922,7 @@ final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         tableView.onOpenSelected = { [weak self] in self.map { $0.open(row: $0.tableView.selectedRow) } }
         tableView.onDeleteSelected = { [weak self] in self.map { $0.delete(row: $0.tableView.selectedRow) } }
         tableView.menu = makeContextMenu()
-        tableView.setAccessibilityLabel("历史记录")
+        tableView.setAccessibilityLabel(L10n.text("历史记录"))
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -1002,7 +1004,9 @@ final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         tableView.reloadData()
         clearButton.isEnabled = !store.entries.isEmpty || !store.lastSessionTabURLs.isEmpty
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        emptyLabel.stringValue = trimmed.isEmpty ? "还没有历史记录" : "没有找到与「\(trimmed)」相符的历史记录"
+        emptyLabel.stringValue = trimmed.isEmpty
+            ? L10n.text("还没有历史记录")
+            : L10n.text("没有找到与「%@」相符的历史记录", trimmed)
         emptyLabel.isHidden = !rows.isEmpty
     }
 
@@ -1028,7 +1032,11 @@ final class HistoryPageView: NSView, NSTableViewDataSource, NSTableViewDelegate,
 
     func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
-        for (title, action) in [("打开", #selector(openFromMenu(_:))), ("拷贝网址", #selector(copyFromMenu(_:))), ("删除", #selector(deleteFromMenu(_:)))] {
+        for (title, action) in [
+            (L10n.text("打开"), #selector(openFromMenu(_:))),
+            (L10n.text("拷贝网址"), #selector(copyFromMenu(_:))),
+            (L10n.text("删除"), #selector(deleteFromMenu(_:))),
+        ] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
             menu.addItem(item)
@@ -1134,7 +1142,7 @@ final class HistoryRowView: NSTableCellView {
             timeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         textField = titleLabel
-        setAccessibilityLabel("\(entry.displayTitle)，\(entry.url.absoluteString)")
+        setAccessibilityLabel(L10n.text("%@，%@", entry.displayTitle, entry.url.absoluteString))
     }
 
     @available(*, unavailable)
@@ -1156,7 +1164,7 @@ final class BrowserWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         // 右键菜单的其它项由 WebKit 按进程语言（环境的语言设置）本地化，新加的项也跟着走，免得一半中文一半英文。
-        BrowserContextMenu.customize(menu, target: self, chinese: Locale.preferredLanguages.first?.hasPrefix("zh") ?? false)
+        BrowserContextMenu.customize(menu, target: self)
     }
 
     @objc func openInNewWindow(_ sender: NSMenuItem) {

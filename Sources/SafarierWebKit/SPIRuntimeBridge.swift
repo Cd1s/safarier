@@ -1,4 +1,5 @@
 import Foundation
+import SafarierCore
 import SafarierObjCSupport
 
 /// 动态调用原生引擎接口失败的原因。前三种表示本机 WebKit 没有（或不是预期形状的）接口，没有发生调用；
@@ -140,14 +141,14 @@ enum SPIRuntimeBridge {
     private static func asObject(_ className: String) -> (AnyObject?) -> Result<NSObject, SPICallFailure> {
         { value in
             guard let object = value as? NSObject else {
-                return .failure(.exception("engineClass 实例不是 NSObject"))
+                return .failure(.exception(L10n.text("engineClass 实例不是 NSObject")))
             }
             return .success(object)
         }
     }
 
     private static func result<T>(_ status: SFRCallStatus, _ detail: NSString?, _ success: () -> T) -> Result<T, SPICallFailure> {
-        let text = (detail as String?) ?? "未知原因"
+        let text = (detail as String?) ?? L10n.text("未知原因")
         switch status {
         case .OK: return .success(success())
         case .missingClass: return .failure(.missingClass(text))
@@ -156,7 +157,7 @@ enum SPIRuntimeBridge {
         case .exception: return .failure(.exception(text))
         // 这里包装的调用不会返回 MissingSymbol（只有 SFRSetFontAllowList 会，它不走这里）；按接口不存在处理。
         case .missingSymbol: return .failure(.missingClass(text))
-        @unknown default: return .failure(.exception("未知状态 \(status.rawValue)：\(text)"))
+        @unknown default: return .failure(.exception(L10n.text("未知状态 %lld：%@", status.rawValue, text)))
         }
     }
 }

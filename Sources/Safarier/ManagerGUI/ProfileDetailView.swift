@@ -11,7 +11,7 @@ struct ProfileDetailView: View {
         ProfileEditorView(model: model, original: profile, inline: true)
             .id(profile.id)
             .navigationTitle(profile.name)
-            .navigationSubtitle(model.runState(profile.id) == .running ? "运行中" : DisplayText.mode(profile.mode))
+            .navigationSubtitle(model.runState(profile.id) == .running ? L10n.text("运行中") : DisplayText.mode(profile.mode))
     }
 }
 
@@ -108,10 +108,12 @@ struct ProfileDetailHeader: View {
                 .help("复制全部设置，新环境不带 Cookie 和登录状态")
                 .disabled(editor.hasChanges || editor.isSaving)
             Button { model.confirmation = .purgeProfile(profile) } label: {
-                Label(purging ? "正在清理…" : "清理沙盒数据…", systemImage: "eraser")
+                Label(purging ? L10n.text("正在清理…") : L10n.text("清理沙盒数据…"), systemImage: "eraser")
             }
             .disabled(profile.mode == .ephemeral || state != .stopped || purging)
-            .help(profile.mode == .ephemeral ? "临时环境不在磁盘上保存网站数据" : "删除 Cookie、登录状态、本地存储和缓存")
+            .help(profile.mode == .ephemeral
+                ? L10n.text("临时环境不在磁盘上保存网站数据")
+                : L10n.text("删除 Cookie、登录状态、本地存储和缓存"))
             Spacer()
             Button(role: .destructive) { model.confirmation = .deleteProfile(profile) } label: {
                 Label("删除…", systemImage: "trash")
@@ -164,7 +166,7 @@ struct ProfileMetadataSections: View {
                 .help("在访达中显示")
             }
         } else {
-            Text(missing).foregroundStyle(.secondary)
+            Text(L10n.text(missing)).foregroundStyle(.secondary)
         }
     }
 }

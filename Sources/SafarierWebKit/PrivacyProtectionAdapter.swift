@@ -31,9 +31,9 @@ public struct PublicAPIPrivacyAdapter: PrivacyProtectionAdapter {
     public init() {}
 
     public func apply(to configuration: WKWebViewConfiguration, for profile: Profile, report: inout PrivacyCapabilityReport) {
-        report.set(.unavailable("公开 API 没有对应开关；可用 --spi afp 启用原生引擎桥接"), for: .advancedPrivacyProtections)
-        report.set(.unavailable("公开 API 无法关闭 WebRTC；可用 --spi webrtc 启用原生引擎桥接"), for: .webRTCDisabled)
-        report.set(.unavailable("普通 WKWebView 没有 ApplePaySession、PushManager、navigator.mediaDevices，网页还能看到后来下载和用户安装的字体；可用 --spi safari 打开"), for: .safariAPIs)
+        report.set(.unavailable(L10n.text("公开 API 没有对应开关；可用 --spi afp 启用原生引擎桥接")), for: .advancedPrivacyProtections)
+        report.set(.unavailable(L10n.text("公开 API 无法关闭 WebRTC；可用 --spi webrtc 启用原生引擎桥接")), for: .webRTCDisabled)
+        report.set(.unavailable(L10n.text("普通 WKWebView 没有 ApplePaySession、PushManager、navigator.mediaDevices，网页还能看到后来下载和用户安装的字体；可用 --spi safari 打开")), for: .safariAPIs)
         report.set(.notRequested, for: .webGPU)
     }
 }

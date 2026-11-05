@@ -153,6 +153,15 @@ cp "$SINGBOX_DIR/LICENSE" "$SINGBOX_DIR/COPYING" "$SINGBOX_DIR/SOURCE" "$APP/Con
 mkdir -p "$APP/Contents/Resources/ThirdParty/Yams"
 cp "$ROOT/.build/checkouts/Yams/LICENSE" "$APP/Contents/Resources/ThirdParty/Yams/"
 
+# 界面翻译：主 Bundle 的 Resources 下按语言放 .lproj，没写的语言回落到开发区域 zh-Hans。
+for lproj in "$ROOT"/Resources/*.lproj; do
+  [ -d "$lproj" ] || continue
+  cp -R "$lproj" "$APP/Contents/Resources/"
+done
+# 开发区域是简体中文：从英文表的键生成中文表（键就是中文原文），不往仓库里放副本。
+mkdir -p "$APP/Contents/Resources/zh-Hans.lproj"
+swift "$ROOT/scripts/make-zh-strings.swift" "$ROOT/Resources/en.lproj/Localizable.strings" "$APP/Contents/Resources/zh-Hans.lproj/Localizable.strings"
+
 echo "==> 生成图标"
 ICON_WORK="$(mktemp -d)"
 trap 'rm -rf "$ICON_WORK"' EXIT

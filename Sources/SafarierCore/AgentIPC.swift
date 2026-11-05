@@ -174,21 +174,21 @@ public enum AgentIPCError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .socketPathTooLong(let path):
-            return "Socket 路径超过系统限制：\(path)"
+            return L10n.text("Socket 路径超过系统限制：%@", path)
         case .socketCreationFailed(let code):
-            return "创建 Unix Socket 失败（errno \(code)）"
+            return L10n.text("创建 Unix Socket 失败（errno %d）", code)
         case .connectionFailed(let path, let code):
-            return "无法连接到环境 Agent Socket（\(path), errno \(code)）"
+            return L10n.text("无法连接到环境 Agent Socket（%@, errno %d）", path, code)
         case .writeFailed(let code):
-            return "向 Agent Socket 发送请求失败（errno \(code)）"
+            return L10n.text("向 Agent Socket 发送请求失败（errno %d）", code)
         case .readTimeout:
-            return "等待 Agent 响应超时"
+            return L10n.text("等待 Agent 响应超时")
         case .messageTooLarge:
-            return "Agent 消息超过 8 MiB 限制"
+            return L10n.text("Agent 消息超过 8 MiB 限制")
         case .emptyResponse:
-            return "Agent 返回了空响应"
+            return L10n.text("Agent 返回了空响应")
         case .invalidResponse(let detail):
-            return "无法解析 Agent 响应：\(detail)"
+            return L10n.text("无法解析 Agent 响应：%@", detail)
         case .remoteError(let message):
             return message
         }

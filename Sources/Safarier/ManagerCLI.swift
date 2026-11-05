@@ -6,7 +6,7 @@ import SafarierWebKit
 /// 命令行 Manager。图形管理器（ManagerGUI）和这里共用 SafarierCore 的仓库和 `SafarierWorkspace.launch`。
 @MainActor
 enum ManagerCLI {
-    static let usage = """
+    static let usage = L10n.text("""
     用法：
       safarier profile list
       safarier profile create --name NAME [--mode persistent|ephemeral] [--lang proxy|system|en-US,en] [--tz proxy|system|America/Los_Angeles] [--url https://example.com] [--proxy PROXY_ID | --sub SUBSCRIPTION_ID --node NODE_NAME] [--device MODEL] [--notes TEXT] [--spi default|none|all|afp,tz,webrtc,safari,webgpu,fontlist]
@@ -56,7 +56,7 @@ enum ManagerCLI {
     前置连接：本机 → 前置代理/节点 → 当前代理 → 网站。仅支持两跳；--upstream-proxy none 清除前置。
            自定义前置从文件读取单个 sing-box 出站 JSON，避免认证信息出现在命令行参数中。
     环境变量 SAFARIER_HOME 可覆盖元数据目录（默认 ~/Library/Application Support/Safarier）。
-    """
+    """)
 
     static func run(_ arguments: [String]) -> Int32 {
         do {
@@ -86,14 +86,14 @@ enum ManagerCLI {
                 print(usage)
                 return 0
             default:
-                printError("未知命令：\(arguments.joined(separator: " "))\n\(usage)")
+                printError(L10n.text("未知命令：%@\n%@", arguments.joined(separator: " "), usage))
                 return 64
             }
         } catch let error as CLIError {
             printError(error.message)
             return 64
         } catch {
-            printError("失败：\(error)")
+            printError(L10n.text("失败：%@", String(describing: error)))
             return 1
         }
     }
@@ -136,21 +136,29 @@ enum ManagerCLI {
         let rawSub = args.value("--sub")
         let rawNode = args.value("--node")
         if rawProxy != nil, rawSub != nil || rawNode != nil {
-            throw CLIError("--proxy 和 --sub/--node 只能二选一")
+            throw CLIError(L10n.text("--proxy 和 --sub/--node 只能二选一"))
         }
         if let rawProxy {
             if rawProxy == "none" { return (nil, nil, nil) }
-            guard let proxyID = UUID(uuidString: rawProxy) else { throw CLIError("--proxy 不是合法 UUID：\(rawProxy)") }
-            guard try workspace.proxies.record(id: proxyID) != nil else { throw CLIError("找不到代理 \(rawProxy)") }
+            guard let proxyID = UUID(uuidString: rawProxy) else {
+                throw CLIError(L10n.text("--proxy 不是合法 UUID：%@", rawProxy))
+            }
+            guard try workspace.proxies.record(id: proxyID) != nil else {
+                throw CLIError(L10n.text("找不到代理 %@", rawProxy))
+            }
             return (proxyID, nil, nil)
         }
         if rawNode == "none", rawSub == nil { return (nil, nil, nil) }
         guard rawSub != nil || rawNode != nil else { return nil }
-        guard let rawSub, let rawNode else { throw CLIError("--sub 和 --node 要一起给") }
-        guard let subscriptionID = UUID(uuidString: rawSub) else { throw CLIError("--sub 不是合法 UUID：\(rawSub)") }
-        guard let subscription = try workspace.subscriptions.record(id: subscriptionID) else { throw CLIError("找不到订阅 \(rawSub)") }
+        guard let rawSub, let rawNode else { throw CLIError(L10n.text("--sub 和 --node 要一起给")) }
+        guard let subscriptionID = UUID(uuidString: rawSub) else {
+            throw CLIError(L10n.text("--sub 不是合法 UUID：%@", rawSub))
+        }
+        guard let subscription = try workspace.subscriptions.record(id: subscriptionID) else {
+            throw CLIError(L10n.text("找不到订阅 %@", rawSub))
+        }
         guard subscription.nodes.contains(where: { $0.name == rawNode }) else {
-            throw CLIError("订阅「\(subscription.name)」里没有节点「\(rawNode)」（用 sub nodes \(rawSub) 查看）")
+            throw CLIError(L10n.text("订阅「%@」里没有节点「%@」（用 sub nodes %@ 查看）", subscription.name, rawNode, rawSub))
         }
         return (nil, subscriptionID, rawNode)
     }
@@ -158,7 +166,7 @@ enum ManagerCLI {
     private static func parseDevice(_ raw: String) throws -> String? {
         if raw == "none" { return nil }
         guard MacDeviceModel.preset(raw) != nil else {
-            throw CLIError("--device 只能是 none 或 \(MacDeviceModel.presets.map(\.id).joined(separator: "、"))")
+            throw CLIError(L10n.text("--device 只能是 none 或 %@", MacDeviceModel.presets.map(\.id).joined(separator: ", ")))
         }
         return raw
     }
@@ -166,7 +174,9 @@ enum ManagerCLI {
     private static func createProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         let name = try args.required("--name")
         let mode = try args.value("--mode").map { raw -> ProfileMode in
-            guard let mode = ProfileMode(rawValue: raw) else { throw CLIError("--mode 只能是 persistent 或 ephemeral") }
+            guard let mode = ProfileMode(rawValue: raw) else {
+                throw CLIError(L10n.text("--mode 只能是 persistent 或 ephemeral"))
+            }
             return mode
         } ?? .persistent
         let outbound = try parseOutbound(workspace, args)
@@ -198,7 +208,7 @@ enum ManagerCLI {
     /// 只改给出的字段；`none` 清空可选字段。模式（persistent/ephemeral）不能改，数据目录跟着 id 走。
     private static func updateProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         let id = try args.positionalUUID(0, name: "PROFILE_ID")
-        guard var profile = try workspace.profiles.record(id: id) else { throw CLIError("找不到 profile \(id.uuidString)") }
+        guard var profile = try workspace.profiles.record(id: id) else { throw CLIError(L10n.text("找不到 profile %@", id.uuidString)) }
         if let name = args.value("--name") { profile.name = name }
         if let option = args.value("--lang").map(parseLanguageOption) {
             profile.followProxyLanguages = option.follow
@@ -228,15 +238,17 @@ enum ManagerCLI {
         if let spi = try args.spi() { profile.spi = spi }
         try workspace.profiles.update(profile)
         if workspace.isRunning(id) {
-            print("已更新 \(profile.name)；它正在运行，重启后生效")
+            print(L10n.text("已更新 %@；它正在运行，重启后生效", profile.name))
         } else {
-            print("已更新 \(profile.name)")
+            print(L10n.text("已更新 %@", profile.name))
         }
         return 0
     }
 
     private static func parseURL(_ raw: String) throws -> URL {
-        guard let url = URL(string: raw), url.scheme != nil else { throw CLIError("--url 不是合法 URL：\(raw)") }
+        guard let url = URL(string: raw), url.scheme != nil else {
+            throw CLIError(L10n.text("--url 不是合法 URL：%@", raw))
+        }
         return url
     }
 
@@ -266,20 +278,28 @@ enum ManagerCLI {
     /// 复制环境：设置全部照抄、换新 ID；不复制网站数据。
     private static func cloneProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         let id = try args.positionalUUID(0, name: "PROFILE_ID")
-        guard let source = try workspace.profiles.record(id: id) else { throw CLIError("找不到 profile \(id.uuidString)") }
+        guard let source = try workspace.profiles.record(id: id) else { throw CLIError(L10n.text("找不到 profile %@", id.uuidString)) }
         let existing = Set(try workspace.profiles.all().map(\.name))
         let name = args.value("--name") ?? Profile.duplicateName(for: source.name, existing: existing)
         let copy = source.duplicated(name: name)
         try workspace.profiles.insert(copy)
         print(copy.id.uuidString)
-        print("已复制「\(source.name)」为「\(copy.name)」（\(copy.mode.rawValue)，SPI \(copy.spi.description)，不含网站数据）")
+        print(L10n.text(
+            "已复制「%@」为「%@」（%@，SPI %@，不含网站数据）",
+            source.name,
+            copy.name,
+            copy.mode.rawValue,
+            copy.spi.description
+        ))
         return 0
     }
 
     private static func deleteProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         let id = try args.positionalUUID(0, name: "PROFILE_ID")
-        guard !workspace.isRunning(id) else { throw CLIError("profile \(id.uuidString) 正在运行，先关掉它的窗口") }
-        guard let profile = try workspace.profiles.record(id: id) else { throw CLIError("找不到 profile \(id.uuidString)") }
+        guard !workspace.isRunning(id) else {
+            throw CLIError(L10n.text("profile %@ 正在运行，先关掉它的窗口", id.uuidString))
+        }
+        guard let profile = try workspace.profiles.record(id: id) else { throw CLIError(L10n.text("找不到 profile %@", id.uuidString)) }
         // 先清数据再删记录：清除失败时记录还在，可以重试，不会留下没人认领的数据目录。
         let purge = args.flag("--purge-data") && profile.mode == .persistent
         if purge {
@@ -289,7 +309,11 @@ enum ManagerCLI {
         }
         try workspace.profiles.delete(id: id)
         workspace.removeRunnerArtifacts(for: id)
-        print(purge ? "已删除 \(profile.name)，并清除了它的网站数据" : "已删除 \(profile.name)")
+        if purge {
+            print(L10n.text("已删除 %@，并清除了它的网站数据", profile.name))
+        } else {
+            print(L10n.text("已删除 %@", profile.name))
+        }
         return 0
     }
 
@@ -321,15 +345,15 @@ enum ManagerCLI {
         let node = args.value("--upstream-node")
         let file = args.value("--upstream-json-file")
         let choices = (proxy == nil ? 0 : 1) + (subscription == nil && node == nil ? 0 : 1) + (file == nil ? 0 : 1)
-        guard choices <= 1 else { throw CLIError("前置代理、前置订阅节点和自定义前置只能选择一种") }
+        guard choices <= 1 else { throw CLIError(L10n.text("前置代理、前置订阅节点和自定义前置只能选择一种")) }
         if let proxy {
             if proxy == "none" { return nil }
-            guard let id = UUID(uuidString: proxy) else { throw CLIError("--upstream-proxy 需要合法 UUID 或 none") }
+            guard let id = UUID(uuidString: proxy) else { throw CLIError(L10n.text("--upstream-proxy 需要合法 UUID 或 none")) }
             return .proxy(id)
         }
         if subscription != nil || node != nil {
             guard let subscription, let id = UUID(uuidString: subscription), let node, !node.isEmpty else {
-                throw CLIError("--upstream-sub 需要合法 UUID，并同时提供 --upstream-node")
+                throw CLIError(L10n.text("--upstream-sub 需要合法 UUID，并同时提供 --upstream-node"))
             }
             return .node(subscriptionID: id, name: node)
         }
@@ -342,25 +366,29 @@ enum ManagerCLI {
 
     private static func updateProxy(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         let id = try args.positionalUUID(0, name: "PROXY_ID")
-        guard var proxy = try workspace.proxies.record(id: id) else { throw CLIError("找不到代理") }
+        guard var proxy = try workspace.proxies.record(id: id) else { throw CLIError(L10n.text("找不到代理")) }
         guard ["--upstream-proxy", "--upstream-sub", "--upstream-node", "--upstream-json-file"].contains(where: { args.value($0) != nil }) else {
-            throw CLIError("请提供前置连接选项；--upstream-proxy none 清除前置")
+            throw CLIError(L10n.text("请提供前置连接选项；--upstream-proxy none 清除前置"))
         }
         proxy.upstream = try parseProxyUpstream(args)
         try workspace.updateProxy(proxy)
-        print("已更新 \(proxy.name)；关联环境重启后生效")
+        print(L10n.text("已更新 %@；关联环境重启后生效", proxy.name))
         return 0
     }
 
     private static func addProxy(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         guard let kind = ProxyKind(rawValue: try args.required("--kind")) else {
-            throw CLIError("--kind 只能是 socks5 或 httpConnect")
+            throw CLIError(L10n.text("--kind 只能是 socks5 或 httpConnect"))
         }
-        guard let port = Int(try args.required("--port")) else { throw CLIError("--port 必须是整数") }
+        guard let port = Int(try args.required("--port")) else { throw CLIError(L10n.text("--port 必须是整数")) }
         let username = args.value("--username")
         let wantsPassword = args.flag("--password-stdin")
-        if wantsPassword, username == nil { throw CLIError("--password-stdin 需要同时给 --username") }
-        if username != nil, !wantsPassword { throw CLIError("给了 --username 就要用 --password-stdin 提供密码") }
+        if wantsPassword, username == nil {
+            throw CLIError(L10n.text("--password-stdin 需要同时给 --username"))
+        }
+        if username != nil, !wantsPassword {
+            throw CLIError(L10n.text("给了 --username 就要用 --password-stdin 提供密码"))
+        }
 
         let proxy = ProxySettings(
             name: try args.required("--name"),
@@ -373,7 +401,7 @@ enum ManagerCLI {
         try workspace.validateProxyChain(proxy)
         if wantsPassword {
             guard let password = readLine(strippingNewline: true), !password.isEmpty else {
-                throw CLIError("没有从标准输入读到密码")
+                throw CLIError(L10n.text("没有从标准输入读到密码"))
             }
             try KeychainCredentialStore().setPassword(password, forKey: proxy.credentialKey)
         }
@@ -391,14 +419,14 @@ enum ManagerCLI {
         let id = try args.positionalUUID(0, name: "PROXY_ID")
         let users = try workspace.profiles.all().filter { $0.proxyID == id }
         guard users.isEmpty else {
-            throw CLIError("还有 profile 在用这个代理：\(users.map(\.name).joined(separator: ", "))")
+            throw CLIError(L10n.text("还有 profile 在用这个代理：%@", users.map(\.name).joined(separator: ", ")))
         }
         let removed = try workspace.proxies.delete(id: id) { records in
             let exits = records.filter { $0.upstream?.proxyID == id }
             guard exits.isEmpty else { throw CLIError("这些代理仍将它用作前置：\(exits.map(\.name).joined(separator: "、"))") }
         }
         try KeychainCredentialStore().removePassword(forKey: removed.credentialKey)
-        print("已删除代理 \(removed.name)")
+        print(L10n.text("已删除代理 %@", removed.name))
         return 0
     }
 
@@ -441,7 +469,7 @@ enum ManagerCLI {
             }
         } catch {
             // 解析错误里可能带着整行链接（含密码）：只显示概要。
-            throw CLIError("添加订阅失败：\(DisplayText.describe(error))")
+            throw CLIError(L10n.text("添加订阅失败：%@", DisplayText.describe(error)))
         }
         let subscription = Subscription(id: id, name: name, url: url, updatedAt: Date(), nodes: result.nodes)
         do {
@@ -462,7 +490,7 @@ enum ManagerCLI {
         } else {
             let id = try args.positionalUUID(0, name: "SUBSCRIPTION_ID")
             guard let subscription = try workspace.subscriptions.record(id: id) else {
-                throw CLIError("找不到 subscription \(id.uuidString)")
+                throw CLIError(L10n.text("找不到 subscription %@", id.uuidString))
             }
             subscriptions = [subscription]
         }
@@ -474,22 +502,23 @@ enum ManagerCLI {
             }
             // 订阅这次返回的内容里没有节点（服务器偶尔返回空内容）：不拿空列表覆盖已有节点。
             if result.nodes.isEmpty, !subscription.nodes.isEmpty {
-                printError("\(subscription.name)：这次没有拿到节点，保留原来的 \(subscription.nodes.count) 个节点")
+                printError(L10n.text("%@：这次没有拿到节点，保留原来的 %lld 个节点", subscription.name, subscription.nodes.count))
                 continue
             }
             subscription.nodes = result.nodes
             subscription.updatedAt = Date()
             try workspace.subscriptions.update(subscription)
             updated += 1
-            print("已更新 \(subscription.name)：\(result.nodes.count) nodes" + (result.skippedCount > 0 ? "（\(DisplayText.importSummary(result))）" : ""))
+            let skipped = result.skippedCount > 0 ? L10n.text("（%@）", DisplayText.importSummary(result)) : ""
+            print(L10n.text("已更新 %@：%lld nodes", subscription.name, result.nodes.count) + skipped)
         }
-        if subscriptions.isEmpty { print("（空）") }
+        if subscriptions.isEmpty { print(L10n.text("（空）")) }
         return updated == 0 && !subscriptions.isEmpty ? 1 : 0
     }
 
     private static func listNodes(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         let id = try args.positionalUUID(0, name: "SUBSCRIPTION_ID")
-        guard let subscription = try workspace.subscriptions.record(id: id) else { throw CLIError("找不到 subscription \(id.uuidString)") }
+        guard let subscription = try workspace.subscriptions.record(id: id) else { throw CLIError(L10n.text("找不到 subscription %@", id.uuidString)) }
         let rows = subscription.nodes.enumerated().map { index, node in
             ["\(index + 1)", node.type.rawValue, "\(node.server):\(node.serverPort)", node.name]
         }
@@ -513,7 +542,7 @@ enum ManagerCLI {
 
     private static func listExtensions(_ workspace: SafarierWorkspace) throws -> Int32 {
         let records = try workspace.extensionRecords()
-        guard !records.isEmpty else { print("（空）"); return 0 }
+        guard !records.isEmpty else { print(L10n.text("（空）")); return 0 }
         printTable(["ID", "NAME", "VERSION", "MANIFEST", "PROFILES"], records.map {
             [$0.id.uuidString, $0.name, $0.version, String($0.manifestVersion), String($0.enabledProfileIDs.count)]
         })
@@ -524,25 +553,29 @@ enum ManagerCLI {
         let path = try args.positional(0, name: "PATH")
         let record = try workspace.importExtension(from: URL(fileURLWithPath: path))
         if let rawProfile = args.value("--profile") {
-            guard let profileID = UUID(uuidString: rawProfile) else { throw CLIError("--profile 不是合法 UUID：\(rawProfile)") }
-            guard try workspace.profiles.record(id: profileID) != nil else { throw CLIError("找不到 profile \(rawProfile)") }
+            guard let profileID = UUID(uuidString: rawProfile) else {
+                throw CLIError(L10n.text("--profile 不是合法 UUID：%@", rawProfile))
+            }
+            guard try workspace.profiles.record(id: profileID) != nil else {
+                throw CLIError(L10n.text("找不到 profile %@", rawProfile))
+            }
             try workspace.enableExtension(record.id, for: profileID)
         }
-        print("已安装扩展 \(record.name) \(record.version)（\(record.id.uuidString)）")
+        print(L10n.text("已安装扩展 %@ %@（%@）", record.name, record.version, record.id.uuidString))
         return 0
     }
 
     private static func removeExtension(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
         let name = try args.positional(0, name: "NAME")
         let record = try workspace.removeExtension(name: name)
-        print("已删除扩展 \(record.name)")
+        print(L10n.text("已删除扩展 %@", record.name))
         return 0
     }
 
     private static func launch(_ workspace: SafarierWorkspace, _ args: ParsedArguments, probe: Bool) throws -> Int32 {
         let id = try args.positionalUUID(0, name: "PROFILE_ID")
-        guard let profile = try workspace.profiles.record(id: id) else { throw CLIError("找不到 profile \(id.uuidString)") }
-        guard !workspace.isRunning(id) else { throw CLIError("profile \(profile.name) 已经在运行") }
+        guard let profile = try workspace.profiles.record(id: id) else { throw CLIError(L10n.text("找不到 profile %@", id.uuidString)) }
+        guard !workspace.isRunning(id) else { throw CLIError(L10n.text("profile %@ 已经在运行", profile.name)) }
         let url = try args.value("--url").map(parseURL)
         let spiOverride = try args.spi()
 
@@ -550,7 +583,7 @@ enum ManagerCLI {
             return try runProbe(workspace.runnerSpec(for: profile, url: url, probe: true, spiOverride: spiOverride))
         }
         let pid = try workspace.launch(profile, url: url, spiOverride: spiOverride, background: args.flag("--background"))
-        print("已启动 \(profile.name)，pid \(pid)，日志 \(workspace.runnerLogURL(for: profile.id).path)")
+        print(L10n.text("已启动 %@，pid %d，日志 %@", profile.name, pid, workspace.runnerLogURL(for: profile.id).path))
         return 0
     }
 
@@ -562,7 +595,7 @@ enum ManagerCLI {
             print(AgentSkillGuide.markdown)
             return 0
         case "install-skill":
-            for target in try AgentSkillGuide.install() { print("已安装 Skill：\(target.path)") }
+            for target in try AgentSkillGuide.install() { print(L10n.text("已安装 Skill：%@", target.path)) }
             return 0
         case "spaces":
             return try listAgentSpaces(workspace)
@@ -622,7 +655,7 @@ enum ManagerCLI {
                 request.action = .clickXY
                 guard let x = Double(try args.positional(1, name: "X")), x.isFinite,
                       let y = Double(try args.positional(2, name: "Y")), y.isFinite else {
-                    throw CLIError("X / Y 必须是有限数字（网页视口坐标）")
+                    throw CLIError(L10n.text("X / Y 必须是有限数字（网页视口坐标）"))
                 }
                 request.x = x
                 request.y = y
@@ -684,14 +717,17 @@ enum ManagerCLI {
             printAgentTabs(response.tabs ?? [])
             return 0
         default:
-            throw CLIError("未知 agent 子命令：\(subcommand ?? "(空)")（可用 skill、install-skill、spaces、open、snapshot、click、fill、type、click-xy、wait、focus、eval、screenshot、tab-list、tab-new、tab-close）")
+            throw CLIError(L10n.text(
+                "未知 agent 子命令：%@（可用 skill、install-skill、spaces、open、snapshot、click、fill、type、click-xy、wait、focus、eval、screenshot、tab-list、tab-new、tab-close）",
+                subcommand ?? L10n.text("(空)")
+            ))
         }
     }
 
     private static func numericOption(_ args: ParsedArguments, name: String, defaultValue: Double, range: ClosedRange<Double>) throws -> Double {
         guard let raw = args.value(name) else { return defaultValue }
         guard let value = Double(raw), value.isFinite, range.contains(value) else {
-            throw CLIError("\(name) 必须在 \(range.lowerBound)...\(range.upperBound) 之间")
+            throw CLIError(L10n.text("%@ 必须在 %lf...%lf 之间", name, range.lowerBound, range.upperBound))
         }
         return value
     }
@@ -726,7 +762,7 @@ enum ManagerCLI {
             let startURL = try urlString.map(parseURL)
             _ = try workspace.launch(profile, url: startURL, background: true)
             _ = try AgentIPCClient.waitUntilReady(socketURL: socketURL, timeout: 12)
-            print("已在后台启动环境「\(profile.name)」（\(profile.id.uuidString)）")
+            print(L10n.text("已在后台启动环境「%@」（%@）", profile.name, profile.id.uuidString))
             return 0
         }
         let response = try sendAgentRequest(
@@ -749,12 +785,12 @@ enum ManagerCLI {
         if let insensitive = all.first(where: { $0.name.caseInsensitiveCompare(identifierOrName) == .orderedSame }) {
             return insensitive
         }
-        throw CLIError("找不到环境「\(identifierOrName)」（可传 Profile UUID 或环境名称）")
+        throw CLIError(L10n.text("找不到环境「%@」（可传 Profile UUID 或环境名称）", identifierOrName))
     }
 
     private static func parseTabOption(_ args: ParsedArguments) throws -> Int? {
         guard let raw = args.value("--tab") else { return nil }
-        guard let tab = Int(raw), tab >= 1 else { throw CLIError("--tab 必须是大于等于 1 的整数：\(raw)") }
+        guard let tab = Int(raw), tab >= 1 else { throw CLIError(L10n.text("--tab 必须是大于等于 1 的整数：%@", raw)) }
         return tab
     }
 
@@ -762,7 +798,7 @@ enum ManagerCLI {
         let socketURL = workspace.agentSocketURL(for: profile.id)
         let response = try AgentIPCClient.send(request, to: socketURL, timeout: timeout)
         guard response.ok else {
-            throw CLIError(response.error ?? "Agent 请求执行失败")
+            throw CLIError(response.error ?? L10n.text("Agent 请求执行失败"))
         }
         return response
     }
@@ -808,7 +844,7 @@ enum ManagerCLI {
 
     private static func printTable(_ header: [String], _ rows: [[String]]) {
         guard !rows.isEmpty else {
-            print("（空）")
+            print(L10n.text("（空）"))
             return
         }
         let all = [header] + rows
@@ -842,7 +878,7 @@ struct ParsedArguments {
             if knownFlags.contains(arg) {
                 flags.insert(arg)
             } else if arg.hasPrefix("--") {
-                guard let value = iterator.next() else { throw CLIError("\(arg) 缺少参数值") }
+                guard let value = iterator.next() else { throw CLIError(L10n.text("%@ 缺少参数值", arg)) }
                 options[arg] = value
             } else {
                 positionals.append(arg)
@@ -854,7 +890,7 @@ struct ParsedArguments {
     func flag(_ key: String) -> Bool { flags.contains(key) }
 
     func required(_ key: String) throws -> String {
-        guard let value = options[key], !value.isEmpty else { throw CLIError("缺少 \(key)") }
+        guard let value = options[key], !value.isEmpty else { throw CLIError(L10n.text("缺少 %@", key)) }
         return value
     }
 
@@ -864,18 +900,22 @@ struct ParsedArguments {
         do {
             return try SPIFeatures(parsing: raw)
         } catch {
-            throw CLIError("--spi 只能是 default、none、all，或 afp、tz、webrtc、safari、webgpu、fontlist 的逗号组合：\(raw)")
+            throw CLIError(L10n.text("--spi 只能是 default、none、all，或 afp、tz、webrtc、safari、webgpu、fontlist 的逗号组合：%@", raw))
         }
     }
 
     func positionalUUID(_ index: Int, name: String) throws -> UUID {
-        guard positionals.indices.contains(index) else { throw CLIError("缺少 \(name)") }
-        guard let id = UUID(uuidString: positionals[index]) else { throw CLIError("\(name) 不是合法 UUID：\(positionals[index])") }
+        guard positionals.indices.contains(index) else { throw CLIError(L10n.text("缺少 %@", name)) }
+        guard let id = UUID(uuidString: positionals[index]) else {
+            throw CLIError(L10n.text("%@ 不是合法 UUID：%@", name, positionals[index]))
+        }
         return id
     }
 
     func positional(_ index: Int, name: String) throws -> String {
-        guard positionals.indices.contains(index), !positionals[index].isEmpty else { throw CLIError("缺少 \(name)") }
+        guard positionals.indices.contains(index), !positionals[index].isEmpty else {
+            throw CLIError(L10n.text("缺少 %@", name))
+        }
         return positionals[index]
     }
 }

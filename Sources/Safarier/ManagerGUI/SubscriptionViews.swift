@@ -39,12 +39,12 @@ struct SubscriptionDetailView: View {
                     }
                     .width(min: 36, ideal: 40, max: 60)
                     TableColumn("绑定环境") { node in
-                        Text(usage[node.name]?.map(\.name).joined(separator: "、") ?? "")
+                        Text(usage[node.name]?.map(\.name).joined(separator: L10n.text("、")) ?? "")
                             .foregroundStyle(.secondary)
                     }
                     .width(min: 60, ideal: 110)
                     TableColumn("用作前置") { node in
-                        Text(upstreamUsage[node.name]?.map(\.name).joined(separator: "、") ?? "")
+                        Text(upstreamUsage[node.name]?.map(\.name).joined(separator: L10n.text("、")) ?? "")
                             .foregroundStyle(.secondary)
                     }
                     .width(min: 60, ideal: 110)
@@ -52,7 +52,7 @@ struct SubscriptionDetailView: View {
             }
         }
         .navigationTitle(subscription.name)
-        .navigationSubtitle("\(subscription.nodes.count) 个节点")
+        .navigationSubtitle(L10n.text("%lld 个节点", subscription.nodes.count))
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { model.refresh(subscription) } label: { Label("刷新订阅", systemImage: "arrow.clockwise") }
@@ -73,7 +73,7 @@ struct SubscriptionDetailView: View {
                 Text(subscription.name)
                     .font(.title2.weight(.semibold))
                     .lineLimit(1)
-                Text(model.isInline(subscription) ? "直接粘贴的节点链接（保存在本机）" : subscription.url.absoluteString)
+                Text(model.isInline(subscription) ? L10n.text("直接粘贴的节点链接（保存在本机）") : subscription.url.absoluteString)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -83,7 +83,7 @@ struct SubscriptionDetailView: View {
                     ForEach(protocolCounts, id: \.type) { item in
                         HStack(spacing: 3) {
                             ProtocolBadge(type: item.type)
-                            Text("\(item.count)").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: "\(item.count)").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     Text(updatedText)
@@ -100,7 +100,7 @@ struct SubscriptionDetailView: View {
                         } else {
                             Image(systemName: "arrow.clockwise")
                         }
-                        Text(refreshing ? "正在刷新…" : "刷新订阅")
+                        Text(refreshing ? L10n.text("正在刷新…") : L10n.text("刷新订阅"))
                     }
                     .frame(minWidth: 110)
                 }
@@ -123,8 +123,8 @@ struct SubscriptionDetailView: View {
     }
 
     private var updatedText: String {
-        guard let updatedAt = subscription.updatedAt else { return "从未更新" }
-        return "· 更新于 " + updatedAt.formatted(.relative(presentation: .named))
+        guard let updatedAt = subscription.updatedAt else { return L10n.text("从未更新") }
+        return L10n.text("· 更新于 %@", updatedAt.formatted(.relative(presentation: .named)))
     }
 }
 

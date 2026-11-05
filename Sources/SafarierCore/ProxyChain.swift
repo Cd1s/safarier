@@ -9,17 +9,17 @@ public enum ProxyChainError: Error, LocalizedError, CustomStringConvertible, Equ
     case usedAsUpstream
     case unresolvedChain
 
-    public var description: String { errorDescription ?? "链式代理配置无效。" }
+    public var description: String { errorDescription ?? L10n.text("链式代理配置无效。") }
 
     public var errorDescription: String? {
         switch self {
-        case .selfReference: return "前置代理不能选择当前代理。"
-        case .missingProxy: return "前置代理已被删除，请重新选择；连接已阻止。"
-        case .missingSubscription: return "前置订阅已被删除，请重新选择；连接已阻止。"
-        case .missingNode: return "前置节点已不在订阅中，请重新选择；连接已阻止。"
-        case .multipleHops: return "目前仅支持两跳，请选择未配置前置连接的代理。"
-        case .usedAsUpstream: return "此代理正被其他代理用作前置，不能再添加前置连接。"
-        case .unresolvedChain: return "链式代理需要先解析完整链路，已阻止直接连接出口。"
+        case .selfReference: return L10n.text("前置代理不能选择当前代理。")
+        case .missingProxy: return L10n.text("前置代理已被删除，请重新选择；连接已阻止。")
+        case .missingSubscription: return L10n.text("前置订阅已被删除，请重新选择；连接已阻止。")
+        case .missingNode: return L10n.text("前置节点已不在订阅中，请重新选择；连接已阻止。")
+        case .multipleHops: return L10n.text("目前仅支持两跳，请选择未配置前置连接的代理。")
+        case .usedAsUpstream: return L10n.text("此代理正被其他代理用作前置，不能再添加前置连接。")
+        case .unresolvedChain: return L10n.text("链式代理需要先解析完整链路，已阻止直接连接出口。")
         }
     }
 }

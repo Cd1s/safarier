@@ -59,12 +59,12 @@ struct ProfileEditorValues: Equatable {
             // 和浏览窗口的地址栏一样规范化（去掉看不见的字符、没写协议时补上），但起始网址必须是有主机的网页地址，不当成搜索。
             url = AddressInput.webURL(for: rawURL)
             guard url != nil else {
-                throw ProfileEditorError.invalid("起始网址不合法：\(rawURL)")
+                throw ProfileEditorError.invalid(L10n.text("起始网址不合法：%@", rawURL))
             }
         }
 
         if outboundKind == .direct, languageSource == .proxy || timeZoneSource == .proxy {
-            throw ProfileEditorError.invalid("「跟随代理」需要选择独立代理或订阅节点。")
+            throw ProfileEditorError.invalid(L10n.text("「跟随代理」需要选择独立代理或订阅节点。"))
         }
         if let message = ProfileEditorView.customRegionError(languageSource: languageSource, languages: languages, timeZoneSource: timeZoneSource, timeZone: timeZone) {
             throw ProfileEditorError.invalid(message)
@@ -93,14 +93,14 @@ struct ProfileEditorValues: Equatable {
             profile.nodeName = nil
         case .proxy:
             guard proxyID != nil else {
-                throw ProfileEditorError.invalid("请选择代理。")
+                throw ProfileEditorError.invalid(L10n.text("请选择代理。"))
             }
             profile.proxyID = proxyID
             profile.subscriptionID = nil
             profile.nodeName = nil
         case .node:
             guard subscriptionID != nil, nodeName != nil else {
-                throw ProfileEditorError.invalid("请选择订阅和节点。")
+                throw ProfileEditorError.invalid(L10n.text("请选择订阅和节点。"))
             }
             profile.proxyID = nil
             profile.subscriptionID = subscriptionID
@@ -123,7 +123,7 @@ enum ProfileEditorError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalid(let message): return message
-        case .changedExternally: return "环境已在其他位置修改，请先还原为最新设置，再重新编辑。"
+        case .changedExternally: return L10n.text("环境已在其他位置修改，请先还原为最新设置，再重新编辑。")
         }
     }
 }

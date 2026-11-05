@@ -11,11 +11,11 @@ public enum CustomOutboundError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidJSON: return "请填写合法的单个出站 JSON 对象。"
-        case .invalidEndpoint: return "请填写服务器地址和 1–65535 之间的端口。"
-        case .unsupportedStructure: return "仅支持单个代理出站，不支持完整配置、直连、出站组或 detour。"
-        case .checkFailed: return "sing-box 校验失败，请检查协议字段及此版本支持的功能。原配置未保存。"
-        case .checkTimedOut: return "sing-box 校验超时，原配置未保存。"
+        case .invalidJSON: return L10n.text("请填写合法的单个出站 JSON 对象。")
+        case .invalidEndpoint: return L10n.text("请填写服务器地址和 1–65535 之间的端口。")
+        case .unsupportedStructure: return L10n.text("仅支持单个代理出站，不支持完整配置、直连、出站组或 detour。")
+        case .checkFailed: return L10n.text("sing-box 校验失败，请检查协议字段及此版本支持的功能。原配置未保存。")
+        case .checkTimedOut: return L10n.text("sing-box 校验超时，原配置未保存。")
         }
     }
 }

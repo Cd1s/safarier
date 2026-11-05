@@ -126,10 +126,10 @@ struct SafarierAppView: View {
 
     private var confirmationTitle: String {
         switch model.confirmation {
-        case .deleteProfile(let profile): return "删除环境「\(profile.name)」？"
-        case .purgeProfile(let profile): return "清理「\(profile.name)」的沙盒数据？"
-        case .deleteSubscription(let subscription): return "删除订阅「\(subscription.name)」？"
-        case .deleteProxy(let proxy): return "删除代理「\(proxy.name)」？"
+        case .deleteProfile(let profile): return L10n.text("删除环境「%@」？", profile.name)
+        case .purgeProfile(let profile): return L10n.text("清理「%@」的沙盒数据？", profile.name)
+        case .deleteSubscription(let subscription): return L10n.text("删除订阅「%@」？", subscription.name)
+        case .deleteProxy(let proxy): return L10n.text("删除代理「%@」？", proxy.name)
         case nil: return ""
         }
     }
@@ -151,7 +151,7 @@ struct SafarierAppView: View {
         case .deleteProxy(let proxy):
             Button("删除", role: .destructive) {
                 do { try model.deleteProxy(proxy) }
-                catch { model.message = .init(title: "删除代理失败", detail: DisplayText.describe(error)) }
+                catch { model.message = .init(title: L10n.text("删除代理失败"), detail: DisplayText.describe(error)) }
             }
         }
         Button("取消", role: .cancel) {}
@@ -160,9 +160,9 @@ struct SafarierAppView: View {
     private func confirmationMessage(_ confirmation: ManagerModel.Confirmation) -> some View {
         switch confirmation {
         case .deleteProfile(let profile):
-            return Text(profile.mode == .persistent
+            return Text(L10n.text(profile.mode == .persistent
                 ? "环境配置会被删除。网站数据（Cookie、登录状态、缓存）可以一起清除，也可以留在磁盘上。"
-                : "临时环境没有保存在磁盘上的网站数据。")
+                : "临时环境没有保存在磁盘上的网站数据。"))
         case .purgeProfile:
             return Text("会删除这个环境的 Cookie、登录状态、本地存储和缓存，环境配置保留。此操作不能撤销。")
         case .deleteSubscription:
@@ -186,7 +186,7 @@ struct UpdateBannerView: View {
                 .font(.title2)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text("发现新版本 \(release.tagName)（当前 v\(AboutAndUpdateController.currentVersion)）")
+                Text(L10n.text("发现新版本 %@（当前 v%@）", release.tagName, AboutAndUpdateController.currentVersion))
                     .font(.headline)
                 if let status = model.updateStatusText {
                     Text(status).font(.caption).foregroundStyle(.secondary)
@@ -223,7 +223,7 @@ struct UpdateNotesSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("\(release.tagName) 更新内容").font(.title3.bold())
+            Text(L10n.text("%@ 更新内容", release.tagName)).font(.title3.bold())
             ScrollView {
                 Text(release.body.isEmpty ? release.name : release.body)
                     .textSelection(.enabled)
@@ -303,9 +303,18 @@ struct ManagerSidebar: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 Divider()
-                HStack(spacing: 14) {
-                    Button { model.sheet = .newProfile } label: { Label("新建环境", systemImage: "plus") }
-                    Button { model.sheet = .newSubscription } label: { Label("添加订阅", systemImage: "plus") }
+                HStack(spacing: 12) {
+                    // 英文文案比中文长：缩一点字宽，别在侧边栏底栏折成两行。
+                    Button { model.sheet = .newProfile } label: {
+                        Label("新建环境", systemImage: "plus")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    Button { model.sheet = .newSubscription } label: {
+                        Label("添加订阅", systemImage: "plus")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
                     Spacer(minLength: 0)
                 }
                 .buttonStyle(.borderless)
@@ -386,7 +395,7 @@ struct SubscriptionRow: View {
                 .background(RoundedRectangle(cornerRadius: 7).fill(Color.indigo.gradient))
             VStack(alignment: .leading, spacing: 3) {
                 Text(subscription.name).fontWeight(.medium).lineLimit(1)
-                Text("\(subscription.nodes.count) 个节点")
+                Text(L10n.text("%lld 个节点", subscription.nodes.count))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

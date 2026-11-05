@@ -92,19 +92,19 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         public var safariBehaviorSwitches: [(getter: String, setter: String, label: String, value: Bool)] = [
             (SFRSymbolDecoder.decode([0x05, 0x38, 0x3B, 0x39, 0x31, 0x29, 0x2A, 0x3B, 0x39, 0x3F, 0x11, 0x3F, 0x23, 0x14, 0x3B, 0x2C, 0x33, 0x3D, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
              SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x18, 0x3B, 0x39, 0x31, 0x29, 0x2A, 0x3B, 0x39, 0x3F, 0x11, 0x3F, 0x23, 0x14, 0x3B, 0x2C, 0x33, 0x3D, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
-             "退格键不后退", false),
+             L10n.text("退格键不后退"), false),
             (SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x28, 0x2C, 0x33, 0x39, 0x3F, 0x19, 0x35, 0x34, 0x2E, 0x28, 0x35, 0x36, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
              SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x09, 0x3F, 0x28, 0x2C, 0x33, 0x39, 0x3F, 0x19, 0x35, 0x34, 0x2E, 0x28, 0x35, 0x36, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
-             "服务控件", true),
+             L10n.text("服务控件"), true),
             (SFRSymbolDecoder.decode([0x05, 0x29, 0x32, 0x35, 0x2D, 0x29, 0x0E, 0x35, 0x35, 0x36, 0x0E, 0x33, 0x2A, 0x15, 0x2C, 0x3F, 0x28, 0x0E, 0x28, 0x2F, 0x34, 0x39, 0x3B, 0x2E, 0x3F, 0x3E, 0x0E, 0x3F, 0x22, 0x2E]),
              SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x09, 0x32, 0x35, 0x2D, 0x29, 0x0E, 0x35, 0x35, 0x36, 0x0E, 0x33, 0x2A, 0x15, 0x2C, 0x3F, 0x28, 0x0E, 0x28, 0x2F, 0x34, 0x39, 0x3B, 0x2E, 0x3F, 0x3E, 0x0E, 0x3F, 0x22, 0x2E, 0x60]),
-             "截断文字悬停提示", true),
+             L10n.text("截断文字悬停提示"), true),
             (SFRSymbolDecoder.decode([0x05, 0x2E, 0x3F, 0x36, 0x3F, 0x2A, 0x32, 0x35, 0x34, 0x3F, 0x14, 0x2F, 0x37, 0x38, 0x3F, 0x28, 0x1E, 0x3F, 0x2E, 0x3F, 0x39, 0x2E, 0x33, 0x35, 0x34, 0x13, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
              SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x0E, 0x3F, 0x36, 0x3F, 0x2A, 0x32, 0x35, 0x34, 0x3F, 0x14, 0x2F, 0x37, 0x38, 0x3F, 0x28, 0x1E, 0x3F, 0x2E, 0x3F, 0x39, 0x2E, 0x33, 0x35, 0x34, 0x13, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
-             "电话号码识别", true),
+             L10n.text("电话号码识别"), true),
             (SFRSymbolDecoder.decode([0x05, 0x3B, 0x3D, 0x3D, 0x28, 0x3F, 0x29, 0x29, 0x33, 0x2C, 0x3F, 0x0E, 0x33, 0x36, 0x3F, 0x08, 0x3F, 0x2E, 0x3F, 0x34, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
              SFRSymbolDecoder.decode([0x05, 0x29, 0x3F, 0x2E, 0x1B, 0x3D, 0x3D, 0x28, 0x3F, 0x29, 0x29, 0x33, 0x2C, 0x3F, 0x0E, 0x33, 0x36, 0x3F, 0x08, 0x3F, 0x2E, 0x3F, 0x34, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
-             "积极保留图块", true),
+             L10n.text("积极保留图块"), true),
         ]
         /// 允许尝试字体桥接的系统 WebKit 版本前缀；其它版本（例如 macOS 13 的 18615）不调用。
         /// 覆盖 196（macOS 14）、206（macOS 15）、216（macOS 26）、226（macOS 27）、236（下一代）；
@@ -213,7 +213,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             if let timeZone = profile.timeZoneIdentifier {
                 report.set(applyTimeZoneOverride(timeZone, configuration), for: .timeZone)
             } else {
-                diagnostics.record("tz：profile 没有设置时区，跳过引擎层时区覆盖")
+                diagnostics.record(L10n.text("tz：profile 没有设置时区，跳过引擎层时区覆盖"))
             }
         }
         // 必须在时区之后：tz 可能给 configuration 换上新的进程池，白名单要设在最终用的那个进程池上。
@@ -256,29 +256,29 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     func navigationPreferencesState(_ preferences: NSObject) -> CapabilityState {
         guard features.contains(.fingerprintingProtections) else { return .notRequested }
         func failed(_ text: String, unsupported: Bool) -> CapabilityState {
-            let message = "afp.navigation：\(text)"
+            let message = L10n.text("afp.navigation：%@", text)
             if !diagnostics.entries.contains(message) { diagnostics.record(message) }
             return unsupported ? .unavailable(text) : .degraded(text)
         }
         let current: UInt
         switch SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: preferences) {
         case .success(let value): current = value
-        case .failure(let failure): return failed("单次导航读不到高级隐私保护位：\(failure)", unsupported: failure.isUnsupported)
+        case .failure(let failure): return failed(L10n.text("单次导航读不到高级隐私保护位：%@", String(describing: failure)), unsupported: failure.isUnsupported)
         }
         if current & Self.fingerprintingPolicyMask == Self.fingerprintingPolicyMask {
-            return .active("单次导航已带 \(Self.hex(current))")
+            return .active(L10n.text("单次导航已带 %@", Self.hex(current)))
         }
         let desired = current | Self.fingerprintingPolicyMask
         if case .failure(let failure) = SPIRuntimeBridge.setUInt(desired, symbols.networkPolicySetter, on: preferences) {
-            return failed("单次导航写入高级隐私保护位失败：\(failure)", unsupported: failure.isUnsupported)
+            return failed(L10n.text("单次导航写入高级隐私保护位失败：%@", String(describing: failure)), unsupported: failure.isUnsupported)
         }
         switch SPIRuntimeBridge.getUInt(symbols.networkPolicyGetter, on: preferences) {
         case .success(let after) where after & Self.fingerprintingPolicyMask == Self.fingerprintingPolicyMask:
-            return .active("单次导航 \(Self.hex(current)) → \(Self.hex(after))")
+            return .active(L10n.text("单次导航 %@ → %@", Self.hex(current), Self.hex(after)))
         case .success(let after):
-            return failed("单次导航写入 \(Self.hex(desired)) 后回读为 \(Self.hex(after))", unsupported: false)
+            return failed(L10n.text("单次导航写入 %@ 后回读为 %@", Self.hex(desired), Self.hex(after)), unsupported: false)
         case .failure(let failure):
-            return failed("单次导航回读高级隐私保护位失败：\(failure)", unsupported: failure.isUnsupported)
+            return failed(L10n.text("单次导航回读高级隐私保护位失败：%@", String(describing: failure)), unsupported: failure.isUnsupported)
         }
     }
 
@@ -326,8 +326,8 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         case .success(let after) where after & Self.fingerprintingPolicyMask == Self.fingerprintingPolicyMask:
             return confirmEngineSwitch(feature, configuration, change: "privacyPolicy \(Self.hex(before)) → \(Self.hex(after))")
         case .success(let after):
-            let text = "写入 \(Self.hex(desired)) 后回读为 \(Self.hex(after))，高级隐私保护位没有全部生效"
-            diagnostics.record("\(feature)：\(text)")
+            let text = L10n.text("写入 %@ 后回读为 %@，高级隐私保护位没有全部生效", Self.hex(desired), Self.hex(after))
+            diagnostics.record(L10n.text("%@：%@", feature, text))
             return .degraded(text)
         }
     }
@@ -337,15 +337,15 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         let state: CapabilityState
         switch SPIRuntimeBridge.getBool(symbols.networkPolicyEnabledGetter, on: webpagePreferences(configuration)) {
         case .success(true):
-            state = .active("\(change)，引擎总开关回读 YES（回读一致）")
+            state = .active(L10n.text("%@，引擎总开关回读 YES（回读一致）", change))
         case .failure(.missingSelector):
-            state = .active("\(change)（回读一致；本机引擎没有总开关读法，只核对了位掩码）")
+            state = .active(L10n.text("%@（回读一致；本机引擎没有总开关读法，只核对了位掩码）", change))
         case .success(false):
-            state = .degraded("\(change)，位掩码已写入，但引擎总开关回读为 NO")
+            state = .degraded(L10n.text("%@，位掩码已写入，但引擎总开关回读为 NO", change))
         case .failure(let failure):
-            state = .degraded("\(change)，引擎总开关回读失败：\(failure)")
+            state = .degraded(L10n.text("%@，引擎总开关回读失败：%@", change, String(describing: failure)))
         }
-        diagnostics.record("\(feature)：\(state.detail ?? state.name)")
+        diagnostics.record(L10n.text("%@：%@", feature, state.detail ?? state.name))
         return state
     }
 
@@ -361,12 +361,12 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         case .failure(let failure):
             return fallback(feature, failure)
         case .success(false):
-            let text = "peerConnection = NO（回读一致）"
-            diagnostics.record("\(feature)：\(text)")
+            let text = L10n.text("peerConnection = NO（回读一致）")
+            diagnostics.record(L10n.text("%@：%@", feature, text))
             return .active(text)
         case .success(true):
-            let text = "写入 NO 后回读仍为 YES，WebRTC 没有关掉"
-            diagnostics.record("\(feature)：\(text)")
+            let text = L10n.text("写入 NO 后回读仍为 YES，WebRTC 没有关掉")
+            diagnostics.record(L10n.text("%@：%@", feature, text))
             return .degraded(text)
         }
     }
@@ -456,7 +456,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         }
         switches.append((symbols.userInstalledFontsGetter, symbols.userInstalledFontsSetter, "userFonts", false))
         if hideApplePayCardStatus {
-            switches.append((symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, "Apple Pay 银行卡状态披露", false))
+            switches.append((symbols.applePayDisclosureGetter, symbols.applePayDisclosureSetter, L10n.text("Apple Pay 银行卡状态披露"), false))
         }
         for item in switches {
             if case .failure(let failure) = SPIRuntimeBridge.setBool(item.value, item.setter, on: preferences) {
@@ -467,8 +467,9 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
                 return fallback(feature, failure)
             case .success(let actual):
                 guard actual == item.value else {
-                    let text = "\(item.label) 写入 \(item.value) 后回读为 \(actual)"
-                    diagnostics.record("\(feature)：\(text)")
+                    let text = L10n.text("%@ 写入 %@ 后回读为 %@",
+                                         item.label, String(describing: item.value), String(describing: actual))
+                    diagnostics.record(L10n.text("%@：%@", feature, text))
                     return .degraded(text)
                 }
             }
@@ -494,19 +495,23 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             case .success(item.value):
                 aligned.append(item.label)
             case .success(let actual):
-                let text = "\(item.label) 写入 \(item.value) 后回读为 \(actual)"
-                diagnostics.record("\(feature)：\(text)")
+                let text = L10n.text("%@ 写入 %@ 后回读为 %@",
+                                     item.label, String(describing: item.value), String(describing: actual))
+                diagnostics.record(L10n.text("%@：%@", feature, text))
                 return .degraded(text)
             case .failure(let failure):
                 return fallback(feature, failure)
             }
         }
-        let enabled = symbols.safariAPISwitches.map(\.exposes)
-        let disclosureSummary = hideApplePayCardStatus ? "，关闭 Apple Pay 银行卡状态披露" : "，Apple Pay 银行卡状态披露保留系统默认"
-        var behaviorSummary = aligned.isEmpty ? "" : "，Safari 行为默认值：\(aligned.joined(separator: "、"))"
-        if !skipped.isEmpty { behaviorSummary += "（本机引擎没有：\(skipped.joined(separator: "、"))，保持默认）" }
-        let text = "WKPreferences 打开 \(enabled.joined(separator: "、"))，关闭用户安装字体\(disclosureSummary)\(behaviorSummary)（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified."
-        diagnostics.record("\(feature)：\(text)")
+        let enabled = symbols.safariAPISwitches.map(\.exposes).joined(separator: L10n.text("、"))
+        let disclosureSummary = hideApplePayCardStatus
+            ? L10n.text("，关闭 Apple Pay 银行卡状态披露")
+            : L10n.text("，Apple Pay 银行卡状态披露保留系统默认")
+        var behaviorSummary = aligned.isEmpty ? "" : L10n.text("，Safari 行为默认值：%@", aligned.joined(separator: L10n.text("、")))
+        if !skipped.isEmpty { behaviorSummary += L10n.text("（本机引擎没有：%@，保持默认）", skipped.joined(separator: L10n.text("、"))) }
+        let text = L10n.text("WKPreferences 打开 %@，关闭用户安装字体%@%@（回读一致）；preference readback only: Apple Pay payment authorization, window.safari, Web Push delivery and platform authenticator availability are not verified.",
+                             enabled, disclosureSummary, behaviorSummary)
+        diagnostics.record(L10n.text("%@：%@", feature, text))
         return .active(text)
     }
 
@@ -517,15 +522,15 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         let feature = "webgpu"
         let preferences = preferences(configuration)
         guard let preferencesClass = (type(of: preferences) as AnyObject) as? NSObject else {
-            return fallback(feature, .missingClass("WKPreferences 类对象不可用"))
+            return fallback(feature, .missingClass(L10n.text("WKPreferences 类对象不可用")))
         }
         let all: [NSObject]
         switch SPIRuntimeBridge.getObject(symbols.featuresGetter, on: preferencesClass) {
         case .success(let value?):
-            guard let list = value as? [NSObject] else { return fallback(feature, .signatureMismatch("featureSwitch.list 返回的不是数组")) }
+            guard let list = value as? [NSObject] else { return fallback(feature, .signatureMismatch(L10n.text("featureSwitch.list 返回的不是数组"))) }
             all = list
         case .success(nil):
-            return fallback(feature, .signatureMismatch("featureSwitch.list 返回 nil"))
+            return fallback(feature, .signatureMismatch(L10n.text("featureSwitch.list 返回 nil")))
         case .failure(let failure):
             return fallback(feature, failure)
         }
@@ -533,7 +538,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         for (index, key) in symbols.webGPUFeatureKeys.enumerated() {
             let label = "featureSwitch[\(index)]"
             guard let item = all.first(where: { featureKey($0) == key }) else {
-                return fallback(feature, .missingSelector("特性列表里没有 \(label)"))
+                return fallback(feature, .missingSelector(L10n.text("特性列表里没有 %@", label)))
             }
             if case .failure(let failure) = SPIRuntimeBridge.setBool(true, symbols.featureSetter, with: item, on: preferences) {
                 return fallback(feature, failure)
@@ -542,15 +547,16 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
             case .success(true):
                 enabled.append(label)
             case .success(false):
-                let text = "\(label) 写入 YES 后回读仍为 NO"
-                diagnostics.record("\(feature)：\(text)")
+                let text = L10n.text("%@ 写入 YES 后回读仍为 NO", label)
+                diagnostics.record(L10n.text("%@：%@", feature, text))
                 return .degraded(text)
             case .failure(let failure):
                 return fallback(feature, failure)
             }
         }
-        let text = "featureSwitch \(enabled.joined(separator: "、")) 已打开（回读一致）；真 Safari 在 macOS 15 上没有 navigator.gpu"
-        diagnostics.record("\(feature)：\(text)")
+        let text = L10n.text("featureSwitch %@ 已打开（回读一致）；真 Safari 在 macOS 15 上没有 navigator.gpu",
+                             enabled.joined(separator: L10n.text("、")))
+        diagnostics.record(L10n.text("%@：%@", feature, text))
         return .active(text)
     }
 
@@ -579,8 +585,8 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         case .success(let value) where (value as? String) == timeZone:
             break
         case .success(let value):
-            let text = "processPool.timeZone 回读为 \(String(describing: value))，不是 \(timeZone)"
-            diagnostics.record("\(feature)：\(text)")
+            let text = L10n.text("processPool.timeZone 回读为 %@，不是 %@", String(describing: value), timeZone)
+            diagnostics.record(L10n.text("%@：%@", feature, text))
             return .degraded(text)
         }
 
@@ -591,28 +597,28 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         }
 
         // 进程池会复制一份配置；能读到就再核对一次（读不到不算失败，只记诊断）。
-        var verification = "进程池配置未能回读"
+        var verification = L10n.text("进程池配置未能回读")
         if case .success(let copied?) = SPIRuntimeBridge.getObject(symbols.processPoolConfigurationGetter, on: pool),
            let copiedConfiguration = copied as? NSObject {
             switch SPIRuntimeBridge.getObject(symbols.timeZoneGetter, on: copiedConfiguration) {
             case .success(let value) where (value as? String) == timeZone:
-                verification = "进程池配置回读一致"
+                verification = L10n.text("进程池配置回读一致")
             case .success(let value):
-                let text = "进程池配置里的时区是 \(String(describing: value))，不是 \(timeZone)"
-                diagnostics.record("\(feature)：\(text)")
+                let text = L10n.text("进程池配置里的时区是 %@，不是 %@", String(describing: value), timeZone)
+                diagnostics.record(L10n.text("%@：%@", feature, text))
                 return .degraded(text)
             case .failure(let failure):
-                verification = "进程池配置回读失败：\(failure)"
+                verification = L10n.text("进程池配置回读失败：%@", String(describing: failure))
             }
         }
 
         guard installProcessPool(configuration, pool) else {
-            let text = "processPool 没能安装到引擎配置（回读不是同一对象）"
-            diagnostics.record("\(feature)：\(text)")
+            let text = L10n.text("processPool 没能安装到引擎配置（回读不是同一对象）")
+            diagnostics.record(L10n.text("%@：%@", feature, text))
             return .degraded(text)
         }
-        let text = "processPool.timeZone = \(timeZone)，独立进程池（\(verification)）"
-        diagnostics.record("\(feature)：\(text)")
+        let text = L10n.text("processPool.timeZone = %@，独立进程池（%@）", timeZone, verification)
+        diagnostics.record(L10n.text("%@：%@", feature, text))
         return .active(text)
     }
 
@@ -625,7 +631,7 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
     private func applyFontAllowlist(_ configuration: WKWebViewConfiguration, languages: [String]) -> CapabilityState {
         /// 每个分支都记一条诊断，再返回状态。
         func finish(_ state: CapabilityState, _ note: String) -> CapabilityState {
-            diagnostics.record("fontlist：\(state.name)，\(note)")
+            diagnostics.record(L10n.text("fontlist：%@，%@", state.name, note))
             return state
         }
 
@@ -634,35 +640,37 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
         guard let version = webKitVersion,
               symbols.fontAllowlistVerifiedWebKitPrefixes.contains(where: { version.hasPrefix($0) })
         else {
-            let text = "WebKit \(webKitVersion ?? "未知") 未验证，fontlist 不生效"
+            let text = L10n.text("WebKit %@ 未验证，fontlist 不生效", webKitVersion ?? L10n.text("未知"))
             return finish(.unavailable(text), text)
         }
         let plan = fontAllowlistPlanner(effectiveLanguages)
         if plan.isNoOp {
-            let text = "Profile 语言与宿主机字体资产一致，无需设置白名单"
+            let text = L10n.text("Profile 语言与宿主机字体资产一致，无需设置白名单")
             return finish(.active(text), text)
         }
         // 正常的白名单有几千个名字；太少说明遍历字体出了问题，设置下去会让网页几乎没有字体可用。
         guard plan.names.count >= 500 else {
-            let text = "白名单只有 \(plan.names.count) 个名字，异常偏少，没有设置"
+            let text = L10n.text("白名单只有 %lld 个名字，异常偏少，没有设置", plan.names.count)
             return finish(.degraded(text), text)
         }
         // 按 selector 读 configuration.processPool（公开属性自 macOS 12 标为弃用），和 tz 安装进程池时的读法一致。
         var pool: AnyObject?
         if case .success(let current) = SPIRuntimeBridge.getObject(symbols.processPoolGetter, on: configuration) { pool = current }
         let (status, detail) = fontAllowlistBridge(pool, plan.names)
-        let reason = detail ?? "未知原因"
+        let reason = detail ?? L10n.text("未知原因")
         switch status {
         case .OK:
-            let examples = plan.excludedFamilies.prefix(3).joined(separator: "、")
-            let text = "fontAllowlist：排除 \(plan.excludedFamilies.count) 个字族（例如 \(examples)），白名单 \(plan.names.count) 个名字；只影响之后新建的 WebContent"
-            return finish(.active(text), text + "（同名去掉 \(plan.sharedNamesDropped) 个，排除 \(plan.excludedFontCount) 个字面）")
+            let examples = plan.excludedFamilies.prefix(3).joined(separator: L10n.text("、"))
+            let text = L10n.text("fontAllowlist：排除 %lld 个字族（例如 %@），白名单 %lld 个名字；只影响之后新建的 WebContent",
+                                 plan.excludedFamilies.count, examples, plan.names.count)
+            let suffix = L10n.text("（同名去掉 %lld 个，排除 %lld 个字面）", plan.sharedNamesDropped, plan.excludedFontCount)
+            return finish(.active(text), text + suffix)
         case .missingSymbol, .missingClass, .missingSelector:
-            return finish(.unavailable("fontlist：\(reason)"), reason)
+            return finish(.unavailable(L10n.text("fontlist：%@", reason)), reason)
         case .signatureMismatch, .exception:
-            return finish(.degraded("fontlist：\(reason)"), reason)
+            return finish(.degraded(L10n.text("fontlist：%@", reason)), reason)
         @unknown default:
-            return finish(.degraded("fontlist：未知状态 \(status.rawValue)：\(reason)"), reason)
+            return finish(.degraded(L10n.text("fontlist：未知状态 %lld：%@", status.rawValue, reason)), reason)
         }
     }
 
@@ -670,11 +678,12 @@ public struct SPIPrivacyAdapter: PrivacyProtectionAdapter {
 
     private func fallback(_ feature: String, _ failure: SPICallFailure) -> CapabilityState {
         if failure.isUnsupported {
-            diagnostics.record("\(feature)：本机 WebKit 没有可用接口，已降级为公开 API 行为（\(failure)）")
-            return .unavailable("本机 WebKit 没有可用接口：\(failure)")
+            diagnostics.record(L10n.text("%@：本机 WebKit 没有可用接口，已降级为公开 API 行为（%@）",
+                                         feature, String(describing: failure)))
+            return .unavailable(L10n.text("本机 WebKit 没有可用接口：%@", String(describing: failure)))
         }
-        diagnostics.record("\(feature)：调用失败，已降级为公开 API 行为（\(failure)）")
-        return .degraded("调用失败：\(failure)")
+        diagnostics.record(L10n.text("%@：调用失败，已降级为公开 API 行为（%@）", feature, String(describing: failure)))
+        return .degraded(L10n.text("调用失败：%@", String(describing: failure)))
     }
 
     private static func hex(_ value: UInt) -> String {

@@ -101,7 +101,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         window.tabbingIdentifier = "safarier.\(session.profile.id.uuidString)"
         window.tabbingMode = .automatic
         window.collectionBehavior.insert(.fullScreenPrimary)
-        window.title = "起始页面"
+        window.title = L10n.text("起始页面")
         window.minSize = NSSize(width: 500, height: 300)
 
         let toolbar = NSToolbar(identifier: "SafarierBrowserToolbar")
@@ -209,15 +209,15 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     /// 标签上显示网页标题；没有标题时显示域名，和 Safari 一样。
     private func updateTitle() {
         if showingHistory {
-            window.title = "历史记录"
+            window.title = L10n.text("历史记录")
         } else if showingHome {
-            window.title = "起始页面"
+            window.title = L10n.text("起始页面")
         } else if let title = webView.title, !title.isEmpty {
             window.title = title
         } else if let host = webView.url?.host {
             window.title = host
         } else {
-            window.title = webView.url == nil ? "起始页面" : (webView.url?.absoluteString ?? "")
+            window.title = webView.url == nil ? L10n.text("起始页面") : (webView.url?.absoluteString ?? "")
         }
     }
 
@@ -384,10 +384,10 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 
     /// 网页标题（没有就用域名）做文件名，去掉文件名里不能用的字符。
     static func fileName(title: String?, url: URL, extension ext: String) -> String {
-        let base = (title?.isEmpty == false ? title! : (url.host ?? "页面"))
+        let base = (title?.isEmpty == false ? title! : (url.host ?? L10n.text("页面")))
             .components(separatedBy: CharacterSet(charactersIn: "/:\\")).joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(base.isEmpty ? "页面" : String(base.prefix(120))).\(ext)"
+        return "\(base.isEmpty ? L10n.text("页面") : String(base.prefix(120))).\(ext)"
     }
 
     private func presentError(_ error: Error) {
@@ -402,8 +402,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 
     @objc func loadExtension(_ sender: Any?) {
         let panel = NSOpenPanel()
-        panel.title = "加载扩展"
-        panel.message = "选择包含 manifest.json 的扩展目录或 .appex 扩展包"
+        panel.title = L10n.text("加载扩展")
+        panel.message = L10n.text("选择包含 manifest.json 的扩展目录或 .appex 扩展包")
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
@@ -415,13 +415,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
                 Task { @MainActor in
                     if let runtime = self.session.extensionRuntime {
                         await runtime.load(record)
-                        self.presentExtensionMessage("已加载扩展：\(record.name)")
+                        self.presentExtensionMessage(L10n.text("已加载扩展：%@", record.name))
                     } else {
-                        self.presentExtensionMessage("已安装扩展：\(record.name)；当前 WebKit 不提供扩展运行时，重启环境后仍会保留。")
+                        self.presentExtensionMessage(L10n.text("已安装扩展：%@；当前 WebKit 不提供扩展运行时，重启环境后仍会保留。", record.name))
                     }
                 }
             } catch {
-                self.presentExtensionMessage("扩展加载失败：\(error.localizedDescription)")
+                self.presentExtensionMessage(L10n.text("扩展加载失败：%@", error.localizedDescription))
             }
         }
     }
@@ -430,20 +430,20 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         do {
             let records = try session.workspace.extensionRecords()
             let enabled = Set(try session.workspace.enabledExtensions(for: session.profile.id).map(\.id))
-            let text = records.isEmpty ? "当前没有已安装扩展。" : records.map { record in
-                "\(record.name) \(record.version) — \(enabled.contains(record.id) ? "已启用" : "未启用")"
+            let text = records.isEmpty ? L10n.text("当前没有已安装扩展。") : records.map { record in
+                L10n.text("%@ %@ — %@", record.name, record.version, enabled.contains(record.id) ? L10n.text("已启用") : L10n.text("未启用"))
             }.joined(separator: "\n")
             presentExtensionMessage(text)
         } catch {
-            presentExtensionMessage("无法读取扩展列表：\(error.localizedDescription)")
+            presentExtensionMessage(L10n.text("无法读取扩展列表：%@", error.localizedDescription))
         }
     }
 
     private func presentExtensionMessage(_ text: String) {
         let alert = NSAlert()
-        alert.messageText = "Safarier 扩展"
+        alert.messageText = L10n.text("Safarier 扩展")
         alert.informativeText = text
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: L10n.text("好"))
         alert.beginSheetModal(for: window)
     }
     @objc func showFind(_ sender: Any?) {
@@ -773,14 +773,14 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         case #selector(reopenClosedTab(_:)): return !session.closedTabURLs.isEmpty
         case #selector(selectTabByNumber(_:)): return Self.tab(number: item.tag, in: tabs) != nil
         case #selector(showWebInspector(_:)):
-            item.title = WebViewSPI.isInspectorVisible(webView) ? "关闭网页检查器" : "显示网页检查器"
+            item.title = WebViewSPI.isInspectorVisible(webView) ? L10n.text("关闭网页检查器") : L10n.text("显示网页检查器")
             return WebViewSPI.hasInspector(webView)
         case #selector(showJavaScriptConsole(_:)): return WebViewSPI.hasInspector(webView)
         case #selector(toggleInspectable(_:)), #selector(restoreLastSession(_:)), #selector(clearHistory(_:)),
              #selector(toggleConfirmBeforeClose(_:)):
             return session.validateMenuItem(item)
         case #selector(showHistory(_:)):
-            item.title = showingHistory ? "隐藏历史记录" : "显示所有历史记录"
+            item.title = showingHistory ? L10n.text("隐藏历史记录") : L10n.text("显示所有历史记录")
             return true
         default: return true
         }
@@ -814,35 +814,35 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         case Item.profile:
             let item = NSToolbarItem(itemIdentifier: identifier)
             item.view = ProfileBadge(profile: session.profile, accent: session.accent, isPrivate: session.isPrivate)
-            item.label = "环境"
+            item.label = L10n.text("环境")
             item.toolTip = session.startPageDetails.joined(separator: "\n")
             return item
         case Item.back:
-            return button(identifier, symbol: "chevron.left", label: "后退", action: #selector(goBack(_:)))
+            return button(identifier, symbol: "chevron.left", label: L10n.text("后退"), action: #selector(goBack(_:)))
         case Item.forward:
-            return button(identifier, symbol: "chevron.right", label: "前进", action: #selector(goForward(_:)))
+            return button(identifier, symbol: "chevron.right", label: L10n.text("前进"), action: #selector(goForward(_:)))
         case Item.privacyReport:
-            return button(identifier, symbol: "shield.lefthalf.filled", label: "隐私报告", action: #selector(showPrivacyReport(_:)))
+            return button(identifier, symbol: "shield.lefthalf.filled", label: L10n.text("隐私报告"), action: #selector(showPrivacyReport(_:)))
         case Item.address:
             let item = NSToolbarItem(itemIdentifier: identifier)
             item.view = addressBar
             // 地址栏自己绘制背景，避免系统玻璃与自绘底色叠成双层框。
             item.isBordered = false
-            item.label = "地址"
+            item.label = L10n.text("地址")
             item.visibilityPriority = .high
             return item
         case Item.share:
             let item = NSSharingServicePickerToolbarItem(itemIdentifier: identifier)
             item.delegate = self
-            item.label = "共享"
-            item.toolTip = "共享"
+            item.label = L10n.text("共享")
+            item.toolTip = L10n.text("共享")
             return item
         case Item.downloads:
-            return button(identifier, symbol: "arrow.down.circle", label: "下载", action: #selector(showDownloads(_:)))
+            return button(identifier, symbol: "arrow.down.circle", label: L10n.text("下载"), action: #selector(showDownloads(_:)))
         case Item.newTab:
-            return button(identifier, symbol: "plus", label: "新建标签页", action: #selector(newTab(_:)))
+            return button(identifier, symbol: "plus", label: L10n.text("新建标签页"), action: #selector(newTab(_:)))
         case Item.tabOverview:
-            return button(identifier, symbol: "square.on.square", label: "显示所有标签页", action: #selector(showTabOverview(_:)))
+            return button(identifier, symbol: "square.on.square", label: L10n.text("显示所有标签页"), action: #selector(showTabOverview(_:)))
         default:
             return nil
         }
@@ -954,14 +954,14 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
         let alert = pageAlert(frame, message)
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: L10n.text("好"))
         alert.beginSheetModal(for: window) { _ in completionHandler() }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
         let alert = pageAlert(frame, message)
-        alert.addButton(withTitle: "好")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L10n.text("好"))
+        alert.addButton(withTitle: L10n.text("取消"))
         alert.beginSheetModal(for: window) { completionHandler($0 == .alertFirstButtonReturn) }
     }
 
@@ -970,15 +970,15 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         let input = NSTextField(string: defaultText ?? "")
         input.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
         alert.accessoryView = input
-        alert.addButton(withTitle: "好")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L10n.text("好"))
+        alert.addButton(withTitle: L10n.text("取消"))
         alert.window.initialFirstResponder = input
         alert.beginSheetModal(for: window) { completionHandler($0 == .alertFirstButtonReturn ? input.stringValue : nil) }
     }
 
     private func pageAlert(_ frame: WKFrameInfo, _ message: String) -> NSAlert {
         let alert = NSAlert()
-        alert.messageText = "\(frame.securityOrigin.host.isEmpty ? "此网页" : frame.securityOrigin.host) 显示："
+        alert.messageText = L10n.text("%@ 显示：", frame.securityOrigin.host.isEmpty ? L10n.text("此网页") : frame.securityOrigin.host)
         alert.informativeText = message
         return alert
     }
@@ -996,15 +996,15 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
         let what: String
         switch type {
-        case .camera: what = "摄像头"
-        case .microphone: what = "麦克风"
-        case .cameraAndMicrophone: what = "摄像头和麦克风"
-        @unknown default: what = "媒体设备"
+        case .camera: what = L10n.text("摄像头")
+        case .microphone: what = L10n.text("麦克风")
+        case .cameraAndMicrophone: what = L10n.text("摄像头和麦克风")
+        @unknown default: what = L10n.text("媒体设备")
         }
         let alert = NSAlert()
-        alert.messageText = "允许「\(origin.host)」使用你的\(what)吗？"
-        alert.addButton(withTitle: "允许")
-        alert.addButton(withTitle: "不允许")
+        alert.messageText = L10n.text("允许「%@」使用你的%@吗？", origin.host, what)
+        alert.addButton(withTitle: L10n.text("允许"))
+        alert.addButton(withTitle: L10n.text("不允许"))
         alert.beginSheetModal(for: window) { decisionHandler($0 == .alertFirstButtonReturn ? .grant : .deny) }
     }
 
@@ -1114,18 +1114,18 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
             return
         }
         let alert = NSAlert()
-        alert.messageText = "登录「\(challenge.protectionSpace.host)」"
-        alert.informativeText = challenge.protectionSpace.realm.map { "网站要求输入用户名和密码（\($0)）。" } ?? "网站要求输入用户名和密码。"
+        alert.messageText = L10n.text("登录「%@」", challenge.protectionSpace.host)
+        alert.informativeText = challenge.protectionSpace.realm.map { L10n.text("网站要求输入用户名和密码（%@）。", $0) } ?? L10n.text("网站要求输入用户名和密码。")
         let user = NSTextField(string: challenge.proposedCredential?.user ?? "")
-        user.placeholderString = "用户名"
+        user.placeholderString = L10n.text("用户名")
         let password = NSSecureTextField(string: "")
-        password.placeholderString = "密码"
+        password.placeholderString = L10n.text("密码")
         let stack = NSStackView(views: [user, password])
         stack.orientation = .vertical
         stack.frame = NSRect(x: 0, y: 0, width: 260, height: 54)
         alert.accessoryView = stack
-        alert.addButton(withTitle: "登录")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L10n.text("登录"))
+        alert.addButton(withTitle: L10n.text("取消"))
         alert.window.initialFirstResponder = user
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else {
@@ -1198,16 +1198,18 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         }
         failedURL = url
         isLoadingErrorPage = true
-        let host = Self.escape(url.host ?? url.absoluteString)
+        let pageTitle = Self.escape(L10n.text("无法打开页面"))
+        let heading = Self.escape(L10n.text("无法打开该页面"))
+        let message = Self.escape(L10n.text("无法打开“%@”，因为：%@", url.host ?? url.absoluteString, Self.errorReason(nsError)))
         let html = """
-        <!doctype html><html><head><meta charset="utf-8"><title>无法打开页面</title><style>
+        <!doctype html><html><head><meta charset="utf-8"><title>\(pageTitle)</title><style>
         :root { color-scheme: light dark; }
         body { font: -apple-system-body; font-family: -apple-system; margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; background: Canvas; }
         main { max-width: 520px; text-align: center; color: GrayText; padding: 24px; }
         h1 { font-size: 22px; font-weight: 600; color: CanvasText; margin: 0 0 12px; }
         p { font-size: 14px; line-height: 1.5; margin: 0; }
-        </style></head><body><main><h1>无法打开该页面</h1>
-        <p>无法打开“\(host)”，因为：\(Self.escape(Self.errorReason(nsError)))</p></main></body></html>
+        </style></head><body><main><h1>\(heading)</h1>
+        <p>\(message)</p></main></body></html>
         """
         webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: html)
     }
@@ -1228,28 +1230,28 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         let reason: String?
         switch (error.domain, error.code) {
         case (NSURLErrorDomain, NSURLErrorBadURL), (NSURLErrorDomain, NSURLErrorUnsupportedURL), ("WebKitErrorDomain", 101):
-            reason = "网址无效"
+            reason = L10n.text("网址无效")
         case (NSURLErrorDomain, NSURLErrorCannotFindHost), (NSURLErrorDomain, NSURLErrorDNSLookupFailed):
-            reason = "找不到服务器"
+            reason = L10n.text("找不到服务器")
         case (NSURLErrorDomain, NSURLErrorCannotConnectToHost):
-            reason = "无法连接服务器"
+            reason = L10n.text("无法连接服务器")
         case (NSURLErrorDomain, NSURLErrorTimedOut):
-            reason = "连接超时"
+            reason = L10n.text("连接超时")
         case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet):
-            reason = "没有连接到互联网"
+            reason = L10n.text("没有连接到互联网")
         case (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
-            reason = "网络连接中断"
+            reason = L10n.text("网络连接中断")
         case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
              (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
              (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
              (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
              (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
-            reason = "无法建立安全连接"
+            reason = L10n.text("无法建立安全连接")
         default:
             reason = nil
         }
         guard let reason else { return error.localizedDescription }
-        return "\(reason)（\(error.localizedDescription)）"
+        return L10n.text("%@（%@）", reason, error.localizedDescription)
     }
 
     private static func escape(_ text: String) -> String {
@@ -1374,7 +1376,7 @@ final class ProfileBadge: NSView {
         dot.layer?.cornerRadius = Self.dotDiameter / 2
         letter.translatesAutoresizingMaskIntoConstraints = false
         dot.addSubview(letter)
-        let name = NSTextField(labelWithString: isPrivate ? "\(profile.name) · 私密浏览" : profile.name)
+        let name = NSTextField(labelWithString: isPrivate ? L10n.text("%@ · 私密浏览", profile.name) : profile.name)
         name.font = .systemFont(ofSize: 12, weight: .medium)
         name.textColor = .secondaryLabelColor
         name.lineBreakMode = .byTruncatingTail

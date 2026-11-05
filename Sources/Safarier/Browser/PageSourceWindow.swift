@@ -1,4 +1,5 @@
 import AppKit
+import SafarierCore
 
 /// 「显示页面源代码」（⌥⌘U）：原生窗口里用等宽字体显示源代码，标签、属性值、注释上色，带「拷贝」按钮。
 /// 只读，不是网页，网站看不到。
@@ -27,7 +28,7 @@ final class PageSourceWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         // 源代码窗口不和浏览窗口合并成标签。
         window.tabbingMode = .disallowed
-        window.title = "源代码 — \(title)"
+        window.title = L10n.text("源代码 — %@", title)
         window.delegate = self
         window.minSize = NSSize(width: 420, height: 240)
 
@@ -44,7 +45,7 @@ final class PageSourceWindowController: NSObject, NSWindowDelegate {
         address.textColor = .secondaryLabelColor
         address.lineBreakMode = .byTruncatingMiddle
         address.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let copy = NSButton(title: "拷贝", target: self, action: #selector(copySource(_:)))
+        let copy = NSButton(title: L10n.text("拷贝"), target: self, action: #selector(copySource(_:)))
         copy.bezelStyle = .rounded
         let bar = NSStackView(views: [address, NSView(), copy])
         bar.edgeInsets = NSEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)

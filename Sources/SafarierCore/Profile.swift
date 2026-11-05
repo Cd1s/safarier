@@ -120,7 +120,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         let base = name.trimmingCharacters(in: .whitespacesAndNewlines)
         var counter = 1
         while true {
-            let suffix = counter == 1 ? " 副本" : " 副本 \(counter)"
+            let suffix = counter == 1 ? L10n.text(" 副本") : L10n.text(" 副本 %lld", counter)
             let candidate = String(base.prefix(max(0, maxNameLength - suffix.count))) + suffix
             if !existing.contains(candidate) { return candidate }
             counter += 1

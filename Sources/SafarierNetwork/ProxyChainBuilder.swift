@@ -31,7 +31,7 @@ public enum ProxyChainBuilder {
             name = node.name
         case .custom(let json):
             entry = try CustomOutbound.parse(json)
-            name = "自定义前置"
+            name = L10n.text("自定义前置")
         }
         return ResolvedProxyChain(upstream: upstream, entry: entry, exit: try outbound(proxy, credentials: credentials), entryName: name, exitName: proxy.name)
     }
@@ -85,7 +85,7 @@ public extension ProxyConnectionTester {
             startup.cancel()
         }
         try Task.checkCancellation()
-        let local = ProxySettings(name: "链式代理测试", kind: .socks5, host: "127.0.0.1", port: port)
+        let local = ProxySettings(name: L10n.text("链式代理测试"), kind: .socks5, host: "127.0.0.1", port: port)
         return try await tester(local, nil)
     }
 }

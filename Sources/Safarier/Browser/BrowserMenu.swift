@@ -104,7 +104,7 @@ enum BrowserMenu {
             item("管理已安装扩展…", #selector(BrowserActions.manageExtensions(_:))),
         ]))
 
-        let windowMenu = NSMenu(title: "窗口")
+        let windowMenu = NSMenu(title: L10n.text("窗口"))
         var windowItems: [NSMenuItem] = [
             item("最小化", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("缩放", #selector(NSWindow.performZoom(_:))),
@@ -133,12 +133,14 @@ enum BrowserMenu {
         ]
         // ⌘1…⌘8 切到当前窗口第 1…8 个标签，⌘9 切到最后一个，和 Safari 一样。
         for index in 1...9 {
-            let entry = hidden(item(index == 9 ? "显示最后一个标签页" : "显示第 \(index) 个标签页", #selector(BrowserActions.selectTabByNumber(_:)), "\(index)"))
+            let title = index == 9 ? L10n.text("显示最后一个标签页") : L10n.text("显示第 %lld 个标签页", index)
+            let entry = hidden(NSMenuItem(title: title, action: #selector(BrowserActions.selectTabByNumber(_:)), keyEquivalent: "\(index)"))
+            entry.keyEquivalentModifierMask = NSEvent.ModifierFlags.command
             entry.tag = index
             windowItems.append(entry)
         }
         windowItems.forEach(windowMenu.addItem)
-        let windowItem = NSMenuItem(title: "窗口", action: nil, keyEquivalent: "")
+        let windowItem = NSMenuItem(title: L10n.text("窗口"), action: nil, keyEquivalent: "")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
         NSApp.windowsMenu = windowMenu
@@ -188,15 +190,16 @@ enum BrowserMenu {
     }
 
     private static func submenu(_ title: String, _ items: [NSMenuItem]) -> NSMenuItem {
-        let menu = NSMenu(title: title)
+        let localized = L10n.text(title)
+        let menu = NSMenu(title: localized)
         items.forEach(menu.addItem)
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: localized, action: nil, keyEquivalent: "")
         item.submenu = menu
         return item
     }
 
     private static func item(_ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        let item = NSMenuItem(title: L10n.text(title), action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = key.isEmpty ? [] : modifiers
         return item
     }

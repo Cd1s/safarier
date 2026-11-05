@@ -143,12 +143,22 @@ final class ManagerModel: ObservableObject {
             }
             if profiles != self.profiles { self.profiles = profiles }
             if proxies != self.proxies {
-                for previous in self.proxies where proxies.first(where: { $0.id == previous.id }) != previous {
-                    cancelProxyTest(previous.id)
-                }
+                let previous = Dictionary(uniqueKeysWithValues: self.proxies.map { ($0.id, $0) })
+                let current = Dictionary(uniqueKeysWithValues: proxies.map { ($0.id, $0) })
+                let changed = Set(previous.keys).union(current.keys).filter { previous[$0] != current[$0] }
+                // 前置变化也会改变出口代理的测试结果；只取消受影响的出口，不打断其它代理的测试。
+                for id in changed { cancelProxyTest(id) }
+                for exit in proxies where exit.upstream?.proxyID.map(changed.contains) == true { cancelProxyTest(exit.id) }
                 self.proxies = proxies
             }
-            if subscriptions != self.subscriptions { self.subscriptions = subscriptions }
+            if subscriptions != self.subscriptions {
+                let previous = Dictionary(uniqueKeysWithValues: self.subscriptions.map { ($0.id, $0) })
+                for exit in proxies {
+                    guard let id = exit.upstream?.subscriptionID else { continue }
+                    if previous[id] != subscriptions.first(where: { $0.id == id }) { cancelProxyTest(exit.id) }
+                }
+                self.subscriptions = subscriptions
+            }
         } catch {
             report("读取数据失败", error)
         }
@@ -231,23 +241,43 @@ final class ManagerModel: ObservableObject {
         orphanCleanupTask = nil
     }
 
-    /// 绑定了这个订阅里某个节点的环境。
-    func profiles(using subscription: Subscription) -> [Profile] {
-        profiles.filter { $0.subscriptionID == subscription.id }
-    }
-
     func profile(_ id: UUID) -> Profile? { profiles.first { $0.id == id } }
     func subscription(_ id: UUID) -> Subscription? { subscriptions.first { $0.id == id } }
     func proxy(_ id: UUID) -> ProxySettings? { proxies.first { $0.id == id } }
 
     func profiles(using proxy: ProxySettings) -> [Profile] {
-        profiles.filter { $0.proxyID == proxy.id }
+        let exits = Set(proxies.filter { $0.upstream?.proxyID == proxy.id }.map(\.id))
+        return profiles.filter { $0.proxyID == proxy.id || $0.proxyID.map(exits.contains) == true }
+    }
+
+    func proxies(using proxy: ProxySettings) -> [ProxySettings] {
+        proxies.filter { $0.upstream?.proxyID == proxy.id }
+    }
+
+    func proxies(using subscription: Subscription) -> [ProxySettings] {
+        proxies.filter { $0.upstream?.subscriptionID == subscription.id }
+    }
+
+    func upstreamName(_ upstream: ProxyUpstream) -> String {
+        switch upstream {
+        case .proxy(let id): return proxy(id)?.name ?? "前置代理已删除"
+        case .node(let id, let name):
+            guard let subscription = subscription(id) else { return "前置订阅已删除" }
+            return subscription.nodes.contains(where: { $0.name == name }) ? name : "前置节点已失效：\(name)"
+        case .custom: return "自定义前置"
+        }
+    }
+
+    func connectionPath(_ proxy: ProxySettings) -> String {
+        proxy.upstream.map { "\(upstreamName($0)) → \(proxy.name) → 网站" } ?? "\(proxy.name) → 网站"
     }
 
     func testProxy(_ proxy: ProxySettings) {
         guard proxyTestTasks[proxy.id] == nil else { return }
         do {
-            guard let current = try workspace.proxies.record(id: proxy.id) else { throw RepositoryError.notFound(proxy.id) }
+            let records = try workspace.proxies.all()
+            guard let current = records.first(where: { $0.id == proxy.id }) else { throw RepositoryError.notFound(proxy.id) }
+            let chain = try ProxyChainBuilder.resolve(current, in: workspace, credentials: credentials)
             let password = current.username?.isEmpty == false ? try credentials.password(forKey: current.credentialKey) : nil
             if current.username?.isEmpty == false, password == nil { throw ProxyConnectionError.missingPassword }
             let tester = proxyTester
@@ -255,7 +285,11 @@ final class ManagerModel: ObservableObject {
             proxyTestTasks[current.id] = Task { @MainActor [weak self] in
                 let outcome: ProxyTestState?
                 do {
-                    outcome = .success(try await tester(current, password))
+                    if let chain {
+                        outcome = .success(try await ProxyConnectionTester.check(chain: chain, using: tester))
+                    } else {
+                        outcome = .success(try await tester(current, password))
+                    }
                 } catch is CancellationError {
                     outcome = nil
                 } catch {
@@ -264,10 +298,27 @@ final class ManagerModel: ObservableObject {
                 guard !Task.isCancelled, let self else { return }
                 // 仅当前未取消的任务负责收尾；旧任务不能清掉后来启动的测试。
                 defer { self.proxyTestTasks[current.id] = nil }
-                // CLI 或其它窗口在测试中修改了配置时，丢弃旧快照的结果。
-                guard (try? self.workspace.proxies.record(id: current.id)) == current else {
+                // CLI 或其它窗口在测试中修改了出口或前置代理时，丢弃旧快照的结果。只读一次代理文件；
+                // 前置直接与生成链路时捕获的快照比较，避免解析过程中刷新订阅后误用新节点作比较依据。
+                // 不重新解析链路或读取钥匙串。
+                let latest = try? self.workspace.proxies.all()
+                guard latest?.first(where: { $0.id == current.id }) == current else {
                     self.proxyTests[current.id] = nil
                     return
+                }
+                if case .proxy(let entry) = chain?.upstream,
+                   latest?.first(where: { $0.id == entry.id }) != entry {
+                    self.proxyTests[current.id] = nil
+                    return
+                }
+                if case .node(let subscriptionNode) = chain?.upstream, let id = current.upstream?.subscriptionID {
+                    let latestNode = try? self.workspace.subscriptions.record(id: id)?.nodes.first {
+                        $0.name == current.upstream?.nodeName
+                    }
+                    guard latestNode == subscriptionNode else {
+                        self.proxyTests[current.id] = nil
+                        return
+                    }
                 }
                 self.proxyTests[current.id] = outcome
             }
@@ -282,6 +333,15 @@ final class ManagerModel: ObservableObject {
     }
 
     /// 空密码表示保留已有密码；关闭认证才删除 Keychain 项。
+    func saveProxyValidated(_ draft: ProxySettings, password: String?, isNew: Bool) async throws {
+        var checked = draft
+        if case .custom(let json) = draft.upstream {
+            let normalized = try await Task.detached { try CustomOutbound.checked(json) }.value
+            checked.upstream = .custom(normalized)
+        }
+        try saveProxy(checked, password: password, isNew: isNew)
+    }
+
     func saveProxy(_ draft: ProxySettings, password: String?, isNew: Bool) throws {
         var proxy = draft
         proxy.name = proxy.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -289,15 +349,20 @@ final class ManagerModel: ObservableObject {
         proxy.username = proxy.username?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !proxy.name.isEmpty else { throw ProxyManagementError.emptyName }
         if proxy.username?.isEmpty == true { throw ProxyManagementError.emptyUsername }
-        try proxy.validate()
+        try workspace.validateProxyChain(proxy)
+        if case .custom(let json) = proxy.upstream {
+            proxy.upstream = .custom(try CustomOutbound.encoded(CustomOutbound.parse(json)))
+        }
         let previous = try credentials.password(forKey: proxy.credentialKey)
         let next = proxy.username == nil ? nil : password ?? previous
         if proxy.username != nil, next?.isEmpty != false { throw ProxyManagementError.missingPassword }
         try withProxyPassword(next, previous: previous, key: proxy.credentialKey) {
-            if isNew { try workspace.proxies.insert(proxy) }
-            else { try workspace.proxies.update(proxy) }
+            if isNew { try workspace.insertProxy(proxy) }
+            else { try workspace.updateProxy(proxy) }
         }
         cancelProxyTest(proxy.id)
+        // 只改密码时记录不变，reload 看不出来；以它为前置的出口要在这里取消。
+        for exit in proxies where exit.upstream?.proxyID == proxy.id { cancelProxyTest(exit.id) }
         reload()
         selection = .proxy(proxy.id)
     }
@@ -306,9 +371,15 @@ final class ManagerModel: ObservableObject {
         // 使用最新磁盘记录，避免侧边栏尚未刷新时删除仍被环境引用的代理。
         let users = try workspace.profiles.all().filter { $0.proxyID == proxy.id }
         guard users.isEmpty else { throw ProxyManagementError.inUse(users.map(\.name)) }
+        let exits = try workspace.proxies(usingProxyID: proxy.id)
+        guard exits.isEmpty else { throw ProxyManagementError.usedAsUpstream(exits.map(\.name)) }
         let previous = try credentials.password(forKey: proxy.credentialKey)
         try withProxyPassword(nil, previous: previous, key: proxy.credentialKey) {
-            _ = try workspace.proxies.delete(id: proxy.id)
+            // 初次检查后其它进程仍可能保存引用；必须在删除的同一把文件锁内重新检查。
+            _ = try workspace.proxies.delete(id: proxy.id) { records in
+                let exits = records.filter { $0.upstream?.proxyID == proxy.id }
+                guard exits.isEmpty else { throw ProxyManagementError.usedAsUpstream(exits.map(\.name)) }
+            }
         }
         cancelProxyTest(proxy.id)
         reload()
@@ -386,7 +457,8 @@ final class ManagerModel: ObservableObject {
         }
         // Runner 找不到 sing-box 也会失败退出，这里先拦下来，提示更直接。
         let singbox = SingboxProcessManager.defaultExecutableURL
-        if profile.subscriptionID != nil || profile.customOutboundJSON != nil, !FileManager.default.isExecutableFile(atPath: singbox.path) {
+        if profile.subscriptionID != nil || profile.customOutboundJSON != nil || profile.proxyID.flatMap(proxy)?.upstream != nil,
+           !FileManager.default.isExecutableFile(atPath: singbox.path) {
             starting.remove(profile.id)
             report("无法启动「\(profile.name)」", SingboxProcessError.executableNotFound(singbox))
             return
@@ -596,15 +668,16 @@ final class ManagerModel: ObservableObject {
     }
 
     func delete(_ subscription: Subscription) {
-        let users = profiles(using: subscription)
-        guard users.isEmpty else {
-            message = Message(
-                title: "订阅「\(subscription.name)」还在使用",
-                detail: "这些环境绑定了它的节点：\(users.map(\.name).joined(separator: "、"))。先在环境里换掉出站再删除。"
-            )
-            return
-        }
         do {
+            let users = try workspace.profiles.all().filter { $0.subscriptionID == subscription.id }
+            let exits = try workspace.proxies(usingSubscriptionID: subscription.id)
+            guard users.isEmpty, exits.isEmpty else {
+                message = Message(
+                    title: "订阅「\(subscription.name)」还在使用",
+                    detail: "以下环境或代理仍引用此订阅：\((users.map(\.name) + exits.map(\.name)).joined(separator: "、"))。请先更换出站或前置连接。"
+                )
+                return
+            }
             try workspace.subscriptions.delete(id: subscription.id)
             InlineSubscription.remove(subscription.url, in: workspace.root)
             reload()

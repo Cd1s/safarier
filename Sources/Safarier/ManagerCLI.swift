@@ -14,7 +14,8 @@ enum ManagerCLI {
       safarier profile clone PROFILE_ID [--name NAME]
       safarier profile delete PROFILE_ID [--purge-data]
       safarier proxy list
-      safarier proxy add --name NAME --kind socks5|httpConnect --host HOST --port PORT [--username USER] [--password-stdin]
+      safarier proxy add --name NAME --kind socks5|httpConnect --host HOST --port PORT [--username USER] [--password-stdin] [--upstream-proxy ID | --upstream-sub ID --upstream-node NAME | --upstream-json-file PATH]
+      safarier proxy update PROXY_ID [--upstream-proxy ID|none | --upstream-sub ID --upstream-node NAME | --upstream-json-file PATH]
       safarier proxy delete PROXY_ID
       safarier sub add --name NAME --url URL|节点链接|-
       safarier sub list
@@ -52,6 +53,8 @@ enum ManagerCLI {
            多条用换行分隔，也可以是 Base64；- 表示从标准输入读）。直接给的链接保存在元数据目录的 subscriptions-inline/ 里，
            sub update 时重新读它。订阅里 hysteria2 等暂不支持的协议会跳过，其余节点照常导入。
     profile clone：复制全部设置到新环境（新 ID，不复制 Cookie 等网站数据），默认名字加「副本」。
+    前置连接：本机 → 前置代理/节点 → 当前代理 → 网站。仅支持两跳；--upstream-proxy none 清除前置。
+           自定义前置从文件读取单个 sing-box 出站 JSON，避免认证信息出现在命令行参数中。
     环境变量 SAFARIER_HOME 可覆盖元数据目录（默认 ~/Library/Application Support/Safarier）。
     """
 
@@ -66,6 +69,7 @@ enum ManagerCLI {
             case ("profile", "delete"): return try deleteProfile(workspace, try ParsedArguments(arguments.dropFirst(2), flags: ["--purge-data"]))
             case ("proxy", "list"): return try listProxies(workspace)
             case ("proxy", "add"): return try addProxy(workspace, try ParsedArguments(arguments.dropFirst(2), flags: ["--password-stdin"]))
+            case ("proxy", "update"): return try updateProxy(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("proxy", "delete"): return try deleteProxy(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("sub", "add"): return try addSubscription(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("sub", "list"): return try listSubscriptions(workspace)
@@ -292,10 +296,59 @@ enum ManagerCLI {
     // MARK: - proxy
 
     private static func listProxies(_ workspace: SafarierWorkspace) throws -> Int32 {
-        let rows = try workspace.proxies.all().map { proxy in
-            [proxy.id.uuidString, proxy.kind.rawValue, "\(proxy.host):\(proxy.port)", proxy.username ?? "-", proxy.name]
+        let proxies = try workspace.proxies.all()
+        let names = Dictionary(uniqueKeysWithValues: proxies.map { ($0.id, $0.name) })
+        let rows = proxies.map { proxy in
+            [proxy.id.uuidString, proxy.kind.rawValue, "\(proxy.host):\(proxy.port)", proxy.username ?? "-", proxy.name,
+             upstreamLabel(proxy.upstream, names: names)]
         }
-        printTable(["ID", "KIND", "ENDPOINT", "USER", "NAME"], rows)
+        printTable(["ID", "KIND", "ENDPOINT", "USER", "NAME", "UPSTREAM"], rows)
+        return 0
+    }
+
+    private static func upstreamLabel(_ upstream: ProxyUpstream?, names: [UUID: String]) -> String {
+        switch upstream {
+        case .proxy(let id): return names[id] ?? "missing-proxy"
+        case .node(_, let name): return "node:\(name)"
+        case .custom: return "custom:sing-box"
+        case nil: return "-"
+        }
+    }
+
+    private static func parseProxyUpstream(_ args: ParsedArguments) throws -> ProxyUpstream? {
+        let proxy = args.value("--upstream-proxy")
+        let subscription = args.value("--upstream-sub")
+        let node = args.value("--upstream-node")
+        let file = args.value("--upstream-json-file")
+        let choices = (proxy == nil ? 0 : 1) + (subscription == nil && node == nil ? 0 : 1) + (file == nil ? 0 : 1)
+        guard choices <= 1 else { throw CLIError("前置代理、前置订阅节点和自定义前置只能选择一种") }
+        if let proxy {
+            if proxy == "none" { return nil }
+            guard let id = UUID(uuidString: proxy) else { throw CLIError("--upstream-proxy 需要合法 UUID 或 none") }
+            return .proxy(id)
+        }
+        if subscription != nil || node != nil {
+            guard let subscription, let id = UUID(uuidString: subscription), let node, !node.isEmpty else {
+                throw CLIError("--upstream-sub 需要合法 UUID，并同时提供 --upstream-node")
+            }
+            return .node(subscriptionID: id, name: node)
+        }
+        if let file {
+            let json = try String(contentsOfFile: file, encoding: .utf8)
+            return .custom(try CustomOutbound.checked(json))
+        }
+        return nil
+    }
+
+    private static func updateProxy(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
+        let id = try args.positionalUUID(0, name: "PROXY_ID")
+        guard var proxy = try workspace.proxies.record(id: id) else { throw CLIError("找不到代理") }
+        guard ["--upstream-proxy", "--upstream-sub", "--upstream-node", "--upstream-json-file"].contains(where: { args.value($0) != nil }) else {
+            throw CLIError("请提供前置连接选项；--upstream-proxy none 清除前置")
+        }
+        proxy.upstream = try parseProxyUpstream(args)
+        try workspace.updateProxy(proxy)
+        print("已更新 \(proxy.name)；关联环境重启后生效")
         return 0
     }
 
@@ -314,9 +367,10 @@ enum ManagerCLI {
             kind: kind,
             host: try args.required("--host"),
             port: port,
-            username: username
+            username: username,
+            upstream: try parseProxyUpstream(args)
         )
-        try proxy.validate()
+        try workspace.validateProxyChain(proxy)
         if wantsPassword {
             guard let password = readLine(strippingNewline: true), !password.isEmpty else {
                 throw CLIError("没有从标准输入读到密码")
@@ -324,7 +378,7 @@ enum ManagerCLI {
             try KeychainCredentialStore().setPassword(password, forKey: proxy.credentialKey)
         }
         do {
-            try workspace.proxies.insert(proxy)
+            try workspace.insertProxy(proxy)
         } catch {
             try? KeychainCredentialStore().removePassword(forKey: proxy.credentialKey)
             throw error
@@ -339,7 +393,10 @@ enum ManagerCLI {
         guard users.isEmpty else {
             throw CLIError("还有 profile 在用这个代理：\(users.map(\.name).joined(separator: ", "))")
         }
-        let removed = try workspace.proxies.delete(id: id)
+        let removed = try workspace.proxies.delete(id: id) { records in
+            let exits = records.filter { $0.upstream?.proxyID == id }
+            guard exits.isEmpty else { throw CLIError("这些代理仍将它用作前置：\(exits.map(\.name).joined(separator: "、"))") }
+        }
         try KeychainCredentialStore().removePassword(forKey: removed.credentialKey)
         print("已删除代理 \(removed.name)")
         return 0

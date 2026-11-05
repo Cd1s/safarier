@@ -333,7 +333,7 @@ public enum SubscriptionParser {
         let token = String(url.absoluteString.dropFirst("vmess://".count))
         guard let data = decodeBase64(token),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let host = (nonEmpty(object["add"] as? String) ?? nonEmpty(object["host"] as? String)).map(stripBrackets),
+              let host = (nonEmpty(object["add"] as? String) ?? nonEmpty(object["host"] as? String)).map(\.withoutIPv6Brackets),
               let port = intValue(object["port"]),
               let uuid = (object["id"] as? String) ?? (object["uuid"] as? String) else {
             throw SubscriptionParseError.invalidJSON
@@ -371,11 +371,7 @@ public enum SubscriptionParser {
     /// IPv6 主机在 URL 里带方括号（`[2001:db8::1]`），sing-box 要的是不带括号的地址。
     private static func serverHost(_ components: URLComponents) -> String? {
         guard let host = components.host, !host.isEmpty else { return nil }
-        return stripBrackets(host)
-    }
-
-    private static func stripBrackets(_ host: String) -> String {
-        host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+        return host.withoutIPv6Brackets
     }
 
     private static func tlsEnabled(_ query: [String: String]) -> Bool {

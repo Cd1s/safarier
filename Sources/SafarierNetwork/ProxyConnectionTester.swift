@@ -55,6 +55,7 @@ public enum ProxyConnectionTester {
 
     /// 测试可注入本地 HTTPS 服务和专用 CA；产品入口始终使用系统证书校验和固定测试目标。
     static func check(proxy: ProxySettings, password: String?, target: URL, certificate: URL?, timeout: TimeInterval) async throws -> ProxyConnectionResult {
+        guard proxy.upstream == nil else { throw ProxyChainError.unresolvedChain }
         let worker = Task.detached {
             try run(proxy: proxy, password: password, target: target, certificate: certificate, timeout: timeout)
         }

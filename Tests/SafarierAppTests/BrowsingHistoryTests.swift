@@ -66,7 +66,11 @@ final class TestBrowserEnvironment {
     /// 载入一张带标题的本地页面（https 网址，不走网络）。
     static func load(_ controller: BrowserWindowController, url: URL, title: String) {
         controller.webView.loadHTMLString("<!doctype html><title>\(title)</title><p>\(title)</p>", baseURL: url)
-        wait { controller.webView.url == url && !controller.webView.isLoading }
+        // isLoading 变为 false 时标题通知可能还没到；等标题同步后再检查历史或切换视图。
+        XCTAssertTrue(wait {
+            controller.webView.url == url && !controller.webView.isLoading
+                && controller.webView.title == title && controller.window.title == title
+        })
     }
 }
 
@@ -100,12 +104,20 @@ final class BrowsingHistoryTests: XCTestCase {
         XCTAssertEqual(session.history.fileURL, file)
         XCTAssertEqual(BrowsingHistoryStore(fileURL: file).entries.map(\.url), [page], "持久环境的历史写进 history/<PROFILE_ID>.json")
 
-        // 打不开的网页显示出错页，出错页不进历史记录。
-        let broken = url("https://unreachable.example.invalid/")
+        // 本机服务接入后立即断开，稳定触发真实的导航失败，不依赖 DNS 或外部网络超时。
+        let server = try LoopbackHTTPServer(routes: [:], disconnectImmediately: true)
+        defer { server.stop() }
+        XCTAssertTrue(TestBrowserEnvironment.wait { server.port != nil })
+        let port = try XCTUnwrap(server.port)
+        let broken = url("http://127.0.0.1:\(port)/unreachable")
         controller.openURL(broken)
-        XCTAssertTrue(TestBrowserEnvironment.wait(15) { controller.failedURL == broken && !controller.webView.isLoading })
+        XCTAssertTrue(TestBrowserEnvironment.wait(15) {
+            controller.failedURL == broken && controller.webView.title == "无法打开页面"
+                && !controller.webView.isLoading && !controller.isLoadingErrorPage
+        })
         TestBrowserEnvironment.spin(0.3)
         XCTAssertEqual(session.history.entries.map(\.url), [page])
+        XCTAssertEqual(BrowsingHistoryStore(fileURL: file).entries.map(\.url), [page], "出错页也不能写入磁盘历史")
     }
 
     func testPrivateEnvironmentKeepsHistoryInMemoryOnly() throws {

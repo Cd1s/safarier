@@ -8,7 +8,8 @@ struct SubscriptionDetailView: View {
 
     var body: some View {
         let refreshing = model.refreshing.contains(subscription.id)
-        let usage = Dictionary(grouping: model.profiles(using: subscription), by: { $0.nodeName ?? "" })
+        let usage = Dictionary(grouping: model.profiles.filter { $0.subscriptionID == subscription.id }, by: { $0.nodeName ?? "" })
+        let upstreamUsage = Dictionary(grouping: model.proxies(using: subscription), by: { $0.upstream?.nodeName ?? "" })
         VStack(alignment: .leading, spacing: 0) {
             header(refreshing)
                 .padding(20)
@@ -39,6 +40,11 @@ struct SubscriptionDetailView: View {
                     .width(min: 36, ideal: 40, max: 60)
                     TableColumn("绑定环境") { node in
                         Text(usage[node.name]?.map(\.name).joined(separator: "、") ?? "")
+                            .foregroundStyle(.secondary)
+                    }
+                    .width(min: 60, ideal: 110)
+                    TableColumn("用作前置") { node in
+                        Text(upstreamUsage[node.name]?.map(\.name).joined(separator: "、") ?? "")
                             .foregroundStyle(.secondary)
                     }
                     .width(min: 60, ideal: 110)

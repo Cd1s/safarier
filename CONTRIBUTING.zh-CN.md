@@ -34,6 +34,7 @@
 ### 代理严格 Fail-Closed 与凭据安全
 
 - 每个环境走自己的 `sing-box` 进程（订阅节点），或 `WKWebsiteDataStore.proxyConfigurations`（独立 SOCKS5 / HTTP CONNECT 代理）。代理断了页面就加载失败，**绝不退回直连**。
+- 配置前置的独立代理也经环境自己的 `sing-box`：最终出口的 `detour` 指向前置，默认路由只指向最终出口，不生成直连或故障切换出站。前置只支持一跳，引用缺失时必须报错。保存、测试和启动都需要校验完整链路；禁止直接把带前置的 `ProxySettings` 交给 WebKit。
 - 密码存在钥匙串里。辅助进程拿凭据只经标准输入（curl 的 `-K -`，管道设 `F_SETNOSIGPIPE`）或权限 `0600` 的配置文件，绝不出现在命令行参数、日志或错误信息里。
 - 测试和文档只用 `example.com` / `.invalid` 域名和 RFC 5737 / 3849 的示例地址，不用真实节点。
 
@@ -53,7 +54,7 @@
 
 | 路径 | 内容 |
 |---|---|
-| `profiles.json`、`proxies.json`、`subscriptions.json` | 元数据（不含密码，密码在钥匙串里） |
+| `profiles.json`、`proxies.json`、`subscriptions.json` | 元数据。独立代理密码在钥匙串里；自定义出站和订阅节点可能包含凭据，其中 `profiles.json` 与 `proxies.json` 使用 `0600` 权限。 |
 | `subscriptions-inline/<ID>.txt` | 直接粘贴当作订阅的节点链接（权限 `0600`） |
 | `logs/<PROFILE_ID>.log` | Runner 日志：`[capability]`、`[spi]`、`[geo]`、`[load-error]` 等行 |
 | `locks/`、`sing-box/` | 每个环境的锁文件，以及运行中 `sing-box` 的配置和 pid |

@@ -64,9 +64,31 @@ Choose the package for your Mac from [GitHub Releases](https://github.com/Cd1s/s
 | **Auto Follow-Proxy Region** | Simply select a proxy node (US, Japan, UK, Singapore, Hong Kong, Taiwan, Thailand, etc.) and Safarier automatically matches your browser **Language** and **Time Zone** to your exit IP's country and city. |
 | **Real Mac Font Isolation** | Enabled by default: blocks user-installed third-party fonts and keeps built-in system fonts, including baseline CJK families, while filtering additional downloaded language assets according to your environment's language. |
 | **Built-in All-Protocol Proxy** | No external proxy client needed. Paste a subscription URL or paste node links (`VLESS` / `Reality`, `VMess`, `Trojan`, `Shadowsocks` / `SS2022`, `AnyTLS`, `SOCKS5`, `HTTP`) directly. |
+| **Two-Hop Proxy Chains** | Add a saved proxy, subscription node, or custom sing-box outbound as the upstream for a SOCKS5 / HTTP exit proxy. Environments and connection tests use the entire chain, with no fallback to a single hop or direct access. |
 | **Zero-Leak Protection** | Every environment routes traffic and DNS strictly through its assigned node. If a proxy disconnects, page loading stops immediately and **never** falls back to your real local IP. |
 
 [Clash YAML subscriptions](docs/hysteria2-subscriptions.md) containing Hysteria2 nodes (including port hopping) are also supported. Other Clash node types are skipped; Clash DNS, rules and listeners are not imported.
+
+---
+
+## Configuring a Proxy Chain
+
+Add or edit the final exit under **Proxies**, then select an upstream: **Saved Proxy**, **Subscription Node**, or **Custom**. You can add a new upstream proxy from the editor. Custom JSON accepts one sing-box outbound object; full configurations and user-specified `detour` fields are rejected.
+
+Traffic follows **this Mac → upstream → exit proxy → website**. Select the saved exit proxy in an environment to use the chain. All environments using that proxy share its upstream settings; restart them after changes. Connection tests and automatic language/time zone detection use the final exit. This version covers TCP browsing and supports exactly two hops: a proxy cannot reference itself or use another chained proxy as its upstream. Referenced proxies and subscriptions cannot be deleted; a missing upstream node prevents connection.
+
+CLI equivalents (replace the IDs with actual values):
+
+```sh
+safarier proxy update EXIT_PROXY_ID --upstream-proxy ENTRY_PROXY_ID
+safarier proxy update EXIT_PROXY_ID --upstream-sub SUBSCRIPTION_ID --upstream-node "Node name"
+safarier proxy update EXIT_PROXY_ID --upstream-json-file /path/to/outbound.json
+safarier proxy update EXIT_PROXY_ID --upstream-proxy none
+```
+
+Saved proxy passwords remain in Keychain. Custom JSON may contain credentials and is stored in the proxy metadata file with `0600` permissions; remove credentials before sharing it.
+
+Saving any upstream uses proxy document version 2. Older Safarier versions reject that file instead of silently using a single hop. Before downgrading, remove all upstreams and save them in the newer version. Chains saved by earlier development builds must be saved again to gain this protection.
 
 ---
 

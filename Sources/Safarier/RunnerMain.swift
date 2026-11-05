@@ -40,7 +40,18 @@ enum RunnerMain {
             var outboundDescription = proxy.map { "代理「\($0.name)」（\($0.kind.rawValue) \($0.host):\($0.port)）" } ?? "直连"
 
             let bound = try workspace.boundNode(for: profile)
-            if let json = profile.customOutboundJSON {
+            if let saved = proxy, let chain = try ProxyChainBuilder.resolve(saved, in: workspace, credentials: KeychainCredentialStore()) {
+                let local = try startSingbox(profileID: profile.id, workspace: workspace) {
+                    try $0.start(profileID: profile.id, chain: chain)
+                }
+                effectiveProfile.proxyID = local.proxy.id
+                proxy = local.proxy
+                outbound = [
+                    "kind": "proxyChain", "entry": chain.entryName, "exit": chain.exitName,
+                    "singboxPID": local.pid, "localProxy": "\(local.proxy.host):\(local.proxy.port)",
+                ]
+                outboundDescription = "\(chain.entryName) → \(chain.exitName)（链式代理）"
+            } else if let json = profile.customOutboundJSON {
                 let local = try startSingbox(profileID: profile.id, workspace: workspace) {
                     try $0.start(profileID: profile.id, outboundJSON: json)
                 }

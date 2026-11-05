@@ -168,7 +168,7 @@ struct SafarierAppView: View {
         case .deleteSubscription:
             return Text("只删除本地保存的订阅链接和节点缓存。")
         case .deleteProxy:
-            return Text("删除代理配置及钥匙串中的密码。被环境使用的代理不能删除。")
+            return Text("删除代理配置及钥匙串中的密码。被环境或其他代理引用的代理不能删除。")
         }
     }
 }
@@ -273,7 +273,7 @@ struct ManagerSidebar: View {
                         .contextMenu {
                             Button("编辑代理…") { model.sheet = .editProxy(proxy) }
                             Button("删除代理…", role: .destructive) { model.confirmation = .deleteProxy(proxy) }
-                                .disabled(!model.profiles(using: proxy).isEmpty)
+                                .disabled(!model.profiles(using: proxy).isEmpty || !model.proxies(using: proxy).isEmpty)
                         }
                 }
                 if model.proxies.isEmpty { Text("还没有代理").foregroundStyle(.tertiary) }

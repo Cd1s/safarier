@@ -64,9 +64,31 @@
 | **语言与时区自动跟随代理** | 开启「**跟随代理**」后，连接美国、日本、英国、新加坡、香港、台湾、泰国等任意节点，启动时自动识别出口 IP 所在国家与城市，自动匹配对应的网页语言与系统时区。 |
 | **真机级系统字体隔离** | 默认开启：自动屏蔽用户安装的第三方字体，保留系统卷自带字体（包括基础中日韩字体），仅按环境语言过滤额外下载的字体资产；英文环境也保留冬青黑体、宋体等基础字体。 |
 | **内置全协议代理引擎** | 无需额外开启代理软件。支持直接导入机场订阅链接，或直接粘贴单条/多条节点链接（全面支持 `VLESS` / `Reality`、`VMess`、`Trojan`、`Shadowsocks` / `SS2022`、`AnyTLS`、`SOCKS5`、`HTTP`）。 |
+| **两跳链式代理** | 在代理编辑页为 SOCKS5 / HTTP 出口添加前置：已保存代理、订阅节点或自定义 sing-box 出站 JSON。环境选择此代理后使用完整链路，连接测试显示最终出口 IP；任一跳失败都不会退回单跳或直连。 |
 | **断连阻断，零真实 IP 泄漏** | 每个环境的网页请求与 DNS 解析强制走该环境的独立代理通道；如果节点断开，页面立即停止加载，绝不静默退回本机网络。 |
 
 另支持含 Hysteria2 节点的 [Clash YAML 订阅](docs/hysteria2-subscriptions.md)（含端口跳跃）。其它 Clash 节点类型会跳过；不导入 Clash 的 DNS、路由规则和监听配置。
+
+---
+
+## 配置链式代理
+
+在左侧「代理」中新增或编辑最终出口，填写服务器和认证信息，然后在「前置连接」选择「已保存代理」「订阅节点」或「自定义」。已保存代理旁的「新增代理…」可以直接添加前置；自定义填写单个 sing-box 出站对象，不接受完整配置或手动 `detour`。
+
+连接顺序为 **本机 → 前置 → 当前出口代理 → 网站**。在环境的网络设置中选择该出口代理即可，多个环境共用此链路；修改后重启环境生效。「测试连接」测试完整链路，语言和时区跟随最终出口。首版覆盖 TCP 网页访问，仅支持两跳；不能选择自身或已配置前置的代理。被链路引用的代理和订阅不能删除，前置节点失效时阻止启动。
+
+CLI 也可配置前置（`EXIT_PROXY_ID`、`ENTRY_PROXY_ID`、`SUBSCRIPTION_ID` 替换为实际 ID）：
+
+```sh
+safarier proxy update EXIT_PROXY_ID --upstream-proxy ENTRY_PROXY_ID
+safarier proxy update EXIT_PROXY_ID --upstream-sub SUBSCRIPTION_ID --upstream-node "节点名"
+safarier proxy update EXIT_PROXY_ID --upstream-json-file /path/to/outbound.json
+safarier proxy update EXIT_PROXY_ID --upstream-proxy none
+```
+
+独立代理密码仍存入钥匙串；自定义 JSON 可能包含凭据，保存在权限为 `0600` 的代理配置文件中，分享前请移除认证信息。
+
+保存任何前置连接后，代理文件使用版本 2，旧版 Safarier 会拒绝读取，避免把链路误当单跳。需要回退旧版时，先在新版中移除所有代理的前置连接并保存。早期开发版已保存的链路需要在新版中重新保存一次，才能获得此保护。
 
 ---
 

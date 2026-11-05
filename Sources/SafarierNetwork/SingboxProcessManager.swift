@@ -200,6 +200,13 @@ public final class SingboxProcessManager: @unchecked Sendable {
     }
 
     @discardableResult
+    public func start(profileID: UUID, chain: ResolvedProxyChain) throws -> Int32 {
+        try start(profileID: profileID) {
+            try chain.configuration(inboundPort: port(for: profileID), logLevel: logLevel)
+        }
+    }
+
+    @discardableResult
     public func start(profileID: UUID, outboundJSON: String) throws -> Int32 {
         try start(profileID: profileID) {
             try CustomOutbound.configuration(json: outboundJSON, inboundPort: port(for: profileID))

@@ -59,16 +59,34 @@ final class NavigationPreferencesTests: XCTestCase {
         let session = BrowserSession(profile: profile, output: output, outboundDescription: "直连", diagnostics: SPIDiagnostics())
         self.session = session
 
-        let controller = session.openWindow(url: nil)
-        controller.webView.loadHTMLString("<!doctype html><a id=next href='https://second.example.invalid/'>next</a>",
-                                          baseURL: URL(string: "https://first.example.invalid/"))
-        XCTAssertTrue(spin { controller.webView.url?.host == "first.example.invalid" && !controller.webView.isLoading })
+        // 两次导航都由本机服务响应，隐私位检查不依赖 .invalid 域名的网络失败何时返回。
+        let server = try LoopbackHTTPServer(routes: [
+            "/first": .init(status: 200, headers: ["Content-Type": "text/html"],
+                            body: "<!doctype html><title>First</title><a id=next href='/second'>next</a>"),
+            "/second": .init(status: 200, headers: ["Content-Type": "text/html"],
+                             body: "<!doctype html><title>Second</title><p>second</p>"),
+        ])
+        defer { server.stop() }
+        XCTAssertTrue(spin { server.port != nil })
+        let port = try XCTUnwrap(server.port)
+        let first = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/first"))
+        let second = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/second"))
+        let controller = session.openWindow(url: first)
+        XCTAssertTrue(spin {
+            controller.webView.url == first && controller.webView.title == "First" && !controller.webView.isLoading
+        })
         XCTAssertGreaterThanOrEqual(recorder.seen.count, 1, "载入网页走了 4 参数回调")
 
-        // 网页里点链接：又一次放行的导航（打不开的网址会再载入出错页）。
+        // 网页里点链接：再完成一次放行的导航，并核验它独立的 preferences。
         let before = recorder.seen.count
-        controller.webView.evaluateJavaScript("document.getElementById('next').click()")
-        XCTAssertTrue(spin(15) { recorder.seen.count > before && !controller.webView.isLoading })
+        controller.webView.evaluateJavaScript("document.getElementById('next').click()") { _, error in
+            XCTAssertNil(error)
+        }
+        XCTAssertTrue(spin(15) {
+            recorder.seen.count > before && controller.webView.url == second
+                && controller.webView.title == "Second" && !controller.webView.isLoading
+        })
+        XCTAssertNil(controller.failedURL)
 
         for (index, entry) in recorder.seen.enumerated() {
             XCTAssertEqual(entry.policy & 0x1C1, 0x1C1, "第 \(index + 1) 次导航")

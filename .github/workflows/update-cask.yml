@@ -18,12 +18,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}
-        run: scripts/update-cask.sh "$TAG"
+        run: |
+          scripts/update-cask.sh "$TAG" || { sleep 60; scripts/update-cask.sh "$TAG"; }
 
       - name: Commit and push
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet Casks/safarier.rb; then
+            echo "Cask already up to date, nothing to commit"
+            exit 0
+          fi
           git add Casks/safarier.rb
           git commit -m "chore(cask): bump to ${TAG}"
           git push

@@ -110,7 +110,7 @@ SAFARIER_ARCH=universal scripts/build-app.sh    # universal | arm64 | x86_64 →
 
 This repository doubles as a Homebrew tap: `Casks/safarier.rb` sits at the repo root, and users install via an explicit URL (`brew tap cd1s/safarier https://github.com/Cd1s/safarier` → `brew install --cask cd1s/safarier/safarier`).
 
-After a release, the cask is updated automatically by GitHub Actions (`.github/workflows/update-cask.yml` listens for `release: published`, runs `scripts/update-cask.sh`, and pushes to main); running the same script locally is only a fallback (or hand-edit `version` and the two `sha256` lines — three lines in total):
+After a release, the cask is updated automatically by GitHub Actions (`.github/workflows/update-cask.yml` listens for `release: published`, runs `scripts/update-cask.sh`, and pushes to main; on failure it retries once after 60 seconds, and if that still fails re-run the workflow in Actions or run the same script locally as a fallback, or hand-edit `version` and the two `sha256` lines — three lines in total):
 
 ```sh
 scripts/update-cask.sh              # latest release

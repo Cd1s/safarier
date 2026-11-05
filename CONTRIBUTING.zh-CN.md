@@ -110,7 +110,7 @@ SAFARIER_ARCH=universal scripts/build-app.sh    # universal | arm64 | x86_64 →
 
 本仓库自身就是 Homebrew tap：`Casks/safarier.rb` 在仓库根，用户用显式 URL tap 安装（`brew tap cd1s/safarier https://github.com/Cd1s/safarier` → `brew install --cask cd1s/safarier/safarier`）。
 
-发新版后更新 cask 由 GitHub Actions 自动完成（`.github/workflows/update-cask.yml` 监听 `release: published`，跑 `scripts/update-cask.sh` 后提交到 main）；本地手动跑同一脚本只作为兜底（也可以手改 `version` 和两个 `sha256`，共三行）：
+发新版后更新 cask 由 GitHub Actions 自动完成（`.github/workflows/update-cask.yml` 监听 `release: published`，跑 `scripts/update-cask.sh` 后提交到 main；更新失败会等 60 秒重试一次，仍失败就在 Actions 里 re-run 或本地跑同一脚本兜底，也可以手改 `version` 和两个 `sha256`，共三行）：
 
 ```sh
 scripts/update-cask.sh              # 用最新 Release

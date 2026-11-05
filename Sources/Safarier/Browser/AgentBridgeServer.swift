@@ -317,7 +317,7 @@ final class AgentBridgeServer {
             do {
                 request = try JSONDecoder().decode(AgentRequest.self, from: data)
             } catch {
-                Self.writeResponse(AgentResponse(ok: false, error: "请求格式无效：\(error)"), to: clientFD)
+                Self.writeResponse(AgentResponse(ok: false, error: L10n.text("请求格式无效：%@", String(describing: error))), to: clientFD)
                 close(clientFD)
                 return
             }
@@ -327,7 +327,7 @@ final class AgentBridgeServer {
                 if let self {
                     response = await self.handle(request)
                 } else {
-                    response = AgentResponse(ok: false, error: "会话已关闭")
+                    response = AgentResponse(ok: false, error: L10n.text("会话已关闭"))
                 }
                 DispatchQueue.global(qos: .userInitiated).async {
                     Self.writeResponse(response, to: clientFD)
@@ -364,7 +364,7 @@ final class AgentBridgeServer {
                 )
             case .click:
                 guard let target = request.target, !target.isEmpty else {
-                    return AgentResponse(ok: false, error: "click 缺少目标选择器或引用号（如 e1）")
+                    return AgentResponse(ok: false, error: L10n.text("click 缺少目标选择器或引用号（如 e1）"))
                 }
                 let controller = try resolveController(tab: request.tab)
                 let summary = try await runInDefaultClient(
@@ -381,7 +381,7 @@ final class AgentBridgeServer {
                 )
             case .fill:
                 guard let target = request.target, !target.isEmpty else {
-                    return AgentResponse(ok: false, error: "fill 缺少目标选择器或引用号（如 e1）")
+                    return AgentResponse(ok: false, error: L10n.text("fill 缺少目标选择器或引用号（如 e1）"))
                 }
                 let value = request.value ?? ""
                 let controller = try resolveController(tab: request.tab)
@@ -421,7 +421,7 @@ final class AgentBridgeServer {
                 return makeTabsResponse(message: "focused environment")
             case .eval:
                 guard let script = request.script, !script.isEmpty else {
-                    return AgentResponse(ok: false, error: "eval 缺少 JavaScript 代码")
+                    return AgentResponse(ok: false, error: L10n.text("eval 缺少 JavaScript 代码"))
                 }
                 let controller = try resolveController(tab: request.tab)
                 let wrapped = """
@@ -441,7 +441,7 @@ final class AgentBridgeServer {
                 )
             case .screenshot:
                 guard let outputPath = request.outputPath, !outputPath.isEmpty else {
-                    return AgentResponse(ok: false, error: "screenshot 缺少输出路径")
+                    return AgentResponse(ok: false, error: L10n.text("screenshot 缺少输出路径"))
                 }
                 let controller = try resolveController(tab: request.tab)
                 try await takePNGScreenshot(of: controller.webView, to: URL(fileURLWithPath: outputPath))
@@ -501,7 +501,7 @@ final class AgentBridgeServer {
         if let tab {
             let zeroBased = tab - 1
             guard session.openControllers.indices.contains(zeroBased) else {
-                throw NSError(domain: "SafarierAgent", code: 404, userInfo: [NSLocalizedDescriptionKey: "找不到标签页 #\(tab)（当前共 \(session.openControllers.count) 个标签页）"])
+                throw NSError(domain: "SafarierAgent", code: 404, userInfo: [NSLocalizedDescriptionKey: L10n.text("找不到标签页 #%lld（当前共 %lld 个标签页）", tab, session.openControllers.count)])
             }
             return session.openControllers[zeroBased]
         }
@@ -509,7 +509,7 @@ final class AgentBridgeServer {
             return frontmost
         }
         guard let last = session.openControllers.last else {
-            throw NSError(domain: "SafarierAgent", code: 404, userInfo: [NSLocalizedDescriptionKey: "当前环境没有打开的标签页"])
+            throw NSError(domain: "SafarierAgent", code: 404, userInfo: [NSLocalizedDescriptionKey: L10n.text("当前环境没有打开的标签页")])
         }
         return last
     }
@@ -538,7 +538,7 @@ final class AgentBridgeServer {
         if let url = URL(string: raw), url.scheme != nil {
             return url
         }
-        throw NSError(domain: "SafarierAgent", code: 400, userInfo: [NSLocalizedDescriptionKey: "无效的 URL：\(raw)"])
+        throw NSError(domain: "SafarierAgent", code: 400, userInfo: [NSLocalizedDescriptionKey: L10n.text("无效的 URL：%@", raw)])
     }
 
     private func waitUntilLoaded(_ webView: WKWebView, timeout: TimeInterval = 8) async {
@@ -595,7 +595,7 @@ final class AgentBridgeServer {
             webView: webView
         )
         guard let data = jsonString.data(using: .utf8) else {
-            throw NSError(domain: "SafarierAgent", code: 500, userInfo: [NSLocalizedDescriptionKey: "无法解码 snapshot JSON"])
+            throw NSError(domain: "SafarierAgent", code: 500, userInfo: [NSLocalizedDescriptionKey: L10n.text("无法解码 snapshot JSON")])
         }
         return try JSONDecoder().decode(AgentSnapshotPayload.self, from: data)
     }
@@ -629,14 +629,14 @@ final class AgentBridgeServer {
                 } else if let image {
                     continuation.resume(returning: image)
                 } else {
-                    continuation.resume(throwing: NSError(domain: "SafarierAgent", code: 500, userInfo: [NSLocalizedDescriptionKey: "截图返回为空"]))
+                    continuation.resume(throwing: NSError(domain: "SafarierAgent", code: 500, userInfo: [NSLocalizedDescriptionKey: L10n.text("截图返回为空")]))
                 }
             }
         }
         guard let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:]) else {
-            throw NSError(domain: "SafarierAgent", code: 500, userInfo: [NSLocalizedDescriptionKey: "生成 PNG 图像数据失败"])
+            throw NSError(domain: "SafarierAgent", code: 500, userInfo: [NSLocalizedDescriptionKey: L10n.text("生成 PNG 图像数据失败")])
         }
         try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try png.write(to: destinationURL, options: .atomic)

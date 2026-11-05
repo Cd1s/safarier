@@ -21,7 +21,7 @@ enum RunnerMain {
             let spec = try RunnerLaunchSpec.parse(arguments, environment: ProcessInfo.processInfo.environment)
             let workspace = try SafarierWorkspace.default()
             guard let profile = try workspace.profiles.record(id: spec.profileID) else {
-                fail("找不到 profile \(spec.profileID.uuidString)")
+                fail(L10n.text("找不到 profile %@", spec.profileID.uuidString))
             }
             try profile.validate()
             lock = try ProfileLock.acquire(profileID: profile.id, in: workspace.locksDirectory)
@@ -37,7 +37,9 @@ enum RunnerMain {
             var effectiveProfile = profile
             var proxy = try profile.proxyID.flatMap { try workspace.proxies.record(id: $0) }
             var outbound: [String: Any] = proxy.map { ["kind": "proxy", "name": $0.name] } ?? ["kind": "direct"]
-            var outboundDescription = proxy.map { "代理「\($0.name)」（\($0.kind.rawValue) \($0.host):\($0.port)）" } ?? "直连"
+            var outboundDescription = proxy.map {
+                L10n.text("代理「%@」（%@ %@:%lld）", $0.name, $0.kind.rawValue, $0.host, $0.port)
+            } ?? L10n.text("直连")
 
             let bound = try workspace.boundNode(for: profile)
             if let saved = proxy, let chain = try ProxyChainBuilder.resolve(saved, in: workspace, credentials: KeychainCredentialStore()) {
@@ -59,7 +61,7 @@ enum RunnerMain {
                 effectiveProfile.proxyID = local.proxy.id
                 proxy = local.proxy
                 outbound = ["kind": "customSingbox", "singboxPID": local.pid, "localProxy": "\(local.proxy.host):\(local.proxy.port)"]
-                outboundDescription = "自定义代理（经 sing-box）"
+                outboundDescription = L10n.text("自定义代理（经 sing-box）")
             } else if let bound {
                 let local = try startSingbox(profileID: profile.id, workspace: workspace) {
                     try $0.start(profileID: profile.id, node: bound.node)
@@ -74,7 +76,11 @@ enum RunnerMain {
                     "singboxPID": local.pid,
                     "localProxy": "\(local.proxy.host):\(local.proxy.port)",
                 ]
-                outboundDescription = "订阅「\(bound.subscription.name)」节点「\(bound.node.name)」（经 sing-box）"
+                outboundDescription = L10n.text(
+                    "订阅「%@」节点「%@」（经 sing-box）",
+                    bound.subscription.name,
+                    bound.node.name
+                )
             }
 
             // 原生引擎接口只在 profile（或本次 --spi）显式开启时才碰；公开适配器先写结论，SPI 适配器再覆盖。
@@ -140,7 +146,7 @@ enum RunnerMain {
             app.run()
             exit(0)
         } catch {
-            fail("Runner 启动失败：\(error)")
+            fail(L10n.text("Runner 启动失败：%@", String(describing: error)))
         }
     }
 
@@ -172,7 +178,7 @@ enum RunnerMain {
         FileHandle.standardError.write(Data("[geo] 带上 -AppleLanguages \(resolved.languages) 重新启动 Runner\n".utf8))
         var cArguments = argv.map { strdup($0) } + [nil]
         execv(executable, &cArguments)
-        fail("重新启动 Runner 失败（errno \(errno)）")
+        fail(L10n.text("重新启动 Runner 失败（errno %d）", errno))
     }
 
     /// 起 sing-box 并等它的本地端口可用。stdout/stderr 进 Runner 自己的日志（级别 warn，不记访问的域名）。

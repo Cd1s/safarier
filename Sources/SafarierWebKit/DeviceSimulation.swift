@@ -31,15 +31,19 @@ public struct DeviceSimulation {
             screenWidth: Double(model.screenWidth), screenHeight: Double(model.screenHeight), availHeight: Double(model.availHeight)
         ) {
         case .success:
-            let gamut = model.displayP3 ? "P3 色域" : "sRGB"
-            let range = model.displayHDR ? "HDR（EDR 余量 \(Self.format(model.maxEDRHeadroom))）" : "SDR"
-            let geometry = "屏幕 \(model.screenWidth)×\(model.screenHeight)（可用 \(model.availWidth)×\(model.availHeight)）"
-            let text = "\(model.name)：\(geometry)、\(gamut)、\(range)（替换 NSScreen / AVPlayer 的屏幕查询，WebKit 原生算出 screen 与媒体查询）"
-            diagnostics.record("display：\(text)")
+            let gamut = model.displayP3 ? L10n.text("P3 色域") : "sRGB"
+            let range = model.displayHDR ? L10n.text("HDR（EDR 余量 %@）", Self.format(model.maxEDRHeadroom)) : "SDR"
+            let geometry = L10n.text("屏幕 %lld×%lld（可用 %lld×%lld）",
+                                     model.screenWidth, model.screenHeight, model.availWidth, model.availHeight)
+            let text = L10n.text("%@：%@、%@、%@（替换 NSScreen / AVPlayer 的屏幕查询，WebKit 原生算出 screen 与媒体查询）",
+                                 model.name, geometry, gamut, range)
+            diagnostics.record(L10n.text("display：%@", text))
             return .active(text)
         case .failure(let failure):
-            diagnostics.record("display：安装失败（\(failure)），保持真实屏幕")
-            return failure.isUnsupported ? .unavailable("本机没有对应接口：\(failure)") : .degraded("安装失败：\(failure)")
+            diagnostics.record(L10n.text("display：安装失败（%@），保持真实屏幕", String(describing: failure)))
+            return failure.isUnsupported
+                ? .unavailable(L10n.text("本机没有对应接口：%@", String(describing: failure)))
+                : .degraded(L10n.text("安装失败：%@", String(describing: failure)))
         }
     }
 
@@ -58,32 +62,36 @@ public struct DeviceSimulation {
 
     public func apply(to webView: WKWebView) -> CapabilityState {
         let scale = Double(model.scale)
-        let viewport = "视口 \(model.viewportWidth)×\(model.viewportHeight)"
+        let viewport = L10n.text("视口 %lld×%lld", model.viewportWidth, model.viewportHeight)
         // 宿主机窗口本身的 backingScaleFactor 已经等于目标像素比（例如 Retina 屏都是 2x）时，
         // 直接沿用窗口原生像素比，避免在已经入窗的 WKWebView 上额外启用自定义 scale 影响图层与点击坐标。
         if let windowScale = webView.window?.backingScaleFactor, windowScale == scale {
-            let text = "\(model.name)：\(viewport)，devicePixelRatio \(model.scale)（与宿主机 Retina 像素比原生一致）"
-            diagnostics.record("device：\(text)")
+            let text = L10n.text("%@：%@，devicePixelRatio %lld（与宿主机 Retina 像素比原生一致）",
+                                  model.name, viewport, model.scale)
+            diagnostics.record(L10n.text("device：%@", text))
             return .active(text)
         }
         if case .failure(let failure) = SPIRuntimeBridge.setDouble(scale, Self.setter, on: webView) {
-            diagnostics.record("device：设置像素比失败（\(failure)），保持屏幕本身的像素比")
+            diagnostics.record(L10n.text("device：设置像素比失败（%@），保持屏幕本身的像素比", String(describing: failure)))
             return failure.isUnsupported
-                ? .unavailable("\(model.name)：\(viewport)；本机 WebKit 没有像素比覆盖接口（\(failure)）")
-                : .degraded("\(model.name)：\(viewport)；像素比覆盖调用失败（\(failure)）")
+                ? .unavailable(L10n.text("%@：%@；本机 WebKit 没有像素比覆盖接口（%@）",
+                                         model.name, viewport, String(describing: failure)))
+                : .degraded(L10n.text("%@：%@；像素比覆盖调用失败（%@）",
+                                      model.name, viewport, String(describing: failure)))
         }
         switch SPIRuntimeBridge.getDouble(Self.getter, on: webView) {
         case .success(let value) where value == scale:
-            let text = "\(model.name)：\(viewport)，devicePixelRatio \(model.scale)（回读一致）"
-            diagnostics.record("device：\(text)")
+            let text = L10n.text("%@：%@，devicePixelRatio %lld（回读一致）", model.name, viewport, model.scale)
+            diagnostics.record(L10n.text("device：%@", text))
             return .active(text)
         case .success(let value):
-            let text = "\(model.name)：写入像素比 \(model.scale) 后回读为 \(value)"
-            diagnostics.record("device：\(text)")
+            let text = L10n.text("%@：写入像素比 %lld 后回读为 %lf", model.name, model.scale, value)
+            diagnostics.record(L10n.text("device：%@", text))
             return .degraded(text)
         case .failure(let failure):
-            let text = "\(model.name)：\(viewport)，devicePixelRatio \(model.scale)（回读失败：\(failure)）"
-            diagnostics.record("device：\(text)")
+            let text = L10n.text("%@：%@，devicePixelRatio %lld（回读失败：%@）",
+                                 model.name, viewport, model.scale, String(describing: failure))
+            diagnostics.record(L10n.text("device：%@", text))
             return .unverified(text)
         }
     }

@@ -231,7 +231,7 @@ final class ProbeController: NSObject, WKNavigationDelegate, WKUIDelegate {
     func start() {
         window.orderBack(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.timeout) { [weak self] in
-            self?.finish(status: 2, observed: nil, error: "超时（\(Int(Self.timeout)) 秒）")
+            self?.finish(status: 2, observed: nil, error: L10n.text("超时（%lld 秒）", Int(Self.timeout)))
         }
         if let url = spec.startURL {
             webView.load(URLRequest(url: url))
@@ -246,7 +246,7 @@ final class ProbeController: NSObject, WKNavigationDelegate, WKUIDelegate {
             case .success(let value):
                 self?.finish(status: 0, observed: value, error: nil)
             case .failure(let error):
-                self?.finish(status: 4, observed: nil, error: "脚本执行失败：\(error)")
+                self?.finish(status: 4, observed: nil, error: L10n.text("脚本执行失败：%@", String(describing: error)))
             }
         }
     }

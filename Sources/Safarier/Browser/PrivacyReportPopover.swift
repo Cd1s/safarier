@@ -20,7 +20,7 @@ enum PrivacyReportPopover {
            !host.isEmpty {
             return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         }
-        return "当前环境隐私护盾已就绪"
+        return L10n.text("当前环境隐私护盾已就绪")
     }
 
     static func protectionItems(
@@ -33,36 +33,36 @@ enum PrivacyReportPopover {
             return profile.spi.contains(.fingerprintingProtections)
         }()
         let sandboxDetail = profile.mode == .ephemeral
-            ? "临时无痕 · 关闭窗口即销毁全部网站数据"
-            : "持久隔离 · 当前环境独立 Cookie 与存储沙盒"
-        let outboundText = outboundDescription.isEmpty ? "直连" : outboundDescription
-        let proxyDetail = outboundText == "直连"
-            ? "\(outboundText) · Fail-Closed 零泄漏保护待命"
-            : "\(outboundText) · Fail-Closed 零泄漏保护已启用"
+            ? L10n.text("临时无痕 · 关闭窗口即销毁全部网站数据")
+            : L10n.text("持久隔离 · 当前环境独立 Cookie 与存储沙盒")
+        let outboundText = outboundDescription.isEmpty ? L10n.text("直连") : outboundDescription
+        let proxyDetail = outboundText == L10n.text("直连")
+            ? L10n.text("%@ · Fail-Closed 零泄漏保护待命", outboundText)
+            : L10n.text("%@ · Fail-Closed 零泄漏保护已启用", outboundText)
         let localeSummary: String = {
-            let lang = profile.languages.isEmpty ? "跟随系统语言" : profile.languages.joined(separator: ", ")
-            let tz = profile.timeZoneIdentifier ?? "跟随系统时区"
-            return "系统字体白名单隔离 · \(lang) · \(tz)"
+            let lang = profile.languages.isEmpty ? L10n.text("跟随系统语言") : profile.languages.joined(separator: ", ")
+            let tz = profile.timeZoneIdentifier ?? L10n.text("跟随系统时区")
+            return L10n.text("系统字体白名单隔离 · %@ · %@", lang, tz)
         }()
 
         return [
             ProtectionItem(
-                title: "Safari 原生防指纹保护",
-                detail: afpActive ? "Canvas / WebGL / Audio 动态噪声已启用" : "Canvas / WebGL / Audio 动态噪声（标准模式）",
+                title: L10n.text("Safari 原生防指纹保护"),
+                detail: afpActive ? L10n.text("Canvas / WebGL / Audio 动态噪声已启用") : L10n.text("Canvas / WebGL / Audio 动态噪声（标准模式）"),
                 isActive: true
             ),
             ProtectionItem(
-                title: "独立网站数据沙盒",
+                title: L10n.text("独立网站数据沙盒"),
                 detail: sandboxDetail,
                 isActive: true
             ),
             ProtectionItem(
-                title: "出站代理通道",
+                title: L10n.text("出站代理通道"),
                 detail: proxyDetail,
                 isActive: true
             ),
             ProtectionItem(
-                title: "系统字体白名单隔离 & 区域时区引擎同步",
+                title: L10n.text("系统字体白名单隔离 & 区域时区引擎同步"),
                 detail: localeSummary,
                 isActive: true
             ),
@@ -84,12 +84,12 @@ enum PrivacyReportPopover {
 
         // 顶部：绿色盾牌图标 + 标题「隐私报告」+ 当前网站域名（起始页显示「当前环境隐私护盾已就绪」）
         let shieldIcon = NSImageView()
-        shieldIcon.image = NSImage(systemSymbolName: "shield.lefthalf.filled", accessibilityDescription: "隐私报告")
+        shieldIcon.image = NSImage(systemSymbolName: "shield.lefthalf.filled", accessibilityDescription: L10n.text("隐私报告"))
         shieldIcon.symbolConfiguration = .init(pointSize: 22, weight: .semibold)
         shieldIcon.contentTintColor = .systemGreen
         shieldIcon.setContentHuggingPriority(.required, for: .horizontal)
 
-        let titleLabel = NSTextField(labelWithString: "隐私报告")
+        let titleLabel = NSTextField(labelWithString: L10n.text("隐私报告"))
         titleLabel.font = .boldSystemFont(ofSize: 14)
         titleLabel.textColor = .labelColor
 
@@ -124,7 +124,7 @@ enum PrivacyReportPopover {
         cardStack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         cardStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let profileHeader = NSTextField(labelWithString: "当前环境：\(profile.name)")
+        let profileHeader = NSTextField(labelWithString: L10n.text("当前环境：%@", profile.name))
         profileHeader.font = .systemFont(ofSize: 11, weight: .semibold)
         profileHeader.textColor = .secondaryLabelColor
         cardStack.addArrangedSubview(profileHeader)
@@ -146,13 +146,13 @@ enum PrivacyReportPopover {
 
         // 底部：「拷贝环境诊断摘要」快捷按钮
         let copyButton = NSButton(
-            title: "拷贝环境诊断摘要",
+            title: L10n.text("拷贝环境诊断摘要"),
             target: controller,
             action: #selector(PopoverViewController.copyDiagnosticsButtonClicked(_:))
         )
         copyButton.bezelStyle = .rounded
         copyButton.controlSize = .regular
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "拷贝环境诊断摘要")
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: L10n.text("拷贝环境诊断摘要"))
         copyButton.imagePosition = .imageLeading
         root.addArrangedSubview(copyButton)
 
@@ -166,7 +166,7 @@ enum PrivacyReportPopover {
 
     private static func makeProtectionRow(_ item: ProtectionItem) -> NSView {
         let checkIcon = NSImageView()
-        checkIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "已生效")
+        checkIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: L10n.text("已生效"))
         checkIcon.symbolConfiguration = .init(pointSize: 13, weight: .medium)
         checkIcon.contentTintColor = .systemGreen
         checkIcon.setContentHuggingPriority(.required, for: .horizontal)

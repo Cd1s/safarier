@@ -29,17 +29,17 @@ public enum ProxyConnectionError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .missingPassword: return "没有找到代理认证密码，请编辑代理并重新保存密码。"
-        case .proxyDNS: return "无法解析代理服务器地址。"
-        case .targetDNS: return "无法解析测试站点地址。"
-        case .connection: return "无法连接代理服务器，请检查地址、端口及服务是否开启。"
-        case .authentication: return "代理认证失败，请检查用户名和密码。"
-        case .handshake: return "SOCKS5 握手或认证失败，请检查协议和认证信息。"
-        case .timeout: return "连接测试超时，代理或测试站点没有及时响应。"
-        case .tls: return "HTTPS 握手或证书校验失败。"
-        case .http(let status): return "测试站点返回 HTTP \(status)，未确认 HTTPS 访问成功。"
-        case .invalidResponse: return "测试响应无效，无法确认出口 IP。"
-        case .transfer(let code): return "代理传输失败（错误码 \(code)），未回退直连。"
+        case .missingPassword: return L10n.text("没有找到代理认证密码，请编辑代理并重新保存密码。")
+        case .proxyDNS: return L10n.text("无法解析代理服务器地址。")
+        case .targetDNS: return L10n.text("无法解析测试站点地址。")
+        case .connection: return L10n.text("无法连接代理服务器，请检查地址、端口及服务是否开启。")
+        case .authentication: return L10n.text("代理认证失败，请检查用户名和密码。")
+        case .handshake: return L10n.text("SOCKS5 握手或认证失败，请检查协议和认证信息。")
+        case .timeout: return L10n.text("连接测试超时，代理或测试站点没有及时响应。")
+        case .tls: return L10n.text("HTTPS 握手或证书校验失败。")
+        case .http(let status): return L10n.text("测试站点返回 HTTP %lld，未确认 HTTPS 访问成功。", status)
+        case .invalidResponse: return L10n.text("测试响应无效，无法确认出口 IP。")
+        case .transfer(let code): return L10n.text("代理传输失败（错误码 %lld），未回退直连。", Int(code))
         }
     }
 }

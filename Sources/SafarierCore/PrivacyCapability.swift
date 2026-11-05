@@ -119,7 +119,7 @@ public struct PrivacyCapabilityReport: Equatable, Codable, Sendable {
     }
 
     public subscript(feature: PrivacyFeature) -> CapabilityState {
-        states[feature] ?? .unavailable("未评估")
+        states[feature] ?? .unavailable(L10n.text("未评估"))
     }
 
     public mutating func set(_ state: CapabilityState, for feature: PrivacyFeature) {

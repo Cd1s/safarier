@@ -275,36 +275,37 @@ final class SafariBehaviorTests: XCTestCase {
     func testLinkMenuOffersNewTabBackgroundTabAndNewWindow() throws {
         let webView = makeWebView()
         let link = menu([ID.openLink, ID.openLinkInNewWindow, ID.downloadLinkedFile, ID.copyLink])
-        BrowserContextMenu.customize(link, target: webView, chinese: true)
-        XCTAssertEqual(link.items.map(\.title), [ID.openLink, "在新标签页中打开链接", "在后台标签页中打开链接", "在新窗口中打开链接", ID.downloadLinkedFile, ID.copyLink])
+        BrowserContextMenu.customize(link, target: webView)
+        XCTAssertEqual(link.items.map(\.title), [ID.openLink, L10n.text("在新标签页中打开链接"), L10n.text("在后台标签页中打开链接"), L10n.text("在新窗口中打开链接"), ID.downloadLinkedFile, ID.copyLink])
         XCTAssertEqual(link.items[2].action, #selector(BrowserWebView.openInBackgroundTab(_:)))
         XCTAssertEqual(link.items[3].action, #selector(BrowserWebView.openInNewWindow(_:)))
         XCTAssertTrue(link.items[2].target === webView)
         XCTAssertTrue(link.items[3].representedObject as? NSMenuItem === link.items[1], "转发的是 WebKit 原来的那一项")
         XCTAssertFalse(link.items.contains { $0.action == #selector(BrowserActions.savePageAs(_:)) }, "链接菜单不加页面级操作")
 
-        BrowserContextMenu.customize(link, target: webView, chinese: true)
+        BrowserContextMenu.customize(link, target: webView)
         XCTAssertEqual(link.items.count, 6, "重复调用不会再加一遍")
 
-        let english = menu([ID.openLinkInNewWindow])
-        BrowserContextMenu.customize(english, target: webView, chinese: false)
-        XCTAssertEqual(english.items.map(\.title), ["Open Link in New Tab", "Open Link in Background Tab", "Open Link in New Window"])
+        // 菜单标题来自 Localizable 表，语言跟着进程走；这里只要求同一套键。
+        let reopened = menu([ID.openLinkInNewWindow])
+        BrowserContextMenu.customize(reopened, target: webView)
+        XCTAssertEqual(reopened.items.map(\.title), [L10n.text("在新标签页中打开链接"), L10n.text("在后台标签页中打开链接"), L10n.text("在新窗口中打开链接")])
     }
 
     func testImageMediaAndFrameMenus() {
         let webView = makeWebView()
         let image = menu([ID.openImageInNewWindow, ID.downloadImage, ID.copyImage])
-        BrowserContextMenu.customize(image, target: webView, chinese: true)
-        XCTAssertEqual(Array(image.items.prefix(2).map(\.title)), ["在新标签页中打开图像", "在新窗口中打开图像"])
+        BrowserContextMenu.customize(image, target: webView)
+        XCTAssertEqual(Array(image.items.prefix(2).map(\.title)), [L10n.text("在新标签页中打开图像"), L10n.text("在新窗口中打开图像")])
 
         let media = menu([ID.openMediaInNewWindow, ID.downloadMedia])
-        BrowserContextMenu.customize(media, target: webView, chinese: false)
-        XCTAssertEqual(Array(media.items.prefix(2).map(\.title)), ["Open Video in New Tab", "Open Video in New Window"])
+        BrowserContextMenu.customize(media, target: webView)
+        XCTAssertEqual(Array(media.items.prefix(2).map(\.title)), [L10n.text("在新标签页中打开视频"), L10n.text("在新窗口中打开视频")])
 
         let frame = menu([ID.goBack, ID.goForward, ID.reload, ID.openFrameInNewWindow])
-        BrowserContextMenu.customize(frame, target: webView, chinese: true)
-        XCTAssertTrue(frame.items.contains { $0.title == "在新标签页中打开框架" })
-        XCTAssertTrue(frame.items.contains { $0.title == "在新窗口中打开框架" && $0.action == #selector(BrowserWebView.openInNewWindow(_:)) })
+        BrowserContextMenu.customize(frame, target: webView)
+        XCTAssertTrue(frame.items.contains { $0.title == L10n.text("在新标签页中打开框架") })
+        XCTAssertTrue(frame.items.contains { $0.title == L10n.text("在新窗口中打开框架") && $0.action == #selector(BrowserWebView.openInNewWindow(_:)) })
         XCTAssertTrue(frame.items.contains { $0.action == #selector(BrowserActions.showPageSource(_:)) }, "框架空白处也是页面菜单")
     }
 
@@ -312,7 +313,7 @@ final class SafariBehaviorTests: XCTestCase {
     func testSearchWebStaysInsideSession() throws {
         let webView = makeWebView()
         let selection = menu([ID.copy, ID.searchWeb, ID.lookUp], titles: [ID.searchWeb: "用 Google 搜索“hello world”"])
-        BrowserContextMenu.customize(selection, target: webView, chinese: true)
+        BrowserContextMenu.customize(selection, target: webView)
         let search = try XCTUnwrap(selection.items.first { $0.identifier?.rawValue == ID.searchWeb })
         XCTAssertEqual(search.action, #selector(BrowserWebView.searchWebForSelection(_:)))
         XCTAssertTrue(search.target === webView)
@@ -326,7 +327,7 @@ final class SafariBehaviorTests: XCTestCase {
 
     func testPageMenuGetsSafariPageActionsBeforeInspectElement() throws {
         let page = menu([ID.goBack, ID.goForward, ID.reload, "-", ID.inspectElement])
-        BrowserContextMenu.customize(page, target: makeWebView(), chinese: true)
+        BrowserContextMenu.customize(page, target: makeWebView())
         let actions = page.items.map(\.action)
         XCTAssertEqual(page.items.last?.identifier?.rawValue, ID.inspectElement, "检查元素留在最后")
         let save = try XCTUnwrap(actions.firstIndex(of: #selector(BrowserActions.savePageAs(_:))))
@@ -336,20 +337,20 @@ final class SafariBehaviorTests: XCTestCase {
         for (lhs, rhs) in zip(page.items, page.items.dropFirst()) {
             XCTAssertFalse(lhs.isSeparatorItem && rhs.isSeparatorItem, "不出现连续两条分隔线")
         }
-        XCTAssertEqual(page.items.map(\.title).filter { $0 == "存储页面为…" }.count, 1)
+        XCTAssertEqual(page.items.map(\.title).filter { $0 == L10n.text("存储页面为…") }.count, 1)
 
         // WebKit 没给导航项时补上后退 / 前进 / 重新载入。
         let bare = menu([ID.inspectElement])
-        BrowserContextMenu.customize(bare, target: makeWebView(), chinese: false)
-        XCTAssertEqual(Array(bare.items.prefix(3).map(\.title)), ["Back", "Forward", "Reload Page"])
+        BrowserContextMenu.customize(bare, target: makeWebView())
+        XCTAssertEqual(Array(bare.items.prefix(3).map(\.title)), [L10n.text("后退"), L10n.text("前进"), L10n.text("重新载入页面")])
         XCTAssertEqual(bare.items.last?.identifier?.rawValue, ID.inspectElement)
-        BrowserContextMenu.customize(bare, target: makeWebView(), chinese: false)
-        XCTAssertEqual(bare.items.filter { $0.title == "Back" }.count, 1, "重复调用不会再加一遍")
+        BrowserContextMenu.customize(bare, target: makeWebView())
+        XCTAssertEqual(bare.items.filter { $0.title == L10n.text("后退") }.count, 1, "重复调用不会再加一遍")
     }
 
     func testEditableMenuGetsNoPageActions() {
         let editable = menu([ID.copy, ID.paste, ID.spellingMenu])
-        BrowserContextMenu.customize(editable, target: makeWebView(), chinese: true)
+        BrowserContextMenu.customize(editable, target: makeWebView())
         XCTAssertEqual(editable.items.count, 3)
     }
 
@@ -360,7 +361,7 @@ final class SafariBehaviorTests: XCTestCase {
         let link = menu([ID.openLinkInNewWindow])
         link.items[0].target = recorder
         recorder.onFire = { [weak webView] in recorder.states.append((webView?.openNextAsWindow ?? false, webView?.openNextInBackgroundTab ?? false)) }
-        BrowserContextMenu.customize(link, target: webView, chinese: true)
+        BrowserContextMenu.customize(link, target: webView)
         webView.openInNewWindow(link.items[2])
         webView.openInBackgroundTab(link.items[1])
         XCTAssertEqual(recorder.states.count, 2)

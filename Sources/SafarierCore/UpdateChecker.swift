@@ -91,9 +91,9 @@ public enum UpdateCheckError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidResponse: return "GitHub 返回的数据无法识别"
-        case .httpStatus(let code): return "GitHub 返回 HTTP \(code)"
-        case .invalidVersion(let text): return "无法识别版本号：\(text)"
+        case .invalidResponse: return L10n.text("GitHub 返回的数据无法识别")
+        case .httpStatus(let code): return L10n.text("GitHub 返回 HTTP %lld", code)
+        case .invalidVersion(let text): return L10n.text("无法识别版本号：%@", text)
         }
     }
 }

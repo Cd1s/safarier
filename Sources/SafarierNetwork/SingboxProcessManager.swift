@@ -18,19 +18,25 @@ public enum SingboxProcessError: Error, Equatable {
 extension SingboxProcessError: CustomStringConvertible {
     public var description: String {
         switch self {
-        case .alreadyRunning: return "这个环境的 sing-box 已经在运行。"
-        case .notRunning: return "这个环境的 sing-box 没有在运行。"
+        case .alreadyRunning: return L10n.text("这个环境的 sing-box 已经在运行。")
+        case .notRunning: return L10n.text("这个环境的 sing-box 没有在运行。")
         case .executableNotFound(let url):
-            return "找不到 sing-box（\(url.path)），订阅节点要靠它连出去。Safarier.app 里自带一份；"
-                + "单独用命令行版时请 brew install sing-box，或用环境变量 SAFARIER_SINGBOX 指定路径。"
+            return L10n.text(
+                "找不到 sing-box（%@），订阅节点要靠它连出去。Safarier.app 里自带一份；"
+                    + "单独用命令行版时请 brew install sing-box，或用环境变量 SAFARIER_SINGBOX 指定路径。",
+                url.path
+            )
         case .quarantined(let url):
-            return "macOS 拦下了自带的 sing-box：\(url.path) 带着下载来的隔离标记，而且所在位置是只读的"
-                + "（多半是 App 还在「下载」里，被系统放到了临时位置运行）。把 Safarier.app 拖进「应用程序」，"
-                + "或在终端运行 xattr -dr com.apple.quarantine /Applications/Safarier.app，再重新打开。"
-        case .noFreePort: return "127.0.0.1 上没有空闲端口给 sing-box。"
-        case .exitedEarly(let status): return "sing-box 启动后马上退出了（退出码 \(status)），多半是节点参数有问题，详情见日志。"
-        case .startTimeout(let port): return "sing-box 没有在规定时间内监听 127.0.0.1:\(port)。"
-        case .processIdentityUnavailable(let pid): return "无法核验 sing-box 进程 \(pid) 的身份，已停止启动。"
+            return L10n.text(
+                "macOS 拦下了自带的 sing-box：%@ 带着下载来的隔离标记，而且所在位置是只读的"
+                    + "（多半是 App 还在「下载」里，被系统放到了临时位置运行）。把 Safarier.app 拖进「应用程序」，"
+                    + "或在终端运行 xattr -dr com.apple.quarantine /Applications/Safarier.app，再重新打开。",
+                url.path
+            )
+        case .noFreePort: return L10n.text("127.0.0.1 上没有空闲端口给 sing-box。")
+        case .exitedEarly(let status): return L10n.text("sing-box 启动后马上退出了（退出码 %lld），多半是节点参数有问题，详情见日志。", Int(status))
+        case .startTimeout(let port): return L10n.text("sing-box 没有在规定时间内监听 127.0.0.1:%lld。", port)
+        case .processIdentityUnavailable(let pid): return L10n.text("无法核验 sing-box 进程 %lld 的身份，已停止启动。", Int(pid))
         }
     }
 }

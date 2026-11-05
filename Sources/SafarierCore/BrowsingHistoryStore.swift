@@ -149,7 +149,7 @@ public final class BrowsingHistoryStore {
         let sorted = entries.sorted { $0.visitedAt > $1.visitedAt }
         let today = sorted.filter { calendar.isDate($0.visitedAt, inSameDayAs: now) }
         let earlier = sorted.filter { !calendar.isDate($0.visitedAt, inSameDayAs: now) }
-        return [BrowsingHistorySection(title: "今天", entries: today), BrowsingHistorySection(title: "更早", entries: earlier)]
+        return [BrowsingHistorySection(title: L10n.text("今天"), entries: today), BrowsingHistorySection(title: L10n.text("更早"), entries: earlier)]
             .filter { !$0.entries.isEmpty }
     }
 

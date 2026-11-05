@@ -113,7 +113,7 @@ public struct WebViewConfigurationFactory {
             case .persistent:
                 report.set(.active("WKWebsiteDataStore(forIdentifier: \(profile.id.uuidString))"), for: .dataIsolation)
             case .ephemeral:
-                report.set(.active("WKWebsiteDataStore.nonPersistent()，窗口关闭即销毁"), for: .dataIsolation)
+                report.set(.active(L10n.text("WKWebsiteDataStore.nonPersistent()，窗口关闭即销毁")), for: .dataIsolation)
             }
         }
 
@@ -123,7 +123,7 @@ public struct WebViewConfigurationFactory {
             let password = proxy.username == nil ? nil : try credentials.password(forKey: proxy.credentialKey)
             try ProxyConfigurationBuilder.apply(proxy, password: password, to: store)
             report.set(
-                .active("\(proxy.kind.rawValue) \(proxy.host):\(proxy.port)（DNS/WebRTC 泄漏见 M0-3、M0-4）"),
+                .active(L10n.text("%@ %@:%lld（DNS/WebRTC 泄漏见 M0-3、M0-4）", proxy.kind.rawValue, proxy.host, proxy.port)),
                 for: .proxy
             )
         } else {
@@ -142,34 +142,36 @@ public struct WebViewConfigurationFactory {
             report.set(.notRequested, for: .languages)
         } else if processLanguages == profile.languages {
             // M0-1（2026-10-24，macOS 15.7.3 / WebKit 20621.3.11）：主线程、Worker 的 navigator.language 和 Accept-Language 都生效。
-            report.set(.active("-AppleLanguages 进程参数（navigator.language 和 Accept-Language 已实测生效）"), for: .languages)
+            report.set(.active(L10n.text("-AppleLanguages 进程参数（navigator.language 和 Accept-Language 已实测生效）")), for: .languages)
         } else {
-            report.set(.unavailable("Runner 进程的 AppleLanguages 是 \(processLanguages)，不是 \(profile.languages)"), for: .languages)
+            report.set(.unavailable(L10n.text("Runner 进程的 AppleLanguages 是 %@，不是 %@",
+                                              processLanguages.joined(separator: ", "),
+                                              profile.languages.joined(separator: ", "))), for: .languages)
         }
 
         if profile.timeZoneIdentifier != nil {
             // M0-2（2026-10-24 实测）：TZ 只改 Runner 进程，WebContent 进程仍是系统时区。
             // 开启 --spi tz 时由 SPIPrivacyAdapter 用引擎层覆盖改写这一项（M0-8 已实测生效）。
-            report.set(.unavailable("TZ 传不到 WebContent，网页仍是系统时区；开启 --spi tz 使用引擎层覆盖"), for: .timeZone)
+            report.set(.unavailable(L10n.text("TZ 传不到 WebContent，网页仍是系统时区；开启 --spi tz 使用引擎层覆盖")), for: .timeZone)
         } else {
             report.set(.notRequested, for: .timeZone)
         }
 
         if let safariApplicationName {
             configuration.applicationNameForUserAgent = safariApplicationName
-            let note = userAgentVersion.map { "；\($0.note)" } ?? ""
+            let note = userAgentVersion.map { L10n.text("；%@", $0.note) } ?? ""
             let text = "applicationNameForUserAgent = \(safariApplicationName)\(note)"
             report.set(userAgentVersion?.matchesEngine == false ? .degraded(text) : .active(text), for: .safariUserAgent)
         } else {
-            report.set(.unavailable("找不到 /Applications/Safari.app，保持 WebKit 默认 UA"), for: .safariUserAgent)
+            report.set(.unavailable(L10n.text("找不到 /Applications/Safari.app，保持 WebKit 默认 UA")), for: .safariUserAgent)
         }
 
         report.set(
-            profile.deviceModel == nil ? .notRequested : .unverified("像素比要在 WebView 创建后设置"),
+            profile.deviceModel == nil ? .notRequested : .unverified(L10n.text("像素比要在 WebView 创建后设置")),
             for: .deviceModel
         )
         report.set(
-            profile.deviceModel == nil ? .notRequested : .unverified("屏幕能力由 Runner 在创建 WebView 前安装"),
+            profile.deviceModel == nil ? .notRequested : .unverified(L10n.text("屏幕能力由 Runner 在创建 WebView 前安装")),
             for: .displayCapabilities
         )
         privacy.apply(to: configuration, for: profile, report: &report)

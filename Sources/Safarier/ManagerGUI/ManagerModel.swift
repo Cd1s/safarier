@@ -105,7 +105,7 @@ final class ManagerModel: ObservableObject {
 
     private func requireSavedProfile(_ profile: Profile) -> Bool {
         guard let editor = profileEditors[profile.id], editor.hasChanges || editor.isSaving else { return true }
-        message = Message(title: "环境还有未保存的修改", detail: "请先在详情页保存或还原修改。")
+        message = Message(title: L10n.text("环境还有未保存的修改"), detail: L10n.text("请先在详情页保存或还原修改。"))
         return false
     }
 
@@ -160,7 +160,7 @@ final class ManagerModel: ObservableObject {
                 self.subscriptions = subscriptions
             }
         } catch {
-            report("读取数据失败", error)
+            report(L10n.text("读取数据失败"), error)
         }
         refreshRunningState()
         switch selection {
@@ -202,7 +202,7 @@ final class ManagerModel: ObservableObject {
     func installAvailableUpdate() {
         guard let release = availableUpdate, !isInstallingUpdate else { return }
         isInstallingUpdate = true
-        updateStatusText = "准备更新…"
+        updateStatusText = L10n.text("准备更新…")
         Task { @MainActor [weak self] in
             do {
                 try await AboutAndUpdateController.installUpdateAndRelaunch(release) { text in
@@ -211,7 +211,7 @@ final class ManagerModel: ObservableObject {
                 self?.updateStatusText = nil
             } catch {
                 self?.updateStatusText = nil
-                self?.message = .init(title: "更新失败", detail: DisplayText.describe(error))
+                self?.message = .init(title: L10n.text("更新失败"), detail: DisplayText.describe(error))
             }
             self?.isInstallingUpdate = false
         }
@@ -260,16 +260,17 @@ final class ManagerModel: ObservableObject {
 
     func upstreamName(_ upstream: ProxyUpstream) -> String {
         switch upstream {
-        case .proxy(let id): return proxy(id)?.name ?? "前置代理已删除"
+        case .proxy(let id): return proxy(id)?.name ?? L10n.text("前置代理已删除")
         case .node(let id, let name):
-            guard let subscription = subscription(id) else { return "前置订阅已删除" }
-            return subscription.nodes.contains(where: { $0.name == name }) ? name : "前置节点已失效：\(name)"
-        case .custom: return "自定义前置"
+            guard let subscription = subscription(id) else { return L10n.text("前置订阅已删除") }
+            return subscription.nodes.contains(where: { $0.name == name }) ? name : L10n.text("前置节点已失效：%@", name)
+        case .custom: return L10n.text("自定义前置")
         }
     }
 
     func connectionPath(_ proxy: ProxySettings) -> String {
-        proxy.upstream.map { "\(upstreamName($0)) → \(proxy.name) → 网站" } ?? "\(proxy.name) → 网站"
+        proxy.upstream.map { L10n.text("%@ → %@ → 网站", upstreamName($0), proxy.name) }
+            ?? L10n.text("%@ → 网站", proxy.name)
     }
 
     func testProxy(_ proxy: ProxySettings) {
@@ -460,7 +461,7 @@ final class ManagerModel: ObservableObject {
         if profile.subscriptionID != nil || profile.customOutboundJSON != nil || profile.proxyID.flatMap(proxy)?.upstream != nil,
            !FileManager.default.isExecutableFile(atPath: singbox.path) {
             starting.remove(profile.id)
-            report("无法启动「\(profile.name)」", SingboxProcessError.executableNotFound(singbox))
+            report(L10n.text("无法启动「%@」", profile.name), SingboxProcessError.executableNotFound(singbox))
             return
         }
         let logURL = workspace.runnerLogURL(for: profile.id)
@@ -480,7 +481,7 @@ final class ManagerModel: ObservableObject {
             }
         } catch {
             starting.remove(profile.id)
-            report("无法启动「\(profile.name)」", error)
+            report(L10n.text("无法启动「%@」", profile.name), error)
         }
     }
 
@@ -488,9 +489,11 @@ final class ManagerModel: ObservableObject {
         starting.remove(profile.id)
         refreshRunningState()
         guard exit.isFailure else { return }
-        let reason = exit.uncaughtSignal ? "Runner 被信号 \(exit.status) 结束。" : "Runner 退出码 \(exit.status)。"
-        let detail = [reason, Self.logTail(logURL, from: logOffset), "日志：\(logURL.path)"].compactMap { $0 }
-        message = Message(title: "「\(profile.name)」启动失败或异常退出", detail: detail.joined(separator: "\n\n"))
+        let reason = exit.uncaughtSignal
+            ? L10n.text("Runner 被信号 %lld 结束。", Int(exit.status))
+            : L10n.text("Runner 退出码 %lld。", Int(exit.status))
+        let detail = [reason, Self.logTail(logURL, from: logOffset), L10n.text("日志：%@", logURL.path)].compactMap { $0 }
+        message = Message(title: L10n.text("「%@」启动失败或异常退出", profile.name), detail: detail.joined(separator: "\n\n"))
     }
 
     /// 只读本次启动后的末尾 64 KiB，避免异常退出时把整份日志搬进主线程。
@@ -562,7 +565,7 @@ final class ManagerModel: ObservableObject {
         do {
             try workspace.profiles.insert(copy)
         } catch {
-            report("复制「\(profile.name)」失败", error)
+            report(L10n.text("复制「%@」失败", profile.name), error)
             return nil
         }
         reload()
@@ -584,7 +587,7 @@ final class ManagerModel: ObservableObject {
                 workspace.removeRunnerArtifacts(for: profile.id)
                 reload()
             } catch {
-                report("删除「\(profile.name)」失败", error)
+                report(L10n.text("删除「%@」失败", profile.name), error)
             }
         }
     }
@@ -597,9 +600,9 @@ final class ManagerModel: ObservableObject {
             do {
                 try await DataStoreManager().removePersistentData(for: profile.id)
                 try? FileManager.default.removeItem(at: workspace.historyURL(for: profile.id))
-                message = Message(title: "已清理「\(profile.name)」", detail: "Cookie、登录状态、本地存储、缓存和浏览历史都已删除，环境配置保留。")
+                message = Message(title: L10n.text("已清理「%@」", profile.name), detail: L10n.text("Cookie、登录状态、本地存储、缓存和浏览历史都已删除，环境配置保留。"))
             } catch {
-                report("清理「\(profile.name)」的数据失败", error)
+                report(L10n.text("清理「%@」的数据失败", profile.name), error)
             }
         }
     }
@@ -630,7 +633,7 @@ final class ManagerModel: ObservableObject {
         reload()
         selection = .subscription(subscription.id)
         if result.skippedCount > 0 {
-            message = Message(title: "已添加「\(name)」", detail: DisplayText.importSummary(result))
+            message = Message(title: L10n.text("已添加「%@」", name), detail: DisplayText.importSummary(result))
         }
     }
 
@@ -650,7 +653,8 @@ final class ManagerModel: ObservableObject {
                 guard var latest = try workspace.subscriptions.record(id: subscription.id) else { return }
                 // 订阅这次返回的内容里没有节点（服务器偶尔返回空内容）：不拿空列表覆盖已有节点，否则绑定它们的环境全部失效。
                 if nodes.isEmpty, !latest.nodes.isEmpty {
-                    message = Message(title: "刷新「\(subscription.name)」没有拿到节点", detail: "订阅这次返回的内容里没有可用节点，保留原来的 \(latest.nodes.count) 个节点。")
+                    message = Message(title: L10n.text("刷新「%@」没有拿到节点", subscription.name),
+                                      detail: L10n.text("订阅这次返回的内容里没有可用节点，保留原来的 %lld 个节点。", latest.nodes.count))
                     return
                 }
                 latest.nodes = nodes
@@ -658,7 +662,7 @@ final class ManagerModel: ObservableObject {
                 try workspace.subscriptions.update(latest)
                 reload()
             } catch {
-                report("刷新「\(subscription.name)」失败", error)
+                report(L10n.text("刷新「%@」失败", subscription.name), error)
             }
         }
     }
@@ -673,8 +677,9 @@ final class ManagerModel: ObservableObject {
             let exits = try workspace.proxies(usingSubscriptionID: subscription.id)
             guard users.isEmpty, exits.isEmpty else {
                 message = Message(
-                    title: "订阅「\(subscription.name)」还在使用",
-                    detail: "以下环境或代理仍引用此订阅：\((users.map(\.name) + exits.map(\.name)).joined(separator: "、"))。请先更换出站或前置连接。"
+                    title: L10n.text("订阅「%@」还在使用", subscription.name),
+                    detail: L10n.text("以下环境或代理仍引用此订阅：%@。请先更换出站或前置连接。",
+                                      (users.map(\.name) + exits.map(\.name)).joined(separator: L10n.text("、")))
                 )
                 return
             }
@@ -682,7 +687,7 @@ final class ManagerModel: ObservableObject {
             InlineSubscription.remove(subscription.url, in: workspace.root)
             reload()
         } catch {
-            report("删除订阅「\(subscription.name)」失败", error)
+            report(L10n.text("删除订阅「%@」失败", subscription.name), error)
         }
     }
 

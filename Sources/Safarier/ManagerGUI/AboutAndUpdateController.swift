@@ -34,10 +34,10 @@ enum AboutAndUpdateController {
         let alert = NSAlert()
         alert.icon = NSApp.applicationIconImage
         alert.messageText = versionLine
-        alert.informativeText = "基于 macOS 原生 WebKit 构建的多环境隔离浏览器\n\n\(UpdateChecker.repositoryURL.absoluteString)"
-        alert.addButton(withTitle: "访问 GitHub 主页")
-        alert.addButton(withTitle: "检查更新…")
-        alert.addButton(withTitle: "好")
+        alert.informativeText = L10n.text("基于 macOS 原生 WebKit 构建的多环境隔离浏览器\n\n%@", UpdateChecker.repositoryURL.absoluteString)
+        alert.addButton(withTitle: L10n.text("访问 GitHub 主页"))
+        alert.addButton(withTitle: L10n.text("检查更新…"))
+        alert.addButton(withTitle: L10n.text("好"))
         switch alert.runModal() {
         case .alertFirstButtonReturn: openGitHub()
         case .alertSecondButtonReturn: checkForUpdates(context: context)
@@ -62,12 +62,12 @@ enum AboutAndUpdateController {
         alert.icon = NSApp.applicationIconImage
         switch status {
         case .updateAvailable(_, let latest):
-            alert.messageText = "发现新版本 \(latest.tagName)"
-            alert.informativeText = "当前版本 v\(currentVersion)。\n\n" + notesSummary(latest)
-            alert.addButton(withTitle: "立即更新并重启")
-            alert.addButton(withTitle: "查看更新内容")
-            alert.addButton(withTitle: "查看 GitHub 项目")
-            alert.addButton(withTitle: "稍后")
+            alert.messageText = L10n.text("发现新版本 %@", latest.tagName)
+            alert.informativeText = L10n.text("当前版本 v%@。\n\n%@", currentVersion, notesSummary(latest))
+            alert.addButton(withTitle: L10n.text("立即更新并重启"))
+            alert.addButton(withTitle: L10n.text("查看更新内容"))
+            alert.addButton(withTitle: L10n.text("查看 GitHub 项目"))
+            alert.addButton(withTitle: L10n.text("稍后"))
             switch alert.runModal() {
             case .alertFirstButtonReturn: startInstall(latest)
             case .alertSecondButtonReturn: NSWorkspace.shared.open(latest.htmlURL)
@@ -75,9 +75,9 @@ enum AboutAndUpdateController {
             default: break
             }
         case .upToDate:
-            alert.messageText = "当前已是最新版本（v\(currentVersion)）"
-            alert.addButton(withTitle: "查看 GitHub Releases")
-            alert.addButton(withTitle: "好")
+            alert.messageText = L10n.text("当前已是最新版本（v%@）", currentVersion)
+            alert.addButton(withTitle: L10n.text("查看 GitHub Releases"))
+            alert.addButton(withTitle: L10n.text("好"))
             if alert.runModal() == .alertFirstButtonReturn { openReleases() }
         }
     }
@@ -87,18 +87,18 @@ enum AboutAndUpdateController {
             do {
                 try await installUpdateAndRelaunch(release)
             } catch {
-                presentFailure(error, title: "更新失败")
+                presentFailure(error, title: L10n.text("更新失败"))
             }
         }
     }
 
-    private static func presentFailure(_ error: Error, title: String = "检查更新失败") {
+    private static func presentFailure(_ error: Error, title: String = L10n.text("检查更新失败")) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = error.localizedDescription
-        alert.addButton(withTitle: "前往 GitHub Releases")
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: L10n.text("前往 GitHub Releases"))
+        alert.addButton(withTitle: L10n.text("好"))
         if alert.runModal() == .alertFirstButtonReturn { openReleases() }
     }
 
@@ -120,11 +120,11 @@ enum AboutAndUpdateController {
 
         var errorDescription: String? {
             switch self {
-            case .checksumMismatch: return "下载内容的 SHA-256 与发布的校验值不一致，已放弃安装"
-            case .checksumDownloadFailed: return "无法获取 SHA-256 校验文件，已放弃安装"
-            case .downloadFailed(let code): return "下载失败（HTTP \(code)）"
-            case .commandFailed(let tool, let detail): return "\(tool) 执行失败：\(detail)"
-            case .appMissing: return "更新包里没有 Safarier.app"
+            case .checksumMismatch: return L10n.text("下载内容的 SHA-256 与发布的校验值不一致，已放弃安装")
+            case .checksumDownloadFailed: return L10n.text("无法获取 SHA-256 校验文件，已放弃安装")
+            case .downloadFailed(let code): return L10n.text("下载失败（HTTP %lld）", code)
+            case .commandFailed(let tool, let detail): return L10n.text("%@ 执行失败：%@", tool, detail)
+            case .appMissing: return L10n.text("更新包里没有 Safarier.app")
             }
         }
     }
@@ -146,10 +146,10 @@ enum AboutAndUpdateController {
         let session = URLSession(configuration: .ephemeral)
         defer { session.finishTasksAndInvalidate() }
 
-        onProgress?("正在下载 \(zipAsset.name)…")
+        onProgress?(L10n.text("正在下载 %@…", zipAsset.name))
         let zipData = try await download(zipAsset.downloadURL, session: session)
         if let shaAsset = release.sha256Asset(for: zipAsset) {
-            onProgress?("正在校验 SHA-256…")
+            onProgress?(L10n.text("正在校验 SHA-256…"))
             guard let shaData = try? await download(shaAsset.downloadURL, session: session),
                   let shaText = String(data: shaData, encoding: .utf8) else { throw InstallError.checksumDownloadFailed }
             guard UpdateChecker.verifySHA256(data: zipData, expectedFileText: shaText) else { throw InstallError.checksumMismatch }
@@ -161,7 +161,7 @@ enum AboutAndUpdateController {
         let zipURL = workDir.appendingPathComponent("update.zip")
         try zipData.write(to: zipURL, options: .atomic)
 
-        onProgress?("正在解压并验证签名…")
+        onProgress?(L10n.text("正在解压并验证签名…"))
         let extracted = workDir.appendingPathComponent("extracted", isDirectory: true)
         try FileManager.default.createDirectory(at: extracted, withIntermediateDirectories: false)
         try await run("/usr/bin/ditto", ["-x", "-k", zipURL.path, extracted.path])
@@ -170,7 +170,7 @@ enum AboutAndUpdateController {
         try await run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", newApp.path])
         try await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
 
-        onProgress?("正在替换并重启…")
+        onProgress?(L10n.text("正在替换并重启…"))
         let target = Bundle.main.bundleURL.pathExtension == "app"
             ? Bundle.main.bundleURL
             : URL(fileURLWithPath: "/Applications/Safarier.app", isDirectory: true)
@@ -217,7 +217,7 @@ enum AboutAndUpdateController {
                         continuation.resume()
                     } else {
                         let detail = String(data: output, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        continuation.resume(throwing: InstallError.commandFailed((tool as NSString).lastPathComponent, detail.isEmpty ? "退出码 \(process.terminationStatus)" : detail))
+                        continuation.resume(throwing: InstallError.commandFailed((tool as NSString).lastPathComponent, detail.isEmpty ? L10n.text("退出码 %lld", Int(process.terminationStatus)) : detail))
                     }
                 } catch {
                     continuation.resume(throwing: error)

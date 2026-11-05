@@ -15,7 +15,7 @@ final class DownloadsController: NSObject, WKDownloadDelegate {
 
         init(download: WKDownload) { self.download = download }
 
-        var name: String { destination?.lastPathComponent ?? download.originalRequest?.url?.lastPathComponent ?? "下载" }
+        var name: String { destination?.lastPathComponent ?? download.originalRequest?.url?.lastPathComponent ?? L10n.text("下载") }
     }
 
     private(set) var items: [Item] = []
@@ -88,14 +88,14 @@ final class DownloadsController: NSObject, WKDownloadDelegate {
         stack.alignment = .leading
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        let title = NSTextField(labelWithString: "下载")
+        let title = NSTextField(labelWithString: L10n.text("下载"))
         title.font = .boldSystemFont(ofSize: 13)
         stack.addArrangedSubview(title)
         for item in items.prefix(12) {
             stack.addArrangedSubview(row(for: item))
         }
         if items.isEmpty {
-            stack.addArrangedSubview(NSTextField(labelWithString: "没有下载"))
+            stack.addArrangedSubview(NSTextField(labelWithString: L10n.text("没有下载")))
         }
         stack.frame = NSRect(x: 0, y: 0, width: 340, height: stack.fittingSize.height)
         controller.view = stack
@@ -109,14 +109,14 @@ final class DownloadsController: NSObject, WKDownloadDelegate {
         name.font = .systemFont(ofSize: 12, weight: .medium)
         let status: String
         if let failure = item.failure {
-            status = "失败：\(failure)"
+            status = L10n.text("失败：%@", failure)
         } else if item.finished {
-            status = "已完成"
+            status = L10n.text("已完成")
         } else {
             let progress = item.download.progress
             status = progress.totalUnitCount > 0
                 ? "\(ByteCountFormatter.string(fromByteCount: progress.completedUnitCount, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: progress.totalUnitCount, countStyle: .file))"
-                : "正在下载…"
+                : L10n.text("正在下载…")
         }
         let detail = NSTextField(labelWithString: status)
         detail.font = .systemFont(ofSize: 11)
@@ -136,9 +136,9 @@ final class DownloadsController: NSObject, WKDownloadDelegate {
             if bar.isIndeterminate { bar.startAnimation(nil) }
             views.append(bar)
         } else if let destination = item.destination, item.finished {
-            let reveal = NSButton(image: NSImage(systemSymbolName: "magnifyingglass.circle.fill", accessibilityDescription: "在访达中显示")!, target: nil, action: nil)
+            let reveal = NSButton(image: NSImage(systemSymbolName: "magnifyingglass.circle.fill", accessibilityDescription: L10n.text("在访达中显示"))!, target: nil, action: nil)
             reveal.isBordered = false
-            reveal.toolTip = "在访达中显示"
+            reveal.toolTip = L10n.text("在访达中显示")
             let action = RevealAction(url: destination)
             reveal.target = action
             reveal.action = #selector(RevealAction.reveal)

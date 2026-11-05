@@ -13,13 +13,17 @@ enum ProxyManagementError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyName: return "请填写代理名称。"
-        case .emptyUsername: return "开启认证后请填写用户名。"
-        case .missingPassword: return "请填写认证密码。编辑已有代理时留空可保留原密码。"
-        case .invalidPort: return "端口必须是 1–65535 之间的整数。"
-        case .inUse(let names): return "这些环境仍在使用此代理：\(names.joined(separator: "、"))。请先在环境中更换出站。"
-        case .usedAsUpstream(let names): return "这些代理仍将它用作前置：\(names.joined(separator: "、"))。请先更换前置连接。"
-        case .credentialRollbackFailed: return "配置保存失败，且原密码未能恢复。请重新设置该代理的认证密码。"
+        case .emptyName: return L10n.text("请填写代理名称。")
+        case .emptyUsername: return L10n.text("开启认证后请填写用户名。")
+        case .missingPassword: return L10n.text("请填写认证密码。编辑已有代理时留空可保留原密码。")
+        case .invalidPort: return L10n.text("端口必须是 1–65535 之间的整数。")
+        case .inUse(let names):
+            return L10n.text("这些环境仍在使用此代理：%@。请先在环境中更换出站。",
+                             names.joined(separator: L10n.text("、")))
+        case .usedAsUpstream(let names):
+            return L10n.text("这些代理仍将它用作前置：%@。请先更换前置连接。",
+                             names.joined(separator: L10n.text("、")))
+        case .credentialRollbackFailed: return L10n.text("配置保存失败，且原密码未能恢复。请重新设置该代理的认证密码。")
         }
     }
 }
@@ -29,6 +33,15 @@ struct ProxyEditorView: View {
         case proxy = "已保存代理"
         case node = "订阅节点"
         case custom = "自定义"
+
+        /// raw value 只做标识，界面显示用本地化标题。
+        var title: String {
+            switch self {
+            case .proxy: return L10n.text("已保存代理")
+            case .node: return L10n.text("订阅节点")
+            case .custom: return L10n.text("自定义")
+            }
+        }
     }
 
     @ObservedObject var model: ManagerModel
@@ -101,7 +114,9 @@ struct ProxyEditorView: View {
                     if authenticated {
                         TextField("用户名", text: $username)
                             .autocorrectionDisabled()
-                        SecureField("密码", text: $password, prompt: Text(original?.username == nil ? "请输入密码" : "留空保留原密码"))
+                        SecureField("密码", text: $password, prompt: Text(
+                            original?.username == nil ? L10n.text("请输入密码") : L10n.text("留空保留原密码")
+                        ))
                     }
                 } footer: {
                     Text("密码保存在 macOS 钥匙串中。保存后可供多个环境选择；已运行的环境需要重启后才会使用新设置。")
@@ -153,15 +168,15 @@ struct ProxyEditorView: View {
     private var selectedSubscription: Subscription? { subscriptionID.flatMap(model.subscription) }
 
     private var connectionPath: String {
-        let exit = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "当前出口代理" : name
-        guard upstreamEnabled else { return "本机 → \(exit) → 网站" }
+        let exit = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? L10n.text("当前出口代理") : name
+        guard upstreamEnabled else { return L10n.text("本机 → %@ → 网站", exit) }
         let entry: String
         switch upstreamKind {
-        case .proxy: entry = upstreamProxyID.flatMap(model.proxy)?.name ?? "选择前置代理"
-        case .node: entry = nodeName ?? "选择前置节点"
-        case .custom: entry = "自定义前置"
+        case .proxy: entry = upstreamProxyID.flatMap(model.proxy)?.name ?? L10n.text("选择前置代理")
+        case .node: entry = nodeName ?? L10n.text("选择前置节点")
+        case .custom: entry = L10n.text("自定义前置")
         }
-        return "本机 → \(entry) → \(exit) → 网站"
+        return L10n.text("本机 → %@ → %@ → 网站", entry, exit)
     }
 
     /// 已被其它代理用作前置时不能再加前置（只支持两跳），保存前就禁用选择。
@@ -174,12 +189,13 @@ struct ProxyEditorView: View {
             Toggle("前置连接", isOn: $upstreamEnabled)
                 .disabled(!downstreamExits.isEmpty && !upstreamEnabled)
             if !downstreamExits.isEmpty {
-                Text("此代理已被「\(downstreamExits.map(\.name).joined(separator: "、"))」用作前置，不能再添加前置。")
+                Text(L10n.text("此代理已被「%@」用作前置，不能再添加前置。",
+                               downstreamExits.map(\.name).joined(separator: L10n.text("、"))))
                     .foregroundStyle(.secondary)
             }
             if upstreamEnabled {
                 Picker("来源", selection: $upstreamKind) {
-                    ForEach(UpstreamKind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    ForEach(UpstreamKind.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 upstreamOptions
@@ -217,7 +233,7 @@ struct ProxyEditorView: View {
                 Button {
                     showNodes = true
                 } label: {
-                    Text(nodeName ?? "选择节点…").lineLimit(1)
+                    Text(nodeName ?? L10n.text("选择节点…")).lineLimit(1)
                 }
                 .disabled(selectedSubscription == nil)
                 .popover(isPresented: $showNodes) {
@@ -290,12 +306,14 @@ struct ProxyDetailView: View {
                 LabeledContent("协议", value: DisplayText.proxyKind(proxy.kind))
                 LabeledContent("服务器", value: proxy.host)
                 LabeledContent("端口", value: String(proxy.port))
-                LabeledContent("认证", value: proxy.username.map { "用户名：\($0) · 密码保存在钥匙串" } ?? "无认证")
+                LabeledContent("认证", value: proxy.username.map { L10n.text("用户名：%@ · 密码保存在钥匙串", $0) } ?? L10n.text("无认证"))
                 if proxy.upstream != nil {
                     LabeledContent("连接路径", value: model.connectionPath(proxy))
                 }
             } footer: {
-                Text(proxy.upstream == nil ? "无前置时由 WebKit 直接连接。修改在关联环境下次启动时生效。" : "通过前置连接当前出口，任一跳失败都会阻止访问。修改在关联环境下次启动时生效。")
+                Text(proxy.upstream == nil
+                     ? L10n.text("无前置时由 WebKit 直接连接。修改在关联环境下次启动时生效。")
+                     : L10n.text("通过前置连接当前出口，任一跳失败都会阻止访问。修改在关联环境下次启动时生效。"))
             }
             Section {
                 HStack {
@@ -310,11 +328,13 @@ struct ProxyDetailView: View {
                 }
                 switch model.proxyTests[proxy.id] {
                 case .running:
-                    Text(proxy.upstream == nil ? "正在通过此代理请求 HTTPS…" : "正在通过完整两跳链路请求 HTTPS…").foregroundStyle(.secondary)
+                    Text(proxy.upstream == nil
+                         ? L10n.text("正在通过此代理请求 HTTPS…")
+                         : L10n.text("正在通过完整两跳链路请求 HTTPS…")).foregroundStyle(.secondary)
                 case .success(let result):
                     Label("HTTPS 连接成功", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                     LabeledContent("出口 IP", value: result.exitIP)
-                    LabeledContent("请求耗时", value: "\(Int(result.duration * 1000)) ms")
+                    LabeledContent("请求耗时", value: L10n.text("%lld ms", Int(result.duration * 1000)))
                     LabeledContent("测试时间", value: result.testedAt.formatted(date: .omitted, time: .standard))
                 case .failure(let message):
                     Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
@@ -322,7 +342,7 @@ struct ProxyDetailView: View {
                     Text("尚未测试").foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("通过所选代理访问 Cloudflare HTTPS，最多等待 \(Int(ProxyConnectionTester.timeout)) 秒，不回退直连。结果仅代表此测试站点，不修改代理配置。")
+                Text(L10n.text("通过所选代理访问 Cloudflare HTTPS，最多等待 %lld 秒，不回退直连。结果仅代表此测试站点，不修改代理配置。", Int(ProxyConnectionTester.timeout)))
             }
             Section("使用此代理的环境") {
                 if model.profiles(using: proxy).isEmpty {

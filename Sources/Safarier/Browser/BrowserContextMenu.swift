@@ -1,4 +1,5 @@
 import AppKit
+import SafarierCore
 
 /// 网页右键菜单照 Safari 改：WebKit 给的「在新窗口中打开…」改成 Safari 的「在新标签页中打开…」，另加开新窗口 / 后台标签的项；
 /// 「用 Google 搜索」改成在本环境的新标签页里搜（WebKit 默认交给系统默认浏览器，会跳出环境和代理）；
@@ -47,21 +48,19 @@ enum BrowserContextMenu {
     ]
 
     /// `target` 接收新加的「在新窗口 / 后台标签页中打开」和「用 Google 搜索」；页面级操作沿响应链交给当前标签。
-    static func customize(_ menu: NSMenu, target: BrowserWebView, chinese: Bool) {
-        func text(_ zh: String, _ en: String) -> String { chinese ? zh : en }
-
-        reshape(menu, ID.openLinkInNewWindow, newTab: text("在新标签页中打开链接", "Open Link in New Tab"), target: target, extras: [
-            (Added.backgroundTab, text("在后台标签页中打开链接", "Open Link in Background Tab"), #selector(BrowserWebView.openInBackgroundTab(_:))),
-            (Added.newWindow, text("在新窗口中打开链接", "Open Link in New Window"), #selector(BrowserWebView.openInNewWindow(_:))),
+    static func customize(_ menu: NSMenu, target: BrowserWebView) {
+        reshape(menu, ID.openLinkInNewWindow, newTab: L10n.text("在新标签页中打开链接"), target: target, extras: [
+            (Added.backgroundTab, L10n.text("在后台标签页中打开链接"), #selector(BrowserWebView.openInBackgroundTab(_:))),
+            (Added.newWindow, L10n.text("在新窗口中打开链接"), #selector(BrowserWebView.openInNewWindow(_:))),
         ])
-        reshape(menu, ID.openImageInNewWindow, newTab: text("在新标签页中打开图像", "Open Image in New Tab"), target: target, extras: [
-            (Added.newWindow, text("在新窗口中打开图像", "Open Image in New Window"), #selector(BrowserWebView.openInNewWindow(_:))),
+        reshape(menu, ID.openImageInNewWindow, newTab: L10n.text("在新标签页中打开图像"), target: target, extras: [
+            (Added.newWindow, L10n.text("在新窗口中打开图像"), #selector(BrowserWebView.openInNewWindow(_:))),
         ])
-        reshape(menu, ID.openMediaInNewWindow, newTab: text("在新标签页中打开视频", "Open Video in New Tab"), target: target, extras: [
-            (Added.newWindow, text("在新窗口中打开视频", "Open Video in New Window"), #selector(BrowserWebView.openInNewWindow(_:))),
+        reshape(menu, ID.openMediaInNewWindow, newTab: L10n.text("在新标签页中打开视频"), target: target, extras: [
+            (Added.newWindow, L10n.text("在新窗口中打开视频"), #selector(BrowserWebView.openInNewWindow(_:))),
         ])
-        reshape(menu, ID.openFrameInNewWindow, newTab: text("在新标签页中打开框架", "Open Frame in New Tab"), target: target, extras: [
-            (Added.newWindow, text("在新窗口中打开框架", "Open Frame in New Window"), #selector(BrowserWebView.openInNewWindow(_:))),
+        reshape(menu, ID.openFrameInNewWindow, newTab: L10n.text("在新标签页中打开框架"), target: target, extras: [
+            (Added.newWindow, L10n.text("在新窗口中打开框架"), #selector(BrowserWebView.openInNewWindow(_:))),
         ])
 
         if let search = item(menu, ID.searchWeb) {
@@ -71,7 +70,7 @@ enum BrowserContextMenu {
             search.action = #selector(BrowserWebView.searchWebForSelection(_:))
         }
 
-        addPageActions(to: menu, text: text)
+        addPageActions(to: menu)
     }
 
     /// 原项改名为「在新标签页中打开…」，紧跟着插入 `extras`；extras 转发原项的动作（先设好打开方式）。
@@ -95,25 +94,25 @@ enum BrowserContextMenu {
     }
 
     /// 页面空白处（不是链接、图像、选中文字、输入框）：补齐后退 / 前进 / 重新载入，再加存储、拷贝地址、源代码。
-    private static func addPageActions(to menu: NSMenu, text: (String, String) -> String) {
+    private static func addPageActions(to menu: NSMenu) {
         let identifiers = Set(menu.items.compactMap { $0.identifier?.rawValue })
         guard identifiers.isDisjoint(with: elementIdentifiers),
               !identifiers.contains(Added.pageActions.rawValue) else { return }
 
         var top: [NSMenuItem] = []
-        if !identifiers.contains(ID.goBack) { top.append(action(text("后退", "Back"), #selector(BrowserActions.goBack(_:)))) }
-        if !identifiers.contains(ID.goForward) { top.append(action(text("前进", "Forward"), #selector(BrowserActions.goForward(_:)))) }
-        if !identifiers.contains(ID.reload) { top.append(action(text("重新载入页面", "Reload Page"), #selector(BrowserActions.reloadPage(_:)))) }
+        if !identifiers.contains(ID.goBack) { top.append(action(L10n.text("后退"), #selector(BrowserActions.goBack(_:)))) }
+        if !identifiers.contains(ID.goForward) { top.append(action(L10n.text("前进"), #selector(BrowserActions.goForward(_:)))) }
+        if !identifiers.contains(ID.reload) { top.append(action(L10n.text("重新载入页面"), #selector(BrowserActions.reloadPage(_:)))) }
         // 补的导航项放在 WebKit 自带导航项后面（没有就放最上面）。
         let navigationEnd = menu.items.lastIndex { [ID.goBack, ID.goForward, ID.reload].contains($0.identifier?.rawValue ?? "") }.map { $0 + 1 } ?? 0
         for (offset, entry) in top.enumerated() { menu.insertItem(entry, at: navigationEnd + offset) }
 
-        let save = action(text("存储页面为…", "Save Page As…"), #selector(BrowserActions.savePageAs(_:)))
+        let save = action(L10n.text("存储页面为…"), #selector(BrowserActions.savePageAs(_:)))
         save.identifier = Added.pageActions
         let page = [
             save,
-            action(text("拷贝页面地址", "Copy Page Address"), #selector(BrowserActions.copyPageURL(_:))),
-            action(text("显示页面源代码", "Show Page Source"), #selector(BrowserActions.showPageSource(_:))),
+            action(L10n.text("拷贝页面地址"), #selector(BrowserActions.copyPageURL(_:))),
+            action(L10n.text("显示页面源代码"), #selector(BrowserActions.showPageSource(_:))),
         ]
         // 「检查元素」留在最后，和 Safari 一样；前后用分隔线隔开（已有的不重复加）。
         var position = menu.items.firstIndex { $0.identifier?.rawValue == ID.inspectElement } ?? menu.items.count

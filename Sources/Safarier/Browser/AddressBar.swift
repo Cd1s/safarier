@@ -45,7 +45,7 @@ final class AddressBar: NSView, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.cell?.usesSingleLineMode = true
         field.delegate = self
-        field.placeholderString = "搜索或输入网站名称"
+        field.placeholderString = L10n.text("搜索或输入网站名称")
         field.editingText = { [weak self] in self?.url?.absoluteString ?? "" }
         field.onPasteAndGo = { [weak self] text in
             self?.window?.makeFirstResponder(nil)
@@ -108,8 +108,9 @@ final class AddressBar: NSView, NSTextFieldDelegate {
         securityIcon.isHidden = securityIcon.image == nil
         if !field.isEditing { refresh() }
         let symbol = isLoading ? "xmark" : "arrow.clockwise"
-        reloadButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: isLoading ? "停止载入此页面" : "重新载入此页面")
-        reloadButton.toolTip = isLoading ? "停止载入此页面" : "重新载入此页面"
+        let description = isLoading ? L10n.text("停止载入此页面") : L10n.text("重新载入此页面")
+        reloadButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
+        reloadButton.toolTip = description
         reloadButton.isHidden = url == nil && !isLoading
     }
 
@@ -118,10 +119,10 @@ final class AddressBar: NSView, NSTextFieldDelegate {
     }
 
     private static func securityImage(for url: URL?, secure: Bool) -> NSImage? {
-        guard let scheme = url?.scheme?.lowercased() else { return NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "搜索") }
+        guard let scheme = url?.scheme?.lowercased() else { return NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: L10n.text("搜索")) }
         switch scheme {
-        case "https" where secure: return NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "安全连接")
-        case "http", "https": return NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "不安全")
+        case "https" where secure: return NSImage(systemSymbolName: "lock.fill", accessibilityDescription: L10n.text("安全连接"))
+        case "http", "https": return NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: L10n.text("不安全"))
         default: return nil
         }
     }
@@ -138,7 +139,7 @@ final class AddressBar: NSView, NSTextFieldDelegate {
         }
         if isPrivate {
             field.placeholderAttributedString = NSAttributedString(
-                string: "搜索或输入网站名称",
+                string: L10n.text("搜索或输入网站名称"),
                 attributes: [.foregroundColor: NSColor(white: 1, alpha: 0.45), .font: field.font ?? .systemFont(ofSize: 13)]
             )
         }
@@ -193,7 +194,7 @@ final class AddressTextField: NSTextField {
     static func pasteAndGoTitle(for text: String?) -> String? {
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty,
               let url = AddressInput.url(for: text) else { return nil }
-        return url.absoluteString.hasPrefix(AddressInput.searchURLPrefix) ? "粘贴并搜索" : "粘贴并前往"
+        return url.absoluteString.hasPrefix(AddressInput.searchURLPrefix) ? L10n.text("粘贴并搜索") : L10n.text("粘贴并前往")
     }
 
     /// 在「粘贴」后面（没有「粘贴」就放最后）插入「粘贴并前往 / 搜索」；已经有了就不再加。

@@ -13,10 +13,10 @@ public final class DataStoreManager {
         public var configurationSwitches: [(getter: String, setter: String, label: String)] = [
             (SFRSymbolDecoder.decode([0x3C, 0x3B, 0x29, 0x2E, 0x09, 0x3F, 0x28, 0x2C, 0x3F, 0x28, 0x0E, 0x28, 0x2F, 0x29, 0x2E, 0x1F, 0x2C, 0x3B, 0x36, 0x2F, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
              SFRSymbolDecoder.decode([0x29, 0x3F, 0x2E, 0x1C, 0x3B, 0x29, 0x2E, 0x09, 0x3F, 0x28, 0x2C, 0x3F, 0x28, 0x0E, 0x28, 0x2F, 0x29, 0x2E, 0x1F, 0x2C, 0x3B, 0x36, 0x2F, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
-             "快速证书校验"),
+             L10n.text("快速证书校验")),
             (SFRSymbolDecoder.decode([0x34, 0x3F, 0x2E, 0x2D, 0x35, 0x28, 0x31, 0x19, 0x3B, 0x39, 0x32, 0x3F, 0x09, 0x2A, 0x3F, 0x39, 0x2F, 0x36, 0x3B, 0x2E, 0x33, 0x2C, 0x3F, 0x0C, 0x3B, 0x36, 0x33, 0x3E, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E]),
              SFRSymbolDecoder.decode([0x29, 0x3F, 0x2E, 0x14, 0x3F, 0x2E, 0x2D, 0x35, 0x28, 0x31, 0x19, 0x3B, 0x39, 0x32, 0x3F, 0x09, 0x2A, 0x3F, 0x39, 0x2F, 0x36, 0x3B, 0x2E, 0x33, 0x2C, 0x3F, 0x0C, 0x3B, 0x36, 0x33, 0x3E, 0x3B, 0x2E, 0x33, 0x35, 0x34, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E, 0x60]),
-             "缓存推测校验"),
+             L10n.text("缓存推测校验")),
         ]
         /// 智能防跟踪（ITP）。本机 WebKit 新建的数据存储默认已经开着，照 Safari 再确认一遍。
         public var statisticsGetter = SFRSymbolDecoder.decode([0x05, 0x28, 0x3F, 0x29, 0x35, 0x2F, 0x28, 0x39, 0x3F, 0x16, 0x35, 0x3B, 0x3E, 0x09, 0x2E, 0x3B, 0x2E, 0x33, 0x29, 0x2E, 0x33, 0x39, 0x29, 0x1F, 0x34, 0x3B, 0x38, 0x36, 0x3F, 0x3E])
@@ -61,23 +61,30 @@ public final class DataStoreManager {
             switch nativeNonPersistentDataStore() {
             case .success(let native):
                 store = native
-                notes.append("Safari 无痕同款内存数据存储（\(symbols.configurationSwitches.map(\.label).joined(separator: "、"))已打开，回读一致），窗口关闭即销毁")
+                let switches = symbols.configurationSwitches.map(\.label).joined(separator: L10n.text("、"))
+                notes.append(L10n.text("Safari 无痕同款内存数据存储（%@已打开，回读一致），窗口关闭即销毁", switches))
             case .failure(let failure):
                 store = WKWebsiteDataStore.nonPersistent()
                 degraded = !failure.isUnsupported
-                notes.append("WKWebsiteDataStore.nonPersistent()，窗口关闭即销毁；Safari 无痕数据存储配置\(failure.isUnsupported ? "不可用" : "没有生效")，已退回公开 API（\(failure)）")
+                if failure.isUnsupported {
+                    notes.append(L10n.text("WKWebsiteDataStore.nonPersistent()，窗口关闭即销毁；Safari 无痕数据存储配置不可用，已退回公开 API（%@）",
+                                           String(describing: failure)))
+                } else {
+                    notes.append(L10n.text("WKWebsiteDataStore.nonPersistent()，窗口关闭即销毁；Safari 无痕数据存储配置没有生效，已退回公开 API（%@）",
+                                           String(describing: failure)))
+                }
             }
         }
         switch enableResourceLoadStatistics(on: store) {
         case .success:
-            notes.append("智能防跟踪（ITP）开启（回读一致）")
+            notes.append(L10n.text("智能防跟踪（ITP）开启（回读一致）"))
         case .failure(let failure) where failure.isUnsupported:
-            notes.append("本机引擎没有智能防跟踪开关，保持默认（\(failure)）")
+            notes.append(L10n.text("本机引擎没有智能防跟踪开关，保持默认（%@）", String(describing: failure)))
         case .failure(let failure):
             degraded = true
-            notes.append("智能防跟踪没有确认开启（\(failure)）")
+            notes.append(L10n.text("智能防跟踪没有确认开启（%@）", String(describing: failure)))
         }
-        let text = notes.joined(separator: "；")
+        let text = notes.joined(separator: L10n.text("；"))
         return (store, degraded ? .degraded(text) : .active(text))
     }
 
@@ -92,7 +99,7 @@ public final class DataStoreManager {
             if case .failure(let failure) = SPIRuntimeBridge.setBool(true, item.setter, on: configuration) { return .failure(failure) }
             switch SPIRuntimeBridge.getBool(item.getter, on: configuration) {
             case .success(true): continue
-            case .success(false): return .failure(.exception("\(item.label)写入 YES 后回读仍为 NO"))
+            case .success(false): return .failure(.exception(L10n.text("%@写入 YES 后回读仍为 NO", item.label)))
             case .failure(let failure): return .failure(failure)
             }
         }
@@ -100,9 +107,9 @@ public final class DataStoreManager {
         case .failure(let failure):
             return .failure(failure)
         case .success(let object):
-            guard let store = object as? WKWebsiteDataStore else { return .failure(.signatureMismatch("建出来的不是数据存储对象")) }
+            guard let store = object as? WKWebsiteDataStore else { return .failure(.signatureMismatch(L10n.text("建出来的不是数据存储对象"))) }
             // 临时环境绝不能落盘：建出来的若是持久存储就不用。
-            guard !store.isPersistent else { return .failure(.exception("建出来的不是内存存储")) }
+            guard !store.isPersistent else { return .failure(.exception(L10n.text("建出来的不是内存存储"))) }
             return .success(store)
         }
     }
@@ -112,7 +119,7 @@ public final class DataStoreManager {
         if case .failure(let failure) = SPIRuntimeBridge.setBool(true, symbols.statisticsSetter, on: store) { return .failure(failure) }
         switch SPIRuntimeBridge.getBool(symbols.statisticsGetter, on: store) {
         case .success(true): return .success(())
-        case .success(false): return .failure(.exception("写入 YES 后回读仍为 NO"))
+        case .success(false): return .failure(.exception(L10n.text("写入 YES 后回读仍为 NO")))
         case .failure(let failure): return .failure(failure)
         }
     }

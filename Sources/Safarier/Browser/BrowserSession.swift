@@ -76,15 +76,18 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         self.isPrivate = profile.mode == .ephemeral
         self.accent = Self.palette[Int(profile.id.uuid.0) % Self.palette.count]
         self.deviceSimulation = device.map { DeviceSimulation(model: $0, diagnostics: diagnostics) }
-        var details = [isPrivate ? "临时环境 · 关闭窗口后不留任何网站数据" : "持久环境 · 网站数据保存在这个环境里", "出站：\(outboundDescription)"]
-        if let device { details.append("机型：\(device.name)") }
+        var details = [
+            isPrivate ? L10n.text("临时环境 · 关闭窗口后不留任何网站数据") : L10n.text("持久环境 · 网站数据保存在这个环境里"),
+            L10n.text("出站：") + outboundDescription,
+        ]
+        if let device { details.append(L10n.text("机型：") + device.name) }
         // 跟随代理时 profile 里已经是按出口 IP 解析出的语言和时区（RunnerMain 传进来的 effectiveProfile）。
         let region = [
-            profile.languages.isEmpty ? nil : "语言：\(profile.languages.joined(separator: ", "))",
-            profile.timeZoneIdentifier.map { "时区：\($0)" },
+            profile.languages.isEmpty ? nil : L10n.text("语言：") + profile.languages.joined(separator: ", "),
+            profile.timeZoneIdentifier.map { L10n.text("时区：") + $0 },
         ].compactMap { $0 }
         if !region.isEmpty {
-            let source = profile.followProxyLanguages || profile.followProxyTimeZone ? "（跟随代理出口）" : ""
+            let source = profile.followProxyLanguages || profile.followProxyTimeZone ? L10n.text("（跟随代理出口）") : ""
             details.append(region.joined(separator: " · ") + source)
         }
         self.startPageDetails = details
@@ -259,7 +262,10 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     /// 机型模拟本身的结论 + 视口缩放：没缩放时原样返回；缩放过时 active 降为 degraded，并写明目标与实际视口。
     static func deviceModelState(simulation: CapabilityState?, fit: ViewportFit?) -> CapabilityState? {
         guard let fit, fit.isScaled else { return simulation }
-        let scaling = "目标视口 \(Int(fit.target.width))×\(Int(fit.target.height))，屏幕放不下，实际视口缩小为 \(Int(fit.actual.width))×\(Int(fit.actual.height))"
+        let scaling = L10n.text(
+            "目标视口 %lld×%lld，屏幕放不下，实际视口缩小为 %lld×%lld",
+            Int(fit.target.width), Int(fit.target.height), Int(fit.actual.width), Int(fit.actual.height)
+        )
         switch simulation {
         case .unavailable(let text)?: return .unavailable("\(text)；\(scaling)")
         case .active(let text)?, .degraded(let text)?, .unverified(let text)?: return .degraded("\(text)；\(scaling)")
@@ -344,10 +350,10 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     /// 「清除历史记录…」的确认框。
     func makeClearHistoryAlert() -> NSAlert {
         let alert = NSAlert()
-        alert.messageText = "确定要清除环境「\(profile.name)」的所有历史记录吗？"
-        alert.informativeText = "浏览记录和上次会话的标签页都会删除，网站数据和登录状态不受影响。"
-        alert.addButton(withTitle: "清除历史记录")
-        alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        alert.messageText = L10n.text("确定要清除环境「%@」的所有历史记录吗？", profile.name)
+        alert.informativeText = L10n.text("浏览记录和上次会话的标签页都会删除，网站数据和登录状态不受影响。")
+        alert.addButton(withTitle: L10n.text("清除历史记录"))
+        alert.addButton(withTitle: L10n.text("取消")).keyEquivalent = "\u{1b}"
         return alert
     }
 
@@ -369,14 +375,14 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     /// 确认框的标题和说明。
     static func closeConfirmationText(profileName: String, isPrivate: Bool, tabCount: Int, closesEnvironment: Bool) -> (message: String, informative: String) {
         var lines: [String] = []
-        if tabCount > 1 { lines.append("当前共有 \(tabCount) 个打开的标签页。") }
+        if tabCount > 1 { lines.append(L10n.text("当前共有 %lld 个打开的标签页。", tabCount)) }
         switch (closesEnvironment, isPrivate) {
-        case (true, false): lines.append("已自动保存当前打开的标签页与登录状态，下次可在「历史记录」中一键恢复。")
-        case (true, true): lines.append("这是临时无痕环境，关闭后所有网站数据将立即销毁。")
-        case (false, false): lines.append("网站数据和登录状态保留在这个环境里，关掉的网页可在「历史记录」中找到。")
-        case (false, true): lines.append("环境的其他窗口还开着，网站数据保留到环境关闭为止。")
+        case (true, false): lines.append(L10n.text("已自动保存当前打开的标签页与登录状态，下次可在「历史记录」中一键恢复。"))
+        case (true, true): lines.append(L10n.text("这是临时无痕环境，关闭后所有网站数据将立即销毁。"))
+        case (false, false): lines.append(L10n.text("网站数据和登录状态保留在这个环境里，关掉的网页可在「历史记录」中找到。"))
+        case (false, true): lines.append(L10n.text("环境的其他窗口还开着，网站数据保留到环境关闭为止。"))
         }
-        return ("确认关闭环境「\(profileName)」的浏览窗口吗？", lines.joined(separator: "\n"))
+        return (L10n.text("确认关闭环境「%@」的浏览窗口吗？", profileName), lines.joined(separator: "\n"))
     }
 
     /// Safari 风格的确认框：「关闭」是默认按钮（回车），「取消」接 Esc，附「不再询问（直接关闭）」。
@@ -386,10 +392,10 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         alert.alertStyle = .warning
         alert.messageText = text.message
         alert.informativeText = text.informative
-        alert.addButton(withTitle: "关闭")
-        alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        alert.addButton(withTitle: L10n.text("关闭"))
+        alert.addButton(withTitle: L10n.text("取消")).keyEquivalent = "\u{1b}"
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "不再询问（直接关闭）"
+        alert.suppressionButton?.title = L10n.text("不再询问（直接关闭）")
         return alert
     }
 

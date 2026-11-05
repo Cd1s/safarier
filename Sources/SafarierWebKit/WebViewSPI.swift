@@ -1,3 +1,4 @@
+import SafarierCore
 import WebKit
 
 /// 浏览窗口菜单用到的几个 WKWebView 原生引擎接口：文本缩放、网页检查器、页面原始源代码。
@@ -69,7 +70,7 @@ public enum WebViewSPI {
         case .failure(let failure):
             return .failure(failure)
         case .success(let object):
-            guard let inspector = object as? NSObject else { return .failure(.missingClass("inspector 返回 nil")) }
+            guard let inspector = object as? NSObject else { return .failure(.missingClass(L10n.text("inspector 返回 nil"))) }
             return .success(inspector)
         }
     }

@@ -66,6 +66,8 @@
 | **内置全协议代理引擎** | 无需额外开启代理软件。支持直接导入机场订阅链接，或直接粘贴单条/多条节点链接（全面支持 `VLESS` / `Reality`、`VMess`、`Trojan`、`Shadowsocks` / `SS2022`、`AnyTLS`、`SOCKS5`、`HTTP`）。 |
 | **断连阻断，零真实 IP 泄漏** | 每个环境的网页请求与 DNS 解析强制走该环境的独立代理通道；如果节点断开，页面立即停止加载，绝不静默退回本机网络。 |
 
+另支持含 Hysteria2 节点的 [Clash YAML 订阅](docs/hysteria2-subscriptions.md)（含端口跳跃）。其它 Clash 节点类型会跳过；不导入 Clash 的 DNS、路由规则和监听配置。
+
 ---
 
 ## 深度还原真 Safari 浏览体验

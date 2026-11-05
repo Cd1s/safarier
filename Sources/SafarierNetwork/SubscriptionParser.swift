@@ -8,6 +8,7 @@ public enum SubscriptionParseError: Error, Equatable {
     case invalidLine(String)
     case invalidBase64
     case invalidJSON
+    case invalidClash
     case unsupportedScheme(String)
 }
 
@@ -40,6 +41,7 @@ public enum SubscriptionParser {
     public static func parseResult(_ content: String) throws -> SubscriptionParseResult {
         // 有些订阅（和 Windows 记事本存的文件）开头带 UTF-8 BOM，它不算空白，要单独去掉。
         let raw = stripBOM(content).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let result = try ClashSubscriptionParser.parseIfPresent(raw) { return result }
         let decoded = decodeBase64IfNeeded(raw)
         var lines: [String] = []
         for physicalLine in decoded.components(separatedBy: .newlines) {

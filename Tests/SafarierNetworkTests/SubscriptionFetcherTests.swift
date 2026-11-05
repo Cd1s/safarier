@@ -3,6 +3,16 @@ import XCTest
 @testable import SafarierNetwork
 
 final class SubscriptionFetcherTests: XCTestCase {
+    func testFetchParsesClashResponseDespiteURIClientUserAgent() async throws {
+        XCTAssertTrue(URLProtocol.registerClass(SubscriptionUserAgentProtocol.self))
+        defer { URLProtocol.unregisterClass(SubscriptionUserAgentProtocol.self) }
+        let result = try await SubscriptionFetcher().fetchResult(from:
+            URL(string: "https://subscription-user-agent.invalid/clash")!)
+        XCTAssertEqual(result.nodes.count, 1)
+        XCTAssertEqual(result.nodes.first?.type.rawValue, "hysteria2")
+        XCTAssertEqual(result.nodes.first?.parameters["server_ports"], "20000:30000,443:443")
+    }
+
     func testFetchSendsClientUserAgentAndParsesSubscription() async throws {
         XCTAssertTrue(URLProtocol.registerClass(SubscriptionUserAgentProtocol.self))
         defer { URLProtocol.unregisterClass(SubscriptionUserAgentProtocol.self) }
@@ -26,7 +36,7 @@ private final class SubscriptionUserAgentProtocol: URLProtocol {
 
     override func startLoading() {
         let recognized = request.value(forHTTPHeaderField: "User-Agent") == "Shadowrocket"
-        let text = recognized
+        let text = request.url?.path == "/clash" ? ClashSubscriptionParserTests.subscription : recognized
             ? Data("socks://proxy.example:1080#Example".utf8).base64EncodedString()
             : "请先下载安装客户端，通过客户端订阅这个网址。"
         let response = HTTPURLResponse(url: request.url!, statusCode: 200,

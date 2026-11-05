@@ -143,7 +143,7 @@ struct SubscriptionEditorView: View {
                 } header: {
                     Text("添加订阅")
                 } footer: {
-                    Text("填订阅网址（内容可以是 Base64 或逐行的节点链接），或者直接粘贴一条或多条节点链接：ss:// ss2022:// vless:// vmess:// trojan:// anytls:// socks://。添加时会立即解析一次节点；直接粘贴的链接保存在本机，hysteria2 等暂不支持的协议会跳过。")
+                    Text("填订阅网址（内容可以是 Base64、逐行节点链接或 Hysteria2 Clash YAML），或者直接粘贴一条或多条节点链接：ss:// ss2022:// vless:// vmess:// trojan:// anytls:// socks://。添加时会立即解析一次节点；直接粘贴的链接保存在本机，TUIC 等暂不支持的协议会跳过；Hysteria2 请使用 Clash YAML 订阅。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -8,6 +8,7 @@ public enum SubscriptionNodeType: String, Codable, Sendable, CaseIterable {
     case shadowsocks
     case socks
     case anytls
+    case hysteria2
 }
 
 /// A proxy node cached from a subscription.
@@ -115,7 +116,7 @@ public struct SubscriptionNode: Codable, Equatable, Identifiable, Sendable {
         switch type {
         case .vless, .vmess:
             guard let uuid, !uuid.isEmpty else { throw SubscriptionNodeValidationError.missingIdentity }
-        case .trojan, .anytls:
+        case .trojan, .anytls, .hysteria2:
             guard let password, !password.isEmpty else { throw SubscriptionNodeValidationError.missingCredential }
         case .socks:
             // 用户名、密码都可以没有（无认证）；只给密码没给用户名的 SOCKS5 认证不成立。

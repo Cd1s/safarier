@@ -45,6 +45,7 @@ enum DisplayText {
         case .shadowsocks: return "SS"
         case .socks: return "SOCKS"
         case .anytls: return "AnyTLS"
+        case .hysteria2: return "Hysteria2"
         }
     }
 
@@ -56,6 +57,7 @@ enum DisplayText {
         case .shadowsocks: return .teal
         case .socks: return .green
         case .anytls: return .orange
+        case .hysteria2: return .cyan
         }
     }
 
@@ -198,6 +200,7 @@ enum DisplayText {
                 let scheme = line.split(separator: ":", maxSplits: 1).first.map(String.init) ?? "?"
                 return "订阅里有一行无法解析（\(scheme)://…）。"
             case .invalidBase64: return "订阅内容既不是 UTF-8 文本，也不是合法的 Base64。"
+            case .invalidClash: return "Clash 订阅格式错误，或 Hysteria2 节点字段不完整。"
             case .invalidJSON: return "VMess 节点的 JSON 无法解析。"
             case .unsupportedScheme(let scheme): return "不支持的节点协议：\(scheme)。"
             }

@@ -1,13 +1,13 @@
 cask "safarier" do
-  version "1.4.0"
+  version "1.4.1"
 
   on_arm do
-    sha256 "68faf950906e1f315255820bc9a8a3346056e27eece3a8b7fb66df1da69786f8"
+    sha256 "f4d7c35b017becec3e005895e7bd7b9faba85e4c0b6620ed435e86963a6cbaab"
 
     url "https://github.com/Cd1s/safarier/releases/download/v#{version}/Safarier-v#{version}-macOS-arm64.zip"
   end
   on_intel do
-    sha256 "e7a83753661a905174e0ac234925d8f41b770b92d383f3b70aa87e2f00b8b35f"
+    sha256 "6d28248831946ccc74f9dfdc3b675ebc667a4ab7d9644e72e2a07ff365875bc9"
 
     url "https://github.com/Cd1s/safarier/releases/download/v#{version}/Safarier-v#{version}-macOS-x86_64.zip"
   end

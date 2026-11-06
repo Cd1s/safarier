@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # 编出 Universal（arm64 + x86_64）release 二进制，组装 dist/Safarier.app 并做本机 ad-hoc 签名。
 # Apple 芯片和 Intel 的 Mac 都能用。只在 Mac mini 上跑（需要 Xcode 工具链：多架构 swift build 和 lipo）。
-# 环境变量：SAFARIER_VERSION 覆盖版本号（默认 1.4.0），SAFARIER_BUILD 覆盖构建号（默认 git 提交数），
+# 环境变量：SAFARIER_VERSION 覆盖版本号（默认 1.4.1），SAFARIER_BUILD 覆盖构建号（默认 git 提交数），
 #           SINGBOX_DIR 覆盖自带 sing-box 的目录（默认 .build/sing-box，由 scripts/build-singbox.sh 在编译机上编出来）。
 # scripts/build-app.sh --info-plist PATH：只生成 Info.plist 到 PATH（测试用），不编译、不组装。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
-VERSION="${SAFARIER_VERSION:-1.4.0}"
+VERSION="${SAFARIER_VERSION:-1.4.1}"
 BUILD="${SAFARIER_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 TARGET_ARCH="${SAFARIER_ARCH:-universal}"
 BUNDLE_ID="sh.safarier.app"
@@ -174,6 +174,9 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 write_info_plist "$APP/Contents/Info.plist"
+
+# Older updaters remove quarantine recursively before installing the bundle.
+chmod -R u+w "$APP"
 
 echo "==> ad-hoc 签名"
 # 由内向外签：先签里面的 sing-box，再签整个 App（App 的签名把它封进去）。不用 --deep，否则会把 sing-box 重签掉。

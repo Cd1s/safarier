@@ -167,6 +167,8 @@ enum AboutAndUpdateController {
         try await run("/usr/bin/ditto", ["-x", "-k", zipURL.path, extracted.path])
         let newApp = extracted.appendingPathComponent("Safarier.app", isDirectory: true)
         guard FileManager.default.fileExists(atPath: newApp.path) else { throw InstallError.appMissing }
+        // Archives may preserve read-only resource files, which prevents xattr removal.
+        try await run("/bin/chmod", ["-R", "u+w", newApp.path])
         try await run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", newApp.path])
         try await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
 

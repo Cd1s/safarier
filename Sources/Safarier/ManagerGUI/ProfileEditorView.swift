@@ -125,7 +125,7 @@ struct ProfileEditorView: View {
                             }
                             .disabled(selectedSubscription == nil)
                             .popover(isPresented: $showNodePicker, arrowEdge: .trailing) {
-                                NodePickerView(nodes: selectedSubscription?.nodes ?? [], selection: editor.values.nodeName) { name in
+                                NodePickerView(model: model, subscriptionID: selectedSubscription?.id, nodes: selectedSubscription?.nodes ?? [], selection: editor.values.nodeName) { name in
                                     editor.values.nodeName = name
                                     showNodePicker = false
                                 }
@@ -446,6 +446,8 @@ struct TimeZoneMenu: View {
 
 /// 订阅节点选择：按名称或服务器搜索。
 struct NodePickerView: View {
+    @ObservedObject var model: ManagerModel
+    let subscriptionID: UUID?
     let nodes: [SubscriptionNode]
     let selection: String?
     let onSelect: (String) -> Void
@@ -467,25 +469,52 @@ struct NodePickerView: View {
                 .textFieldStyle(.roundedBorder)
                 .padding(10)
             Divider()
-            List(filtered) { node in
-                Button { onSelect(node.name) } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark")
-                            .font(.caption.weight(.bold))
-                            .opacity(node.name == selection ? 1 : 0)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(node.name).lineLimit(1)
-                            Text(verbatim: "\(node.server):\(node.serverPort)")
-                                .font(.caption)
-                                .monospaced()
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                        ProtocolBadge(type: node.type)
+            if let subscriptionID {
+                HStack {
+                    Text("HTTPS 延迟").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if model.isTestingNodes(subscriptionID: subscriptionID) {
+                        Button("取消测试") { model.cancelNodeTests(subscriptionID: subscriptionID) }
+                    } else {
+                        Button("测试当前列表") { model.testNodes(filtered, subscriptionID: subscriptionID) }
+                            .disabled(filtered.isEmpty)
                     }
-                    .contentShape(Rectangle())
+                }.padding(.horizontal, 10).padding(.vertical, 6)
+            }
+            List(filtered) { node in
+                HStack(spacing: 8) {
+                    Button { onSelect(node.name) } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark")
+                                .font(.caption.weight(.bold))
+                                .opacity(node.name == selection ? 1 : 0)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(node.name).lineLimit(1)
+                                Text(verbatim: "\(node.server):\(node.serverPort)")
+                                    .font(.caption)
+                                    .monospaced()
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            ProtocolBadge(type: node.type)
+                            if let subscriptionID {
+                                ProxyLatencyView(state: model.nodeTestState(subscriptionID: subscriptionID, node: node))
+                                    .font(.caption)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if let subscriptionID {
+                        Button { model.testNodes([node], subscriptionID: subscriptionID) } label: {
+                            Image(systemName: "speedometer")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("测试延迟")
+                        .disabled(model.nodeTestState(subscriptionID: subscriptionID, node: node) == .running
+                                  || model.nodeTestState(subscriptionID: subscriptionID, node: node) == .queued)
+                    }
                 }
-                .buttonStyle(.plain)
             }
             .listStyle(.plain)
             Divider()
@@ -494,6 +523,6 @@ struct NodePickerView: View {
                 .foregroundStyle(.secondary)
                 .padding(6)
         }
-        .frame(width: 400, height: 440)
+        .frame(width: 520, height: 480)
     }
 }

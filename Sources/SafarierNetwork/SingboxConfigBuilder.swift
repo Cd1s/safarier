@@ -42,17 +42,20 @@ public struct SingboxConfiguration: Codable, Equatable, Sendable {
     public var inbounds: [[String: SingboxJSONValue]]
     public var outbounds: [[String: SingboxJSONValue]]
     public var route: [String: SingboxJSONValue]
+    public var dns: [String: SingboxJSONValue]?
 
     public init(
         log: [String: SingboxJSONValue] = ["level": .string("info")],
         inbounds: [[String: SingboxJSONValue]],
         outbounds: [[String: SingboxJSONValue]],
-        route: [String: SingboxJSONValue]
+        route: [String: SingboxJSONValue],
+        dns: [String: SingboxJSONValue]? = nil
     ) {
         self.log = log
         self.inbounds = inbounds
         self.outbounds = outbounds
         self.route = route
+        self.dns = dns
     }
 
     public func encoded() throws -> Data {
@@ -65,6 +68,7 @@ public struct SingboxConfiguration: Codable, Equatable, Sendable {
 public enum SingboxConfigError: Error, Equatable {
     case invalidInboundPort(Int)
     case invalidNode(SubscriptionNodeValidationError)
+    case mieruRequiresBridge
 }
 
 /// 最小的 sing-box 配置：一个本地 SOCKS5 入站，一个节点出站；路由全部走节点（`direct` 只是保留的出站，没有规则用它，
@@ -85,6 +89,7 @@ public struct SingboxConfigBuilder: Sendable {
         do { try node.validate() } catch let error as SubscriptionNodeValidationError {
             throw SingboxConfigError.invalidNode(error)
         }
+        guard node.type != .mieru else { throw SingboxConfigError.mieruRequiresBridge }
         return try makeConfiguration(inboundPort: inboundPort, outbound: makeOutbound(node), inboundAddress: inboundAddress, logLevel: logLevel)
     }
 
@@ -113,7 +118,9 @@ public struct SingboxConfigBuilder: Sendable {
             log: ["level": .string(logLevel)],
             inbounds: [inbound],
             outbounds: outbounds,
-            route: ["final": .string(proxyTag)]
+            route: ["final": .string(proxyTag)],
+            dns: outbounds.contains(where: { $0["domain_resolver"] != nil })
+                ? ["servers": .array([.object(["type": .string("local"), "tag": .string("node-dns")])])] : nil
         )
     }
 
@@ -181,6 +188,9 @@ public struct SingboxConfigBuilder: Sendable {
             }
         case .anytls:
             if let password = node.password { result["password"] = .string(password) }
+        case .mieru:
+            // Mieru 只能由运行管理器桥接；不构造 sing-box 不认识的协议字段。
+            return [:]
         }
 
         // AnyTLS 和 Hysteria2 都必须启用 TLS。
@@ -203,6 +213,10 @@ public struct SingboxConfigBuilder: Sendable {
             result["tls"] = .object(tls)
         }
         if let transport = makeTransport(node) { result["transport"] = .object(transport) }
+        let strategies = ["ipv4": "ipv4_only", "ipv6": "ipv6_only", "ipv4-prefer": "prefer_ipv4", "ipv6-prefer": "prefer_ipv6"]
+        if let ipVersion = node.parameters["ip-version"], let strategy = strategies[ipVersion] {
+            result["domain_resolver"] = .object(["server": .string("node-dns"), "strategy": .string(strategy)])
+        }
         return result
     }
 
@@ -273,6 +287,7 @@ private extension SubscriptionNodeType {
         case .socks: return "socks"
         case .anytls: return "anytls"
         case .hysteria2: return "hysteria2"
+        case .mieru: return "mieru"
         }
     }
 }

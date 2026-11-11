@@ -76,11 +76,9 @@ enum RunnerMain {
                     "singboxPID": local.pid,
                     "localProxy": "\(local.proxy.host):\(local.proxy.port)",
                 ]
-                outboundDescription = L10n.text(
-                    "订阅「%@」节点「%@」（经 sing-box）",
-                    bound.subscription.name,
-                    bound.node.name
-                )
+                outboundDescription = bound.node.type == .mieru
+                    ? L10n.text("订阅「%@」节点「%@」（经 Mieru）", bound.subscription.name, bound.node.name)
+                    : L10n.text("订阅「%@」节点「%@」（经 sing-box）", bound.subscription.name, bound.node.name)
             }
 
             // 原生引擎接口只在 profile（或本次 --spi）显式开启时才碰；公开适配器先写结论，SPI 适配器再覆盖。
@@ -192,7 +190,8 @@ enum RunnerMain {
         let pid = try start(manager)
         let port = try manager.waitUntilReady(profileID: profileID)
         // 写 stderr：探针模式下 stdout 只能有 JSON。
-        FileHandle.standardError.write(Data("[sing-box] \(manager.executableURL.path) pid \(pid) → 127.0.0.1:\(port)\n".utf8))
+        let executable = manager.runningExecutableURL(for: profileID) ?? manager.executableURL
+        FileHandle.standardError.write(Data("[proxy] \(executable.path) pid \(pid) → 127.0.0.1:\(port)\n".utf8))
         let proxy = ProxySettings(name: "sing-box", kind: .socks5, host: SingboxConfigBuilder.defaultInboundAddress, port: port)
         return (proxy, pid)
     }

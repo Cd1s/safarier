@@ -56,6 +56,7 @@ public final class SingboxProcessManager: @unchecked Sendable {
 
     private var processes: [UUID: Process] = [:]
     private var ports: [UUID: Int] = [:]
+    private var mieruBridges: [UUID: SingboxProcessManager] = [:]
     private let lock = NSLock()
 
     public init(
@@ -202,12 +203,36 @@ public final class SingboxProcessManager: @unchecked Sendable {
     /// 写配置、起 sing-box，立即返回 pid；要等本地端口可用请接着调 `waitUntilReady`。
     @discardableResult
     public func start(profileID: UUID, node: SubscriptionNode) throws -> Int32 {
-        try start(profileID: profileID) { try configuration(for: profileID, node: node) }
+        if node.type == .mieru { return try startMieru(profileID: profileID, node: node) }
+        return try start(profileID: profileID) { try configuration(for: profileID, node: node) }
     }
 
     @discardableResult
     public func start(profileID: UUID, chain: ResolvedProxyChain) throws -> Int32 {
-        try start(profileID: profileID) {
+        if case .node(let node) = chain.upstream, node.type == .mieru {
+            guard !isRunning(profileID: profileID) else { throw SingboxProcessError.alreadyRunning(profileID) }
+            stopPreviousBridge(profileID: profileID)
+            Self.reapOrphan(profileID: profileID, in: stateDirectory)
+            // 先保留出口端口，辅助入口使用另一段端口，避免两者启动前分配到同一个端口。
+            _ = try port(for: profileID)
+            let bridge = SingboxProcessManager(stateDirectory: stateDirectory.appendingPathComponent("mieru"), portRange: 40_001...59_999)
+            do {
+                try bridge.startMieru(profileID: profileID, node: node)
+                let bridgePort = try bridge.waitUntilReady(profileID: profileID)
+                let pid = try start(profileID: profileID, reapMieru: false) {
+                    try SingboxConfigBuilder.makeConfiguration(inboundPort: port(for: profileID), outbound: chain.exit,
+                        upstream: ["type": .string("socks"), "server": .string("127.0.0.1"),
+                                   "server_port": .number(bridgePort), "version": .string("5"), "network": .string("tcp")],
+                        logLevel: logLevel)
+                }
+                lock.lock(); mieruBridges[profileID] = bridge; lock.unlock()
+                return pid
+            } catch {
+                bridge.stopAll()
+                throw error
+            }
+        }
+        return try start(profileID: profileID) {
             try chain.configuration(inboundPort: port(for: profileID), logLevel: logLevel)
         }
     }
@@ -219,31 +244,57 @@ public final class SingboxProcessManager: @unchecked Sendable {
         }
     }
 
-    private func start(profileID: UUID, configuration: () throws -> SingboxConfiguration) throws -> Int32 {
+    private func start(profileID: UUID, reapMieru: Bool = true, configuration: () throws -> SingboxConfiguration) throws -> Int32 {
+        try startProcess(profileID: profileID, executable: executableURL, reapMieru: reapMieru,
+                         configuration: { try configuration().encoded() }, mieru: false)
+    }
+
+    @discardableResult
+    private func startMieru(profileID: UUID, node: SubscriptionNode) throws -> Int32 {
+        guard let executable = MieruConfigBuilder.locateExecutable(),
+              FileManager.default.isExecutableFile(atPath: executable.path) else { throw MieruError.executableNotFound }
+        return try startProcess(profileID: profileID, executable: executable,
+                                configuration: { try MieruConfigBuilder.build(inboundPort: port(for: profileID), node: node) }, mieru: true)
+    }
+
+    private func startProcess(profileID: UUID, executable: URL, reapMieru: Bool = true,
+                              configuration: () throws -> Data, mieru: Bool) throws -> Int32 {
         lock.lock()
         if let process = processes[profileID], process.isRunning {
             lock.unlock()
             throw SingboxProcessError.alreadyRunning(profileID)
         }
         lock.unlock()
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
-            throw SingboxProcessError.executableNotFound(executableURL)
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+            throw SingboxProcessError.executableNotFound(executable)
         }
-        try Self.clearQuarantine(of: executableURL)
+        let bundled = mieru ? Self.bundledExecutableURL()?.deletingLastPathComponent().appendingPathComponent("mieru") : Self.bundledExecutableURL()
+        try Self.clearQuarantine(of: executable, bundled: bundled)
         // 同一个 profile 上次没清理掉的 sing-box（Runner 崩溃、被 SIGKILL）先结束，让出端口。
-        Self.reapOrphan(profileID: profileID, in: stateDirectory)
+        if reapMieru {
+            stopPreviousBridge(profileID: profileID)
+            Self.reapOrphan(profileID: profileID, in: stateDirectory)
+        }
+        else { Self.reapSingleOrphan(profileID: profileID, in: stateDirectory) }
 
         let config = try configuration()
         let configURL = configurationFileURL(for: profileID)
         try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
-        try Self.writePrivate(config.encoded(), to: configURL)
+        try Self.writePrivate(config, to: configURL)
 
         let process = Process()
-        process.executableURL = executableURL
-        process.arguments = ["run", "-c", configURL.path]
+        process.executableURL = executable
+        process.arguments = mieru ? ["run"] : ["run", "-c", configURL.path]
+        if mieru {
+            var environment = ProcessInfo.processInfo.environment
+            environment.removeValue(forKey: "MIERU_CONFIG_FILE")
+            environment["MIERU_CONFIG_JSON_FILE"] = configURL.path
+            process.environment = environment
+        }
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = logHandle ?? FileHandle.nullDevice
-        process.standardError = logHandle ?? FileHandle.nullDevice
+        // Mieru 的配置错误可能回显凭据，不能将其原始输出写入 Runner 日志。
+        process.standardOutput = mieru ? FileHandle.nullDevice : (logHandle ?? FileHandle.nullDevice)
+        process.standardError = mieru ? FileHandle.nullDevice : (logHandle ?? FileHandle.nullDevice)
         do {
             try process.run()
             if let identity = Self.processIdentity(of: process.processIdentifier) {
@@ -275,6 +326,7 @@ public final class SingboxProcessManager: @unchecked Sendable {
         guard let process, let port else { throw SingboxProcessError.notRunning(profileID) }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
+            try Task.checkCancellation()
             guard process.isRunning else {
                 process.waitUntilExit()
                 throw SingboxProcessError.exitedEarly(status: process.terminationStatus)
@@ -289,11 +341,23 @@ public final class SingboxProcessManager: @unchecked Sendable {
     public func stop(profileID: UUID) throws {
         lock.lock()
         let process = processes.removeValue(forKey: profileID)
+        let bridge = mieruBridges.removeValue(forKey: profileID)
         ports.removeValue(forKey: profileID)
         lock.unlock()
-        defer { Self.removeStateFiles(for: profileID, in: stateDirectory) }
+        defer {
+            bridge?.stopAll()
+            Self.removeStateFiles(for: profileID, in: stateDirectory)
+        }
         guard let process else { throw SingboxProcessError.notRunning(profileID) }
         Self.terminate(pid: process.processIdentifier, isRunning: { process.isRunning })
+    }
+
+    /// 出口进程提前退出后重启时，先释放旧桥接管理器；其析构不能删掉新桥接的同名状态文件。
+    private func stopPreviousBridge(profileID: UUID) {
+        lock.lock()
+        let previous = mieruBridges.removeValue(forKey: profileID)
+        lock.unlock()
+        previous?.stopAll()
     }
 
     public func stopAll() {
@@ -314,10 +378,22 @@ public final class SingboxProcessManager: @unchecked Sendable {
         return process.processIdentifier
     }
 
+    public func runningExecutableURL(for profileID: UUID) -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        return processes[profileID]?.executableURL
+    }
+
     /// 按 pid 文件结束遗留的 sing-box。只有该 profile 没有 Runner 在跑时才能调用（Runner 拿着 profile 锁时调用是安全的，
     /// 因为那时遗留进程一定不是它自己的）。每次发信号前核验启动时间和路径，拒绝旧版纯 PID 或身份不匹配的记录。
     @discardableResult
     public static func reapOrphan(profileID: UUID, in directory: URL) -> Bool {
+        let main = reapSingleOrphan(profileID: profileID, in: directory)
+        let bridge = reapSingleOrphan(profileID: profileID, in: directory.appendingPathComponent("mieru"))
+        return main || bridge
+    }
+
+    @discardableResult
+    private static func reapSingleOrphan(profileID: UUID, in directory: URL) -> Bool {
         let pidURL = pidFileURL(for: profileID, in: directory)
         guard let data = try? Data(contentsOf: pidURL) else { return false }
         defer { removeStateFiles(for: profileID, in: directory) }
@@ -333,7 +409,8 @@ public final class SingboxProcessManager: @unchecked Sendable {
     @discardableResult
     public static func reapOrphanIfIdle(profileID: UUID, workspace: SafarierWorkspace) -> Bool {
         let directory = workspace.singboxDirectory
-        guard FileManager.default.fileExists(atPath: pidFileURL(for: profileID, in: directory).path),
+        guard (FileManager.default.fileExists(atPath: pidFileURL(for: profileID, in: directory).path)
+               || FileManager.default.fileExists(atPath: pidFileURL(for: profileID, in: directory.appendingPathComponent("mieru")).path)),
               let lock = try? ProfileLock.acquire(profileID: profileID, in: workspace.locksDirectory) else { return false }
         defer { lock.release() }
         return reapOrphan(profileID: profileID, in: directory)

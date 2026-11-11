@@ -120,6 +120,7 @@ swift run Safarier probe <PROFILE_ID> [--url https://example.com] [--spi afp,tz,
 
 ```sh
 scripts/build-singbox.sh                        # 交叉编译 darwin/arm64 + amd64 的 sing-box（需要 Go）
+scripts/build-mieru.sh                          # 下载并校验官方 Mieru 两个 macOS 架构
 SAFARIER_ARCH=universal scripts/build-app.sh    # universal | arm64 | x86_64 → dist/Safarier.app
 ```
 
@@ -157,3 +158,5 @@ scripts/update-cask.sh v1.2.5       # 指定 tag
 5. 原生引擎桥接层的改动，先开 Issue 附上运行时方法签名与能力核验结果，再写代码。
 
 自带的 `sing-box` 是未修改的上游代码，许可证为 GPL-3.0-or-later。`scripts/build-singbox.sh` 会把确切的源码 commit 和编译参数写进 `SOURCE`，随应用放在 `Contents/Resources/ThirdParty/sing-box/`。如果改了编译方式，请同步更新这份说明。
+
+Mieru 节点由官方 `mieru run` 前台进程提供 SOCKS5 入口，配置文件权限为 0600。Mieru 前置使用独立辅助进程，出口仍经 sing-box 的 `detour`；启动失败、退出、取消测试和孤儿回收都必须清理两者。`SAFARIER_MIERU` 可指定本地辅助程序，真实生命周期测试在找到它时运行。订阅缓存包含节点凭据，写入时也必须使用 0600 权限。

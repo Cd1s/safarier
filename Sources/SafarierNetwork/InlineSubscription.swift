@@ -39,7 +39,7 @@ public enum InlineSubscription {
             result = try SubscriptionParser.parseResult(text)
         } catch {
             // 解析失败又没有 `://`（Base64 解开后也没有节点链接）：多半是网址没写 https://，或者粘错了东西。
-            if !text.contains("://") { throw InlineSubscriptionError.unrecognized }
+            if error as? SubscriptionParseError != .invalidClash, !text.contains("://") { throw InlineSubscriptionError.unrecognized }
             throw error
         }
         guard !result.nodes.isEmpty else { throw InlineSubscriptionError.noNodes }

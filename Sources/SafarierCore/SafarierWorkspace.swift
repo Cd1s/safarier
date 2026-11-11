@@ -149,6 +149,8 @@ public struct SafarierWorkspace: Sendable {
             agentSocketURL(for: profileID),
             singboxDirectory.appendingPathComponent("\(id).json"),
             singboxDirectory.appendingPathComponent("\(id).pid"),
+            singboxDirectory.appendingPathComponent("mieru/\(id).json"),
+            singboxDirectory.appendingPathComponent("mieru/\(id).pid"),
         ] {
             try? FileManager.default.removeItem(at: url)
         }

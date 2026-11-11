@@ -42,7 +42,8 @@ public enum SubscriptionParser {
         // 有些订阅（和 Windows 记事本存的文件）开头带 UTF-8 BOM，它不算空白，要单独去掉。
         let raw = stripBOM(content).trimmingCharacters(in: .whitespacesAndNewlines)
         if let result = try ClashSubscriptionParser.parseIfPresent(raw) { return result }
-        let decoded = decodeBase64IfNeeded(raw)
+        let decoded = decodeBase64IfNeeded(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        if decoded != raw, let result = try ClashSubscriptionParser.parseIfPresent(decoded) { return result }
         var lines: [String] = []
         for physicalLine in decoded.components(separatedBy: .newlines) {
             let line = physicalLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -392,7 +393,8 @@ public enum SubscriptionParser {
     }
 
     private static func decodeBase64IfNeeded(_ value: String) -> String {
-        guard let data = decodeBase64(stripBOM(value)), let text = String(data: data, encoding: .utf8), text.contains("://") else {
+        guard let data = decodeBase64(stripBOM(value)), let text = String(data: data, encoding: .utf8),
+              text.contains("://") || ClashSubscriptionParser.looksLikeClash(stripBOM(text).trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return value
         }
         return stripBOM(text)

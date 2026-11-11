@@ -82,7 +82,9 @@ Cask 会自动选择 Apple Silicon 或 Intel 版本，后续用 `brew upgrade --
 | **两跳链式代理** | 在代理编辑页为 SOCKS5 / HTTP 出口添加前置：已保存代理、订阅节点或自定义 sing-box 出站 JSON。环境选择此代理后使用完整链路，连接测试显示最终出口 IP；任一跳失败都不会退回单跳或直连。 |
 | **断连阻断，零真实 IP 泄漏** | 每个环境的网页请求与 DNS 解析强制走该环境的独立代理通道；如果节点断开，页面立即停止加载，绝不静默退回本机网络。 |
 
-另支持含 Hysteria2 节点的 [Clash YAML 订阅](docs/hysteria2-subscriptions.md)（含端口跳跃）。其它 Clash 节点类型会跳过；不导入 Clash 的 DNS、路由规则和监听配置。
+支持 [Clash YAML 订阅及本地文件](docs/clash-upstream-proxies.md)中的 **Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2**（含端口跳跃）。这些节点均可直接绑定环境或用作前置；只导入节点，不应用 Clash 的 DNS、路由规则和监听配置。
+
+订阅列表和节点选择器提供单个及批量 **HTTPS 延迟**测试，最多同时测试 3 个节点，可随时取消。前置编辑页显示前置自身的延迟；保存后的代理详情「测试连接」显示完整链路的耗时和最终出口 IP。
 
 ---
 
@@ -170,3 +172,5 @@ Safarier 基于 Swift 与 Apple 原生 WebKit 构建。应用内附带未修改�
 
 - 社区与友链：[LINUX DO](https://linux.do)
 
+
+Mieru 由官方未修改的辅助程序提供，随应用包含 Apple Silicon 和 Intel 版本；GPL 许可证和源码位置见 `Contents/Resources/ThirdParty/mieru/`。构建应用前运行 `scripts/build-mieru.sh` 准备并校验该程序。

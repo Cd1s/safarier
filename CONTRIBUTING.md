@@ -120,6 +120,7 @@ Attach the relevant part of the probe output to any PR that changes simulation, 
 
 ```sh
 scripts/build-singbox.sh                        # cross-compiles darwin/arm64 + amd64 sing-box (needs Go)
+scripts/build-mieru.sh                          # fetch and verify both official macOS Mieru architectures
 SAFARIER_ARCH=universal scripts/build-app.sh    # universal | arm64 | x86_64 → dist/Safarier.app
 ```
 
@@ -157,3 +158,5 @@ If upstream later creates a dedicated tap repository (e.g. `Cd1s/homebrew-safari
 5. Changes to the Native Engine Bridge need an issue with runtime signature and capability verification results first.
 
 The bundled `sing-box` is unmodified upstream code under GPL-3.0-or-later. `scripts/build-singbox.sh` writes the exact source commit and build flags to `SOURCE`, which ships in `Contents/Resources/ThirdParty/sing-box/`. Keep that notice accurate if you change how it is built.
+
+Mieru nodes use the official `mieru run` foreground helper with a private SOCKS5 listener and a 0600 configuration file. A Mieru upstream has its own helper; the exit still uses sing-box `detour`. Startup failure, shutdown, cancellation, and orphan recovery must clean up both processes. `SAFARIER_MIERU` can select a local helper; native lifecycle tests run when it is available. Subscription caches contain node credentials and must also be written with 0600 permissions.

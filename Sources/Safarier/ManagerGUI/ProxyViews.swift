@@ -221,6 +221,16 @@ struct ProxyEditorView: View {
                 }
             }
             Button("新增代理…") { showNewProxy = true }
+            if let entry = upstreamProxyID.flatMap(model.proxy) {
+                HStack {
+                    ProxyLatencyView(state: model.proxyTests[entry.id])
+                    if model.proxyTests[entry.id] == .running {
+                        Button("取消测试") { model.cancelProxyTest(entry.id) }
+                    } else {
+                        Button("测试前置延迟") { model.testProxy(entry) }
+                    }
+                }
+            }
         case .node:
             Picker("订阅", selection: $subscriptionID) {
                 Text("选择订阅").tag(UUID?.none)
@@ -237,10 +247,18 @@ struct ProxyEditorView: View {
                 }
                 .disabled(selectedSubscription == nil)
                 .popover(isPresented: $showNodes) {
-                    NodePickerView(nodes: selectedSubscription?.nodes ?? [], selection: nodeName) { name in
+                    NodePickerView(model: model, subscriptionID: subscriptionID, nodes: selectedSubscription?.nodes ?? [], selection: nodeName) { name in
                         nodeName = name
                         showNodes = false
                     }
+                }
+            }
+            if let subscriptionID, let node = selectedSubscription?.nodes.first(where: { $0.name == nodeName }) {
+                HStack {
+                    ProxyLatencyView(state: model.nodeTestState(subscriptionID: subscriptionID, node: node))
+                    Button("测试前置延迟") { model.testNodes([node], subscriptionID: subscriptionID) }
+                        .disabled(model.nodeTestState(subscriptionID: subscriptionID, node: node) == .running
+                                  || model.nodeTestState(subscriptionID: subscriptionID, node: node) == .queued)
                 }
             }
             if let nodeName, selectedSubscription?.nodes.contains(where: { $0.name == nodeName }) != true {
@@ -327,7 +345,7 @@ struct ProxyDetailView: View {
                     }
                 }
                 switch model.proxyTests[proxy.id] {
-                case .running:
+                case .queued, .running:
                     Text(proxy.upstream == nil
                          ? L10n.text("正在通过此代理请求 HTTPS…")
                          : L10n.text("正在通过完整两跳链路请求 HTTPS…")).foregroundStyle(.secondary)
@@ -368,6 +386,7 @@ struct ProxyDetailView: View {
 
 struct ProxyRow: View {
     let proxy: ProxySettings
+    var testState: ManagerModel.ProxyTestState? = nil
     var body: some View {
         Label {
             VStack(alignment: .leading, spacing: 3) {
@@ -375,6 +394,7 @@ struct ProxyRow: View {
                 Text(verbatim: "\(DisplayText.proxyKind(proxy.kind)) · \(proxy.host):\(proxy.port)")
                     .font(.caption).foregroundStyle(.secondary)
                 if proxy.upstream != nil { Text("已配置前置连接").font(.caption).foregroundStyle(.secondary) }
+                if testState != nil { ProxyLatencyView(state: testState).font(.caption) }
             }.lineLimit(1)
         } icon: { Image(systemName: "network").foregroundStyle(.blue) }
     }

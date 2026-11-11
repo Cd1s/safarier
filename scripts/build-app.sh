@@ -14,6 +14,7 @@ TARGET_ARCH="${SAFARIER_ARCH:-universal}"
 BUNDLE_ID="sh.safarier.app"
 APP="${SAFARIER_APP_OUT:-$ROOT/dist/Safarier.app}"
 SINGBOX_DIR="${SINGBOX_DIR:-$ROOT/.build/sing-box}"
+MIERU_DIR="${MIERU_DIR:-$ROOT/.build/mieru}"
 
 # App 声明支持的语言：覆盖 /Applications/Safari.app/Contents/Resources 下的 .lproj，另加 zh-Hans、zh-Hant。
 # 只写开发区域时 CFBundle 把本 App 的本地化锁成 zh-Hans，WebKit / WebCore 跟着主 Bundle 走：不管环境语言是什么，
@@ -124,6 +125,14 @@ if ! "$SINGBOX_DIR/sing-box" version | grep -q 'with_utls'; then
   echo "警告：$SINGBOX_DIR/sing-box 没有编进 with_utls，VLESS Reality 节点会连不上" >&2
 fi
 
+if [ -f "$MIERU_DIR/mieru-arm64" ] && [ -f "$MIERU_DIR/mieru-amd64" ]; then
+  lipo -create -output "$MIERU_DIR/mieru" "$MIERU_DIR/mieru-arm64" "$MIERU_DIR/mieru-amd64"
+fi
+for file in mieru LICENSE SOURCE; do
+  [ -f "$MIERU_DIR/$file" ] || { echo "缺少 $MIERU_DIR/$file，请先运行 scripts/build-mieru.sh" >&2; exit 1; }
+done
+is_universal "$MIERU_DIR/mieru" || { echo "Mieru 需要 arm64 + x86_64 两个架构" >&2; exit 1; }
+
 echo "==> swift build -c release --arch arm64 --arch x86_64"
 swift build -c release --arch arm64 --arch x86_64 --product Safarier
 BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/Safarier"
@@ -133,23 +142,27 @@ echo "==> 组装 $APP ($TARGET_ARCH)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 mkdir -p "$APP/Contents/Helpers" "$APP/Contents/Resources/ThirdParty/sing-box"
+mkdir -p "$APP/Contents/Resources/ThirdParty/mieru"
 case "$TARGET_ARCH" in
   universal)
     cp "$BIN" "$APP/Contents/MacOS/Safarier"
     cp "$SINGBOX_DIR/sing-box" "$APP/Contents/Helpers/sing-box"
+    cp "$MIERU_DIR/mieru" "$APP/Contents/Helpers/mieru"
     ;;
   arm64|x86_64)
     lipo "$BIN" -thin "$TARGET_ARCH" -output "$APP/Contents/MacOS/Safarier"
     lipo "$SINGBOX_DIR/sing-box" -thin "$TARGET_ARCH" -output "$APP/Contents/Helpers/sing-box"
+    lipo "$MIERU_DIR/mieru" -thin "$TARGET_ARCH" -output "$APP/Contents/Helpers/mieru"
     ;;
   *)
     echo "未知 SAFARIER_ARCH=$TARGET_ARCH（支持 universal、arm64、x86_64）" >&2
     exit 1
     ;;
 esac
-chmod 755 "$APP/Contents/MacOS/Safarier" "$APP/Contents/Helpers/sing-box"
+chmod 755 "$APP/Contents/MacOS/Safarier" "$APP/Contents/Helpers/sing-box" "$APP/Contents/Helpers/mieru"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 cp "$SINGBOX_DIR/LICENSE" "$SINGBOX_DIR/COPYING" "$SINGBOX_DIR/SOURCE" "$APP/Contents/Resources/ThirdParty/sing-box/"
+cp "$MIERU_DIR/LICENSE" "$MIERU_DIR/SOURCE" "$APP/Contents/Resources/ThirdParty/mieru/"
 mkdir -p "$APP/Contents/Resources/ThirdParty/Yams"
 cp "$ROOT/.build/checkouts/Yams/LICENSE" "$APP/Contents/Resources/ThirdParty/Yams/"
 
@@ -181,9 +194,10 @@ chmod -R u+w "$APP"
 echo "==> ad-hoc 签名"
 # 由内向外签：先签里面的 sing-box，再签整个 App（App 的签名把它封进去）。不用 --deep，否则会把 sing-box 重签掉。
 codesign -s - --force --identifier sh.safarier.sing-box "$APP/Contents/Helpers/sing-box"
+codesign -s - --force --identifier sh.safarier.mieru "$APP/Contents/Helpers/mieru"
 codesign -s - --force "$APP"
 codesign --verify --deep --strict "$APP"
-for binary in "$APP/Contents/MacOS/Safarier" "$APP/Contents/Helpers/sing-box"; do
+for binary in "$APP/Contents/MacOS/Safarier" "$APP/Contents/Helpers/sing-box" "$APP/Contents/Helpers/mieru"; do
   if [ "$TARGET_ARCH" = "universal" ]; then
     is_universal "$binary" || { echo "$binary 不是 Universal：$(lipo -archs "$binary")" >&2; exit 1; }
   else

@@ -82,7 +82,9 @@ The app is ad-hoc signed rather than signed with an Apple Developer ID and notar
 | **Two-Hop Proxy Chains** | Add a saved proxy, subscription node, or custom sing-box outbound as the upstream for a SOCKS5 / HTTP exit proxy. Environments and connection tests use the entire chain, with no fallback to a single hop or direct access. |
 | **Zero-Leak Protection** | Every environment routes traffic and DNS strictly through its assigned node. If a proxy disconnects, page loading stops immediately and **never** falls back to your real local IP. |
 
-[Clash YAML subscriptions](docs/hysteria2-subscriptions.md) containing Hysteria2 nodes (including port hopping) are also supported. Other Clash node types are skipped; Clash DNS, rules and listeners are not imported.
+[Clash YAML subscriptions and local files](docs/clash-upstream-proxies.md) support **Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2** (including port hopping). All can be bound to environments or selected as upstreams. Only nodes are imported; Clash DNS, rules, and listeners are not applied.
+
+Subscription tables and node pickers offer individual and batch **HTTPS latency** tests, with at most three running at once and cancellation support. The upstream editor measures the selected upstream; **Test Connection** on the saved exit measures the complete chain and reports the final exit IP.
 
 ---
 
@@ -170,3 +172,5 @@ Safarier is built natively with Swift and Apple WebKit for macOS. `Safarier.app`
 
 - Community & Links: [LINUX DO](https://linux.do)
 
+
+Mieru uses an unmodified official helper for Apple Silicon and Intel Macs. Its GPL license and source location ship under `Contents/Resources/ThirdParty/mieru/`. Run `scripts/build-mieru.sh` before packaging to prepare and verify the helper.

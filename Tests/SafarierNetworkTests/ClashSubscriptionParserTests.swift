@@ -1,8 +1,94 @@
 import Foundation
 import XCTest
+import SafarierCore
 @testable import SafarierNetwork
 
 final class ClashSubscriptionParserTests: XCTestCase {
+    static let mixedProtocols = """
+    proxies:
+      - {name: Trojan, type: trojan, server: trojan.example.com, port: 443, password: 'sample:password', sni: tls.example.com, skip-cert-verify: true, ip-version: ipv6-prefer, udp: true}
+      - {name: AnyTLS, type: anytls, server: anytls.example.com, port: 443, password: 'sample:password', sni: tls.example.com, skip-cert-verify: false}
+      - {name: Mieru, type: mieru, server: mieru.example.com, port: 8080, username: sample-user, password: 'sample:password', transport: TCP, multiplexing: MULTIPLEXING_LOW}
+      - name: Reality
+        type: vless
+        server: reality.example.com
+        port: 443
+        uuid: 00000000-0000-0000-0000-000000000001
+        tls: true
+        network: tcp
+        servername: tls.example.com
+        flow: xtls-rprx-vision
+        client-fingerprint: chrome
+        reality-opts: {public-key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8, short-id: '0123456789abcdef'}
+    dns: {enable: true, nameserver: ['https://dns.invalid/dns-query']}
+    rules: [MATCH,DIRECT]
+    """
+
+    func testImportsAllRequestedClashProtocolsAndPreservesTLSAndReality() throws {
+        let result = try SubscriptionParser.parseResult(Self.mixedProtocols)
+        XCTAssertEqual(result.nodes.map(\.type), [.trojan, .anytls, .mieru, .vless])
+        XCTAssertTrue(result.skippedSchemes.isEmpty)
+        let trojan = try SingboxConfigBuilder.makeConfiguration(inboundPort: 12345, node: result.nodes[0])
+        XCTAssertEqual(trojan.outbounds[0]["tls"], .object([
+            "enabled": .bool(true), "server_name": .string("tls.example.com"), "insecure": .bool(true)
+        ]))
+        XCTAssertEqual(trojan.outbounds[0]["domain_resolver"], .object([
+            "server": .string("node-dns"), "strategy": .string("prefer_ipv6")
+        ]))
+        XCTAssertEqual(trojan.dns?["servers"], .array([.object(["type": .string("local"), "tag": .string("node-dns")])]))
+        let anytls = SingboxConfigBuilder.makeOutbound(result.nodes[1])
+        XCTAssertEqual(anytls["tls"], .object(["enabled": .bool(true), "server_name": .string("tls.example.com")]))
+        XCTAssertEqual(result.nodes[2].username, "sample-user")
+        XCTAssertEqual(result.nodes[2].parameters["multiplexing"], "MULTIPLEXING_LOW")
+        let reality = SingboxConfigBuilder.makeOutbound(result.nodes[3])
+        XCTAssertEqual(reality["flow"], .string("xtls-rprx-vision"))
+        XCTAssertNil(reality["transport"])
+        guard case .object(let tls) = reality["tls"] else { return XCTFail("TLS missing") }
+        XCTAssertEqual(tls["utls"], .object(["enabled": .bool(true), "fingerprint": .string("chrome")]))
+        XCTAssertEqual(tls["reality"], .object(["enabled": .bool(true),
+            "public_key": .string("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"), "short_id": .string("0123456789abcdef")]))
+        XCTAssertEqual(trojan.route, ["final": .string("proxy")])
+    }
+
+    func testMixedClashRoundTripAndBase64Import() throws {
+        let nodes = try SubscriptionParser.parse(Self.mixedProtocols)
+        XCTAssertEqual(try JSONDecoder().decode([SubscriptionNode].self, from: JSONEncoder().encode(nodes)), nodes)
+        XCTAssertEqual(try SubscriptionParser.parse(Data(Self.mixedProtocols.utf8).base64EncodedString()).map(\.type), nodes.map(\.type))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stored = try InlineSubscription.store(Self.mixedProtocols, id: UUID(), in: root)
+        XCTAssertEqual(stored.result.nodes.count, 4)
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: stored.url.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
+    func testInvalidSupportedProtocolsFailWithoutExposingCredentials() {
+        for change in [
+            ("username: sample-user", "username: ''"), ("transport: TCP", "transport: invalid"),
+            ("MULTIPLEXING_LOW", "MULTIPLEXING_BOGUS"), ("tls: true", "tls: false"),
+            ("network: tcp", "network: xhttp"), ("ipv6-prefer", "ipv7"),
+            ("public-key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", "public-key: ''"),
+            ("password: 'sample:password'", "password: ''")
+        ] { assertInvalid(Self.mixedProtocols.replacingOccurrences(of: change.0, with: change.1)) }
+    }
+
+    func testUnsupportedEntriesDoNotDecodeKnownFields() throws {
+        let result = try SubscriptionParser.parseResult(Self.mixedProtocols.replacingOccurrences(of: "proxies:", with: "proxies:\n  - {type: tuic, password: {future: shape}, port: auto}"))
+        XCTAssertEqual(result.nodes.count, 4)
+        XCTAssertEqual(result.skippedSchemes, ["tuic": 1])
+    }
+
+    func testClashWebSocketAndGRPCOptions() throws {
+        let text = """
+        proxies:
+          - {type: trojan, name: WS, server: proxy.example.com, port: 443, password: sample, network: ws, ws-opts: {path: /ws, headers: {Host: cdn.example.com}}}
+          - {type: vless, name: gRPC, server: proxy.example.com, port: 443, uuid: 00000000-0000-0000-0000-000000000001, tls: true, network: grpc, grpc-opts: {grpc-service-name: example}}
+        """
+        let nodes = try SubscriptionParser.parse(text)
+        XCTAssertEqual(SingboxConfigBuilder.makeTransport(nodes[0]), ["type": .string("ws"), "path": .string("/ws"),
+            "headers": .object(["Host": .string("cdn.example.com")])])
+        XCTAssertEqual(SingboxConfigBuilder.makeTransport(nodes[1]), ["type": .string("grpc"), "service_name": .string("example")])
+    }
+
     static let subscription = """
     # A full Clash document, not a list of node URIs.
     mixed-port: 7890

@@ -812,3 +812,33 @@
 "，关闭 Apple Pay 银行卡状态披露" = ", Apple Pay card status disclosure disabled";
 "；" = "; ";
 "；%@" = "; %@";
+
+"找不到 Mieru。请使用包含 Mieru 的新版 Safarier，或用 SAFARIER_MIERU 指定可执行文件。" = "Mieru was not found. Use a Safarier build that includes Mieru, or set SAFARIER_MIERU to its executable.";
+
+"Mieru 节点参数无效，请检查用户名、密码、传输和多路复用设置。" = "Invalid Mieru node. Check the username, password, transport, and multiplexing settings.";
+
+"Clash 订阅格式错误，或节点参数不完整、不受支持。" = "Invalid Clash subscription, or incomplete or unsupported node options.";
+
+"等待测试" = "Queued";
+
+"订阅「%@」节点「%@」（经 Mieru）" = "Subscription “%@”, node “%@” (via Mieru)";
+
+"正在测试延迟…" = "Testing latency…";
+
+"HTTPS 请求耗时 · %@" = "HTTPS request duration · %@";
+
+"失败" = "Failed";
+
+"HTTPS 延迟" = "HTTPS Latency";
+
+"测试前置延迟" = "Test Upstream Latency";
+
+"测试当前列表" = "Test Listed Nodes";
+
+"测试延迟" = "Test Latency";
+
+"测试全部延迟" = "Test All Latencies";
+
+"选择 Clash YAML 文件…" = "Choose Clash YAML File…";
+
+"可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。" = "Enter a subscription URL, paste node links or Clash YAML, or choose a local file. Clash supports Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2. Only nodes are imported; routing and DNS settings from the file are not applied.";

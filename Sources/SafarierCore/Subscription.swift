@@ -9,6 +9,7 @@ public enum SubscriptionNodeType: String, Codable, Sendable, CaseIterable {
     case socks
     case anytls
     case hysteria2
+    case mieru
 }
 
 /// A proxy node cached from a subscription.
@@ -19,7 +20,7 @@ public struct SubscriptionNode: Codable, Equatable, Identifiable, Sendable {
     public var server: String
     public var serverPort: Int
     public var uuid: String?
-    /// SOCKS 认证用户名；其它协议不用。
+    /// SOCKS / Mieru 认证用户名。
     public var username: String?
     public var password: String?
     public var method: String?
@@ -118,6 +119,14 @@ public struct SubscriptionNode: Codable, Equatable, Identifiable, Sendable {
             guard let uuid, !uuid.isEmpty else { throw SubscriptionNodeValidationError.missingIdentity }
         case .trojan, .anytls, .hysteria2:
             guard let password, !password.isEmpty else { throw SubscriptionNodeValidationError.missingCredential }
+        case .mieru:
+            guard let username, !username.isEmpty else { throw SubscriptionNodeValidationError.missingIdentity }
+            guard let password, !password.isEmpty else { throw SubscriptionNodeValidationError.missingCredential }
+            guard ["TCP", "UDP"].contains((transport ?? "TCP").uppercased()),
+                  ["MULTIPLEXING_DEFAULT", "MULTIPLEXING_OFF", "MULTIPLEXING_LOW", "MULTIPLEXING_MIDDLE", "MULTIPLEXING_HIGH"]
+                    .contains(parameters["multiplexing"] ?? "MULTIPLEXING_DEFAULT") else {
+                throw SubscriptionNodeValidationError.invalidMieruOptions
+            }
         case .socks:
             // 用户名、密码都可以没有（无认证）；只给密码没给用户名的 SOCKS5 认证不成立。
             if password?.isEmpty == false, username?.isEmpty ?? true {
@@ -144,6 +153,7 @@ public enum SubscriptionNodeValidationError: Error, Equatable {
     case missingIdentity
     case missingCredential
     case unsupportedCipher(String)
+    case invalidMieruOptions
 }
 
 /// A subscription and its last successfully parsed node cache.
@@ -201,7 +211,7 @@ public extension RecordRepository where Record == Subscription {
     /// File layout: `directory/subscriptions.json`.
     static func subscriptions(in directory: URL) -> SubscriptionRepository {
         RecordRepository(store: JSONDocumentStore<Subscription>(
-            fileURL: directory.appendingPathComponent("subscriptions.json")
+            fileURL: directory.appendingPathComponent("subscriptions.json"), privateFile: true
         ))
     }
 }

@@ -268,7 +268,7 @@ struct ManagerSidebar: View {
             }
             Section("代理") {
                 ForEach(model.proxies) { proxy in
-                    ProxyRow(proxy: proxy)
+                    ProxyRow(proxy: proxy, testState: model.proxyTests[proxy.id])
                         .tag(ManagerModel.Selection.proxy(proxy.id))
                         .contextMenu {
                             Button("编辑代理…") { model.sheet = .editProxy(proxy) }

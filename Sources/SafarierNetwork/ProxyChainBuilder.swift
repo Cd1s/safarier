@@ -11,7 +11,13 @@ public struct ResolvedProxyChain: Equatable, Sendable {
     public let exitName: String
 
     public func configuration(inboundPort: Int, logLevel: String = "warn") throws -> SingboxConfiguration {
-        try SingboxConfigBuilder.makeConfiguration(inboundPort: inboundPort, outbound: exit, upstream: entry, logLevel: logLevel)
+        guard !requiresMieruBridge else { throw SingboxConfigError.mieruRequiresBridge }
+        return try SingboxConfigBuilder.makeConfiguration(inboundPort: inboundPort, outbound: exit, upstream: entry, logLevel: logLevel)
+    }
+
+    var requiresMieruBridge: Bool {
+        if case .node(let node) = upstream { return node.type == .mieru }
+        return false
     }
 }
 
@@ -27,7 +33,7 @@ public enum ProxyChainBuilder {
             entry = try outbound(saved, credentials: credentials)
             name = saved.name
         case .node(let node):
-            entry = SingboxConfigBuilder.makeOutbound(node)
+            entry = node.type == .mieru ? [:] : SingboxConfigBuilder.makeOutbound(node)
             name = node.name
         case .custom(let json):
             entry = try CustomOutbound.parse(json)
@@ -58,11 +64,32 @@ public enum ProxyChainBuilder {
 }
 
 public extension ProxyConnectionTester {
+    typealias NodeTest = @Sendable (SubscriptionNode) async throws -> ProxyConnectionResult
+
+    static func check(
+        node: SubscriptionNode,
+        executableURL: URL = SingboxProcessManager.defaultExecutableURL,
+        using tester: @escaping Test = { try await check(proxy: $0, password: $1) }
+    ) async throws -> ProxyConnectionResult {
+        try await checkLocal(executableURL: executableURL, using: tester) { manager, id in
+            try manager.start(profileID: id, node: node)
+        }
+    }
+
     /// 测试和浏览使用同一份链路配置；取消或结束后清理独立的辅助进程与凭据文件。
     static func check(
         chain: ResolvedProxyChain,
         executableURL: URL = SingboxProcessManager.defaultExecutableURL,
         using tester: @escaping Test = { try await check(proxy: $0, password: $1) }
+    ) async throws -> ProxyConnectionResult {
+        try await checkLocal(executableURL: executableURL, using: tester) { manager, id in
+            try manager.start(profileID: id, chain: chain)
+        }
+    }
+
+    private static func checkLocal(
+        executableURL: URL, using tester: @escaping Test,
+        start: @escaping @Sendable (SingboxProcessManager, UUID) throws -> Int32
     ) async throws -> ProxyConnectionResult {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("safarier-chain-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -74,7 +101,7 @@ public extension ProxyConnectionTester {
         let id = UUID()
         let startup = Task.detached {
             try Task.checkCancellation()
-            try manager.start(profileID: id, chain: chain)
+            _ = try start(manager, id)
             let port = try manager.waitUntilReady(profileID: id)
             try Task.checkCancellation()
             return port

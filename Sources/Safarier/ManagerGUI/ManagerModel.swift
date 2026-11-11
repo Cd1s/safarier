@@ -28,9 +28,20 @@ enum ProxyBinding {
 @MainActor
 final class ManagerModel: ObservableObject {
     enum ProxyTestState: Equatable {
+        case queued
         case running
         case success(ProxyConnectionResult)
         case failure(String)
+    }
+
+    struct NodeTestKey: Hashable {
+        let subscriptionID: UUID
+        let nodeID: UUID
+    }
+
+    private struct NodeTestRequest {
+        let key: NodeTestKey
+        let node: SubscriptionNode
     }
     enum Selection: Hashable {
         case profile(UUID)
@@ -72,6 +83,11 @@ final class ManagerModel: ObservableObject {
     private let proxyTester: ProxyConnectionTester.Test
     private var proxyTestTasks: [UUID: Task<Void, Never>] = [:]
     @Published private(set) var proxyTests: [UUID: ProxyTestState] = [:]
+    private let nodeTester: ProxyConnectionTester.NodeTest
+    private var nodeTestTasks: [NodeTestKey: Task<Void, Never>] = [:]
+    private var nodeTestQueue: [NodeTestRequest] = []
+    @Published private(set) var nodeTests: [NodeTestKey: ProxyTestState] = [:]
+    static let nodeTestConcurrency = 3
 
     @Published private(set) var profiles: [Profile] = []
     @Published private(set) var proxies: [ProxySettings] = []
@@ -115,16 +131,20 @@ final class ManagerModel: ObservableObject {
     private var activationObserver: NSObjectProtocol?
 
     init(workspace: SafarierWorkspace, credentials: any CredentialStore = KeychainCredentialStore(),
-         proxyTester: @escaping ProxyConnectionTester.Test = { try await ProxyConnectionTester.check(proxy: $0, password: $1) }) {
+         proxyTester: @escaping ProxyConnectionTester.Test = { try await ProxyConnectionTester.check(proxy: $0, password: $1) },
+         nodeTester: @escaping ProxyConnectionTester.NodeTest = { try await ProxyConnectionTester.check(node: $0) }) {
         self.workspace = workspace
         self.credentials = credentials
         self.proxyTester = proxyTester
+        self.nodeTester = nodeTester
         reload()
         selection = profiles.first.map { .profile($0.id) } ?? proxies.first.map { .proxy($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
     }
 
     deinit {
         orphanCleanupTask?.cancel()
+        for task in proxyTestTasks.values { task.cancel() }
+        for task in nodeTestTasks.values { task.cancel() }
     }
 
     // MARK: - 读取
@@ -153,6 +173,10 @@ final class ManagerModel: ObservableObject {
             }
             if subscriptions != self.subscriptions {
                 let previous = Dictionary(uniqueKeysWithValues: self.subscriptions.map { ($0.id, $0) })
+                for old in self.subscriptions where subscriptions.first(where: { $0.id == old.id })?.nodes != old.nodes {
+                    cancelNodeTests(subscriptionID: old.id)
+                    nodeTests = nodeTests.filter { $0.key.subscriptionID != old.id }
+                }
                 for exit in proxies {
                     guard let id = exit.upstream?.subscriptionID else { continue }
                     if previous[id] != subscriptions.first(where: { $0.id == id }) { cancelProxyTest(exit.id) }
@@ -331,6 +355,61 @@ final class ManagerModel: ObservableObject {
     func cancelProxyTest(_ id: UUID) {
         proxyTestTasks.removeValue(forKey: id)?.cancel()
         proxyTests[id] = nil
+    }
+
+    func nodeTestState(subscriptionID: UUID, node: SubscriptionNode) -> ProxyTestState? {
+        nodeTests[NodeTestKey(subscriptionID: subscriptionID, nodeID: node.id)]
+    }
+
+    func isTestingNodes(subscriptionID: UUID) -> Bool {
+        nodeTests.contains { $0.key.subscriptionID == subscriptionID && ($0.value == .running || $0.value == .queued) }
+    }
+
+    /// 批量测试共用有界队列；打开节点选择器不会自动拨测或消耗订阅流量。
+    func testNodes(_ nodes: [SubscriptionNode], subscriptionID: UUID) {
+        guard let current = try? workspace.subscriptions.record(id: subscriptionID) else { return }
+        for node in nodes where current.nodes.contains(node) {
+            let key = NodeTestKey(subscriptionID: subscriptionID, nodeID: node.id)
+            guard nodeTests[key] != .running, nodeTests[key] != .queued else { continue }
+            nodeTests[key] = .queued
+            nodeTestQueue.append(NodeTestRequest(key: key, node: node))
+        }
+        startQueuedNodeTests()
+    }
+
+    func cancelNodeTests(subscriptionID: UUID) {
+        nodeTestQueue.removeAll { $0.key.subscriptionID == subscriptionID }
+        for key in Array(nodeTestTasks.keys) where key.subscriptionID == subscriptionID {
+            // 等实际进程清理完才释放并发名额；连续取消、重试也不会累积后台辅助进程。
+            nodeTestTasks[key]?.cancel()
+        }
+        nodeTests = nodeTests.filter {
+            $0.key.subscriptionID != subscriptionID || ($0.value != .running && $0.value != .queued)
+        }
+        startQueuedNodeTests()
+    }
+
+    private func startQueuedNodeTests() {
+        while nodeTestTasks.count < Self.nodeTestConcurrency,
+              let index = nodeTestQueue.firstIndex(where: { nodeTestTasks[$0.key] == nil }) {
+            let request = nodeTestQueue.remove(at: index)
+            let tester = nodeTester
+            nodeTests[request.key] = .running
+            nodeTestTasks[request.key] = Task { @MainActor [weak self] in
+                let outcome: ProxyTestState?
+                do { outcome = .success(try await tester(request.node)) }
+                catch is CancellationError { outcome = nil }
+                catch { outcome = .failure(DisplayText.describe(error)) }
+                guard let self else { return }
+                self.nodeTestTasks[request.key] = nil
+                // 刷新、删除或外部 CLI 修改后，旧节点的延迟不能覆盖新节点。
+                if !Task.isCancelled {
+                    let latest = try? self.workspace.subscriptions.record(id: request.key.subscriptionID)
+                    self.nodeTests[request.key] = latest?.nodes.contains(request.node) == true ? outcome : nil
+                }
+                self.startQueuedNodeTests()
+            }
+        }
     }
 
     /// 空密码表示保留已有密码；关闭认证才删除 Keychain 项。

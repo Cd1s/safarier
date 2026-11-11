@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import SafarierCore
 
 /// 选中订阅时的详情：链接、更新时间、节点表。节点表不显示 UUID / 密码。
@@ -38,6 +39,20 @@ struct SubscriptionDetailView: View {
                         }
                     }
                     .width(min: 36, ideal: 40, max: 60)
+                    TableColumn("HTTPS 延迟") { node in
+                        HStack {
+                            ProxyLatencyView(state: model.nodeTestState(subscriptionID: subscription.id, node: node))
+                            Spacer(minLength: 4)
+                            Button { model.testNodes([node], subscriptionID: subscription.id) } label: {
+                                Image(systemName: "speedometer")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("测试延迟")
+                            .disabled(model.nodeTestState(subscriptionID: subscription.id, node: node) == .running
+                                      || model.nodeTestState(subscriptionID: subscription.id, node: node) == .queued)
+                        }
+                    }
+                    .width(min: 110, ideal: 130, max: 180)
                     TableColumn("绑定环境") { node in
                         Text(usage[node.name]?.map(\.name).joined(separator: L10n.text("、")) ?? "")
                             .foregroundStyle(.secondary)
@@ -93,6 +108,12 @@ struct SubscriptionDetailView: View {
             }
             Spacer(minLength: 16)
             VStack(alignment: .trailing, spacing: 8) {
+                if model.isTestingNodes(subscriptionID: subscription.id) {
+                    Button("取消测试") { model.cancelNodeTests(subscriptionID: subscription.id) }
+                } else {
+                    Button("测试全部延迟") { model.testNodes(subscription.nodes, subscriptionID: subscription.id) }
+                        .disabled(subscription.nodes.isEmpty || refreshing)
+                }
                 Button { model.refresh(subscription) } label: {
                     HStack(spacing: 6) {
                         if refreshing {
@@ -146,10 +167,11 @@ struct SubscriptionEditorView: View {
                     TextField("订阅链接", text: $url, prompt: Text("https://… 或直接粘贴 ss:// vless:// 等节点链接"), axis: .vertical)
                         .autocorrectionDisabled()
                         .lineLimit(1...6)
+                    Button("选择 Clash YAML 文件…") { chooseFile() }
                 } header: {
                     Text("添加订阅")
                 } footer: {
-                    Text("填订阅网址（内容可以是 Base64、逐行节点链接或 Hysteria2 Clash YAML），或者直接粘贴一条或多条节点链接：ss:// ss2022:// vless:// vmess:// trojan:// anytls:// socks://。添加时会立即解析一次节点；直接粘贴的链接保存在本机，TUIC 等暂不支持的协议会跳过；Hysteria2 请使用 Clash YAML 订阅。")
+                    Text("可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -176,8 +198,18 @@ struct SubscriptionEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 520, height: 330)
+        .frame(width: 560, height: 380)
         .onChange(of: [name, url]) { errorText = nil }
+    }
+
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let file = panel.url {
+            url = file.absoluteString
+            if name.isEmpty { name = file.deletingPathExtension().lastPathComponent }
+        }
     }
 
     private func submit() {

@@ -266,7 +266,7 @@ final class SingboxConfigBuilderTests: XCTestCase {
     func testGeneratedConfigsPassSingboxCheck() throws {
         let executables = Self.singboxExecutables
         guard !executables.isEmpty else { throw XCTSkip("本机没有 sing-box") }
-        let nodes = [
+        let nodes = try SubscriptionParser.parse(ClashSubscriptionParserTests.mixedProtocols).filter { $0.type != .mieru } + [
             try XCTUnwrap(SubscriptionParser.parse(ClashSubscriptionParserTests.subscription).first),
             SubscriptionNode(name: "hy2-single", type: .hysteria2, server: "h.example", serverPort: 443, password: "sample"),
             SubscriptionNode(name: "v", type: .vless, server: "v.example", serverPort: 443, uuid: UUID().uuidString, tls: true, serverName: "v.example", transport: "ws", transportPath: "/ws"),

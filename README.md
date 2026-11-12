@@ -84,6 +84,10 @@ The app is ad-hoc signed rather than signed with an Apple Developer ID and notar
 
 [Clash YAML subscriptions and local files](docs/clash-upstream-proxies.md) support **HTTP / HTTPS, SOCKS5, Shadowsocks / SS2022, VMess, Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2** (including port hopping). All can be bound to environments or selected as upstreams. Only nodes are imported; Clash DNS, rules, and listeners are not applied.
 
+Adding or refreshing a subscription uses the system network settings and automatically retries once without the system proxy after an HTTP 403 response. This retry applies only to subscription downloads.
+
+If a remote subscription contains Hysteria2 links that would be skipped, Safarier automatically requests Clash format from the same URL. It uses the more complete response when it also preserves the existing usable nodes and their names.
+
 Subscription tables and node pickers offer individual and batch **HTTPS latency** tests, with concurrent requests, an eight-second per-node deadline, and cancellation support. Both default to ascending latency; click the **HTTPS Latency** heading to reverse the order. Failed nodes always stay at the bottom, and unfinished tests follow successful nodes. In a picker, **Test Listed Nodes** tests every search match, or the entire subscription when the search is empty. The upstream editor measures the selected upstream; **Test Connection** on the saved exit measures the complete chain and reports the final exit IP.
 
 ---

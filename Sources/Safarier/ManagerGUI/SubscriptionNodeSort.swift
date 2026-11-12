@@ -8,6 +8,16 @@ struct SubscriptionNodeTableRow: Identifiable {
 
     var id: UUID { node.id }
 
+    static func makeRows(_ nodes: [SubscriptionNode], query: String = "",
+                         testState: (SubscriptionNode) -> ManagerModel.ProxyTestState?) -> [Self] {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return nodes.enumerated().compactMap { index, node in
+            guard text.isEmpty || node.name.localizedCaseInsensitiveContains(text)
+                    || "\(node.server):\(node.serverPort)".localizedCaseInsensitiveContains(text) else { return nil }
+            return Self(node: node, testState: testState(node), sourceOrder: index)
+        }
+    }
+
     fileprivate var rank: Int {
         switch testState {
         case .success: return 0

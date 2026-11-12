@@ -110,6 +110,30 @@ final class NodeLatencyBatchTests: XCTestCase {
         XCTAssertThrowsError(try XCTUnwrap(values[nodes[1].id]).get())
     }
 
+    func testRepeatedShortBatchesFinishAfterAsyncUpdatesAndCleanUp() async throws {
+        let fixture = try HTTPSProxyFixture()
+        defer { fixture.stop() }
+        let nodes = try nodes(fixture, count: 2)
+        let completed = expectation(description: "Repeated batches finish after curl exits")
+        let task = Task {
+            do {
+                for _ in 0..<12 {
+                    let results = Results()
+                    try await check(nodes, fixture: fixture, results: results)
+                    let values = await results.values
+                    XCTAssertEqual(values.count, nodes.count)
+                    for value in values.values { XCTAssertEqual(try value.get().exitIP, "203.0.113.7") }
+                    XCTAssertTrue(try FileManager.default.contentsOfDirectory(
+                        atPath: fixture.root.appendingPathComponent("batch-state").path).isEmpty)
+                    await Task.yield()
+                }
+            } catch { XCTFail("Repeated batch failed: \(error)") }
+            completed.fulfill()
+        }
+        defer { task.cancel() }
+        await fulfillment(of: [completed], timeout: 15)
+    }
+
     func testHTTPSSubscriptionNodeWorksAsUpstreamAndFailsClosed() async throws {
         let fixture = try HTTPSProxyFixture()
         defer { fixture.stop() }

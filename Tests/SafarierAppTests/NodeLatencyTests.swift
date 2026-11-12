@@ -60,6 +60,28 @@ final class NodeLatencyTests: XCTestCase {
         XCTAssertEqual(try workspace.subscriptions.record(id: subscription.id), subscription)
     }
 
+    func testPickerStartsTheWholeFilteredListInOneBatch() async throws {
+        let subscription = try subscription(count: 228)
+        let started = expectation(description: "All filtered nodes dispatched together")
+        let selected = SubscriptionNodeTableRow.makeRows(subscription.nodes, query: "Node 2") { _ in nil }
+            .sorted(using: SubscriptionLatencyComparator())
+        let model = ManagerModel(workspace: workspace, nodeBatchTester: { nodes, update in
+            XCTAssertEqual(nodes.map(\.id), selected.map(\.id))
+            XCTAssertEqual(nodes.count, 39)
+            started.fulfill()
+            for node in nodes {
+                await update(node.id, .success(ProxyConnectionResult(exitIP: "203.0.113.1", duration: 0.1)))
+            }
+        })
+        model.testNodes(selected.map(\.node), subscriptionID: subscription.id)
+        await fulfillment(of: [started], timeout: 2)
+        try await finish(model, subscription)
+        XCTAssertEqual(model.nodeTests.count, selected.count)
+        for node in subscription.nodes where !selected.contains(where: { $0.id == node.id }) {
+            XCTAssertNil(model.nodeTestState(subscriptionID: subscription.id, node: node))
+        }
+    }
+
     func testCancelClearsQueueAndIgnoresLateSuccessThenAllowsRetry() async throws {
         let subscription = try subscription(count: 5)
         let started = expectation(description: "started")

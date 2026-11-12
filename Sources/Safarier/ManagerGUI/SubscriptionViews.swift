@@ -9,10 +9,8 @@ struct SubscriptionDetailView: View {
     @State private var sortOrder = [SubscriptionLatencyComparator()]
 
     private var rows: [SubscriptionNodeTableRow] {
-        subscription.nodes.enumerated().map { index, node in
-            SubscriptionNodeTableRow(node: node,
-                                     testState: model.nodeTestState(subscriptionID: subscription.id, node: node),
-                                     sourceOrder: index)
+        SubscriptionNodeTableRow.makeRows(subscription.nodes) { node in
+            model.nodeTestState(subscriptionID: subscription.id, node: node)
         }.sorted(using: sortOrder.isEmpty ? [SubscriptionLatencyComparator()] : sortOrder)
     }
 

@@ -836,6 +836,10 @@
 
 "测试当前列表" = "Test Listed Nodes";
 
+"切换延迟升序或降序，失败节点始终置底。" = "Switch between ascending and descending latency. Failed nodes always stay at the bottom.";
+"延迟从低到高" = "Latency: low to high";
+"延迟从高到低" = "Latency: high to low";
+
 "测试延迟" = "Test Latency";
 
 "测试全部延迟" = "Test All Latencies";

@@ -180,8 +180,11 @@ public extension ProxyConnectionTester {
         process.standardError = output
         try process.run()
         defer {
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                let cleanupDeadline = Date().addingTimeInterval(2)
+                while process.isRunning, Date() < cleanupDeadline { usleep(10_000) }
+            }
         }
         guard ProxyGeoResolver.writeConfig(Data(config.joined(separator: "next\n").utf8), to: input.fileHandleForWriting) else {
             throw ProxyConnectionError.connection
@@ -209,7 +212,8 @@ public extension ProxyConnectionTester {
             guard Date() < deadline else { throw ProxyConnectionError.timeout }
             try await Task.sleep(for: .milliseconds(25))
         }
-        process.waitUntilExit()
+        // Foundation already reaps the child when isRunning becomes false. waitUntilExit()
+        // can hang on a different thread after an async suspension, even after curl exits.
         for key in pending {
             await update(key, .failure(ProxyConnectionError.transfer(process.terminationStatus)))
         }

@@ -250,6 +250,11 @@ public final class SingboxProcessManager: @unchecked Sendable {
     }
 
     @discardableResult
+    func start(profileID: UUID, configuration: SingboxConfiguration) throws -> Int32 {
+        try start(profileID: profileID) { configuration }
+    }
+
+    @discardableResult
     private func startMieru(profileID: UUID, node: SubscriptionNode) throws -> Int32 {
         guard let executable = MieruConfigBuilder.locateExecutable(),
               FileManager.default.isExecutableFile(atPath: executable.path) else { throw MieruError.executableNotFound }

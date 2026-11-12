@@ -171,7 +171,7 @@ struct SubscriptionEditorView: View {
                 } header: {
                     Text("添加订阅")
                 } footer: {
-                    Text("可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。")
+                    Text("可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 HTTP / HTTPS、SOCKS5、Shadowsocks / SS2022、VMess、Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

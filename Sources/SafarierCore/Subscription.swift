@@ -7,6 +7,7 @@ public enum SubscriptionNodeType: String, Codable, Sendable, CaseIterable {
     case trojan
     case shadowsocks
     case socks
+    case http
     case anytls
     case hysteria2
     case mieru
@@ -127,8 +128,8 @@ public struct SubscriptionNode: Codable, Equatable, Identifiable, Sendable {
                     .contains(parameters["multiplexing"] ?? "MULTIPLEXING_DEFAULT") else {
                 throw SubscriptionNodeValidationError.invalidMieruOptions
             }
-        case .socks:
-            // 用户名、密码都可以没有（无认证）；只给密码没给用户名的 SOCKS5 认证不成立。
+        case .socks, .http:
+            // 用户名、密码都可以没有；只给密码没给用户名的代理认证不成立。
             if password?.isEmpty == false, username?.isEmpty ?? true {
                 throw SubscriptionNodeValidationError.missingIdentity
             }

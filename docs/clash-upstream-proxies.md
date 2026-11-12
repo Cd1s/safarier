@@ -1,11 +1,15 @@
 # Clash nodes and upstream latency
 
-Clash YAML imports now accept Trojan, AnyTLS, VLESS (including Reality), Mieru, and Hysteria2. Remote subscriptions, pasted YAML, Base64 YAML, and the **Choose Clash YAML File…** button use the same parser. Existing URI imports remain available; Mieru uses Clash YAML, not a new URI format.
+Clash YAML imports accept HTTP / HTTPS, SOCKS5, Shadowsocks / SS2022, VMess, Trojan, AnyTLS, VLESS (including Reality), Mieru, and Hysteria2. Remote subscriptions, pasted YAML, Base64 YAML, and the **Choose Clash YAML File…** button use the same parser. Existing URI imports remain available; Mieru uses Clash YAML, not a new URI format.
 
 Only the `proxies` list is read. Global DNS, routing, groups, listeners, and controllers are never applied. Unsupported protocols are counted and skipped. Invalid supported nodes fail the import with a sanitized error; no YAML or credentials are echoed. Subscription caches and pasted source files are written with 0600 permissions.
 
 | Protocol | Imported options | Runtime |
 | --- | --- | --- |
+| HTTP / HTTPS | Optional username / password, TLS, SNI, certificate verification, ALPN | sing-box |
+| SOCKS5 | Optional username / password | sing-box |
+| Shadowsocks / SS2022 | Cipher, password / keys, simple-obfs or v2ray-plugin options | sing-box |
+| VMess | UUID, alterId, cipher, TLS, SNI, TCP / WebSocket / gRPC | sing-box |
 | Trojan | Password, SNI, certificate verification, ALPN, TCP / WebSocket / gRPC | sing-box |
 | AnyTLS | Password, SNI, certificate verification, ALPN | sing-box |
 | VLESS | UUID, TLS, SNI, flow, client fingerprint, Reality public key / short ID, TCP / WebSocket / gRPC | sing-box with uTLS |
@@ -30,7 +34,7 @@ The two local helpers implement two remote hops. The sing-box exit detours throu
 
 Tests perform the existing certificate-verified HTTPS request to Cloudflare through a temporary local proxy. The displayed milliseconds are the HTTPS request's total duration, including proxy negotiation; helper startup time is excluded. They are not ICMP ping results or download-speed measurements.
 
-Subscription tables and environment / upstream node pickers share results in memory. Users can test one node, all nodes, or the currently filtered picker list. A global queue runs at most three node tests at once. Opening a picker never starts a test automatically. Cancelled, refreshed, deleted, or externally modified nodes cannot publish stale results. Failures retain a sanitized explanation in the tooltip. Results are not written into subscriptions.
+Subscription tables and environment / upstream node pickers share results in memory. Users can test one node, all nodes, or the currently filtered picker list. A batch uses one temporary sing-box core and one parallel curl process; authenticated local SOCKS users route each request to its own node. All requests start concurrently (curl's limit is 10,000), results appear as each finishes, and each request has an eight-second deadline. Mieru nodes retain their dedicated helper bridges. Cancelling stops the batch and removes its private files before a retry starts. Opening a picker never starts a test automatically. Cancelled, refreshed, deleted, or externally modified nodes cannot publish stale results. Failures retain a sanitized explanation in the tooltip. Results are not written into subscriptions. Refreshing a subscription also reports any unsupported nodes that were skipped.
 
 The upstream editor measures only the chosen upstream. The saved exit's existing **Test Connection** action measures the complete chain and displays the final exit IP; its result also appears in the proxy sidebar.
 

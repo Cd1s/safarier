@@ -4,6 +4,68 @@ import SafarierCore
 @testable import SafarierNetwork
 
 final class ClashSubscriptionParserTests: XCTestCase {
+    func testLargeMixedFeedImportsHTTPSShadowsocksAndSOCKSWithoutDroppingNodes() throws {
+        let counts: [(String, Int, String)] = [
+            ("http", 200, "username: sample-user, password: sample-password, tls: true, sni: tls.example.com, skip-cert-verify: true"),
+            ("vless", 11, "uuid: 00000000-0000-0000-0000-000000000001"),
+            ("anytls", 2, "password: sample-password"),
+            ("trojan", 5, "password: sample-password"),
+            ("ss", 2, "cipher: aes-256-gcm, password: sample-password"),
+            ("socks5", 6, "username: sample-user, password: sample-password")
+        ]
+        let entries = counts.flatMap { type, count, fields in
+            (0..<count).map { "  - {name: '\(type) \($0)', type: \(type), server: proxy.example.com, port: 443, \(fields)}" }
+        }
+        let result = try SubscriptionParser.parseResult("proxies:\n" + entries.joined(separator: "\n"))
+        XCTAssertEqual(result.nodes.count, 226)
+        XCTAssertTrue(result.skippedSchemes.isEmpty)
+        XCTAssertEqual(result.nodes.filter { $0.type == .http }.count, 200)
+        XCTAssertEqual(result.nodes.filter { $0.type == .socks }.count, 6)
+        XCTAssertEqual(result.nodes.filter { $0.type == .shadowsocks }.count, 2)
+        XCTAssertEqual(try JSONDecoder().decode([SubscriptionNode].self, from: JSONEncoder().encode(result.nodes)), result.nodes)
+        let https = SingboxConfigBuilder.makeOutbound(try XCTUnwrap(result.nodes.first))
+        XCTAssertEqual(https["type"], .string("http"))
+        XCTAssertEqual(https["username"], .string("sample-user"))
+        XCTAssertEqual(https["password"], .string("sample-password"))
+        XCTAssertEqual(https["tls"], .object(["enabled": .bool(true), "server_name": .string("tls.example.com"), "insecure": .bool(true)]))
+        let ss = SingboxConfigBuilder.makeOutbound(try XCTUnwrap(result.nodes.first { $0.type == .shadowsocks }))
+        XCTAssertEqual(ss["method"], .string("aes-256-gcm"))
+        let socks = SingboxConfigBuilder.makeOutbound(try XCTUnwrap(result.nodes.last))
+        XCTAssertEqual(socks["version"], .string("5"))
+        XCTAssertEqual(socks["username"], .string("sample-user"))
+    }
+
+    func testHTTPAliasesOptionalAuthenticationAndVMessTransport() throws {
+        let result = try SubscriptionParser.parseResult("""
+        proxies:
+          - {name: HTTP, type: http, server: proxy.example.com, port: 8080}
+          - {name: HTTPS, type: https, server: proxy.example.com, port: 443}
+          - {name: SOCKS, type: socks5, server: proxy.example.com, port: 1080}
+          - {name: VMess, type: vmess, server: proxy.example.com, port: 443, uuid: 00000000-0000-0000-0000-000000000001, alterId: 0, cipher: auto, network: ws, ws-opts: {path: /vmess}, tls: true}
+        """)
+        XCTAssertEqual(result.nodes.map(\.type), [.http, .http, .socks, .vmess])
+        XCTAssertFalse(result.nodes[0].tls)
+        XCTAssertTrue(result.nodes[1].tls)
+        let outbound = SingboxConfigBuilder.makeOutbound(result.nodes[3])
+        XCTAssertEqual(outbound["alter_id"], .number(0))
+        XCTAssertEqual(outbound["security"], .string("auto"))
+        XCTAssertEqual(outbound["transport"], .object(["type": .string("ws"), "path": .string("/vmess")]))
+        assertInvalid("proxies: [{name: Bad, type: ss, server: proxy.example.com, port: 443, password: sample}]")
+        assertInvalid("proxies: [{name: Bad, type: http, server: proxy.example.com, port: 443, password: sample}]")
+    }
+
+    func testShadowsocksClashPluginOptionsArePreserved() throws {
+        let nodes = try SubscriptionParser.parse("""
+        proxies:
+          - {name: Obfs, type: ss, server: proxy.example.com, port: 443, cipher: aes-128-gcm, password: sample, plugin: obfs, plugin-opts: {mode: http, host: cdn.example.com}}
+          - {name: WS, type: ss, server: proxy.example.com, port: 443, cipher: aes-256-gcm, password: sample, plugin: v2ray-plugin, plugin-opts: {mode: websocket, host: cdn.example.com, path: /ws, tls: true, mux: false}}
+        """)
+        let obfs = SingboxConfigBuilder.makeOutbound(nodes[0])
+        XCTAssertEqual(obfs["plugin"], .string("obfs-local"))
+        XCTAssertEqual(obfs["plugin_opts"], .string("obfs=http;obfs-host=cdn.example.com"))
+        XCTAssertEqual(nodes[1].parameters["plugin"], "v2ray-plugin;mode=websocket;host=cdn.example.com;path=/ws;tls")
+    }
+
     static let mixedProtocols = """
     proxies:
       - {name: Trojan, type: trojan, server: trojan.example.com, port: 443, password: 'sample:password', sni: tls.example.com, skip-cert-verify: true, ip-version: ipv6-prefer, udp: true}

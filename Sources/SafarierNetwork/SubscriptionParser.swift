@@ -441,7 +441,7 @@ public struct SubscriptionFetcher: Sendable {
         } else {
             var request = URLRequest(url: url)
             request.timeoutInterval = timeout
-            // 使用节点链接订阅兼容标识，避免服务端返回浏览器提示页或 Clash YAML。
+            // 使用代理客户端兼容标识，避免服务端返回浏览器提示页；节点链接和 Clash YAML 均可解析。
             request.setValue("Shadowrocket", forHTTPHeaderField: "User-Agent")
             let (body, response) = try await URLSession.shared.data(for: request)
             if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {

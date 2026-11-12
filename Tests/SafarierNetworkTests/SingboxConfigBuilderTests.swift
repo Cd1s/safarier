@@ -279,6 +279,8 @@ final class SingboxConfigBuilderTests: XCTestCase {
             SubscriptionNode(name: "m", type: .vmess, server: "m.example", serverPort: 443, uuid: UUID().uuidString, method: "auto", tls: true, alterID: 0),
             SubscriptionNode(name: "t", type: .trojan, server: "t.example", serverPort: 443, password: "secret", tls: true, serverName: "t.example"),
             SubscriptionNode(name: "s", type: .shadowsocks, server: "s.example", serverPort: 8388, password: "secret", method: "aes-128-gcm"),
+            try XCTUnwrap(SubscriptionParser.parse("proxies: [{name: HTTP, type: http, server: proxy.example.com, port: 8080}]").first),
+            try XCTUnwrap(SubscriptionParser.parse("proxies: [{name: HTTPS, type: http, server: proxy.example.com, port: 443, username: sample-user, password: sample-password, tls: true, sni: tls.example.com}]").first),
             try SubscriptionParser.parseLine("socks://Og%3D%3D@192.0.2.6:20001#lan-20001 edge-v6 20001"),
             try SubscriptionParser.parseLine("socks5://alice:pw@[2001:db8::1]:1080#v6"),
             try SubscriptionParser.parseLine("socks://\(Data("user:pass@example.com:1080".utf8).base64EncodedString())?obfs=none&remarks=US-Node"),

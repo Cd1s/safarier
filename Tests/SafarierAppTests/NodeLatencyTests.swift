@@ -32,35 +32,60 @@ final class NodeLatencyTests: XCTestCase {
         XCTAssertFalse(model.isTestingNodes(subscriptionID: subscription.id))
     }
 
-    func testBatchHasBoundedConcurrencyAndDeduplicatesRequests() async throws {
-        let subscription = try subscription(count: 8)
+    func testWholeBatchStartsConcurrentlyAndDeduplicatesRequests() async throws {
+        let subscription = try subscription(count: 226)
         let recorder = Recorder()
+        let gate = Gate()
         let result = ProxyConnectionResult(exitIP: "203.0.113.1", duration: 0.125)
         let model = ManagerModel(workspace: workspace, nodeTester: { node in
             await recorder.begin(node.id)
-            try await Task.sleep(for: .milliseconds(40))
+            await gate.hold()
             await recorder.end()
             return result
         })
         model.testNodes(subscription.nodes, subscriptionID: subscription.id)
         model.testNodes(subscription.nodes, subscriptionID: subscription.id)
-        XCTAssertEqual(model.nodeTests.values.filter { $0 == .running }.count, ManagerModel.nodeTestConcurrency)
-        XCTAssertEqual(model.nodeTests.values.filter { $0 == .queued }.count, 5)
+        XCTAssertEqual(model.nodeTests.values.filter { $0 == .running }.count, 226)
+        XCTAssertEqual(model.nodeTests.values.filter { $0 == .queued }.count, 0)
+        await waitForCalls(226, gate: gate)
+        await gate.releaseAll()
         try await finish(model, subscription)
         let (calls, maximum) = await recorder.summary()
-        XCTAssertEqual(calls.count, 8)
-        XCTAssertEqual(Set(calls).count, 8)
-        XCTAssertEqual(maximum, ManagerModel.nodeTestConcurrency)
+        XCTAssertEqual(calls.count, 226)
+        XCTAssertEqual(Set(calls).count, 226)
+        XCTAssertEqual(maximum, 226)
         for node in subscription.nodes {
             XCTAssertEqual(model.nodeTestState(subscriptionID: subscription.id, node: node), .success(result))
         }
         XCTAssertEqual(try workspace.subscriptions.record(id: subscription.id), subscription)
     }
 
+    func testPickerStartsTheWholeFilteredListInOneBatch() async throws {
+        let subscription = try subscription(count: 228)
+        let started = expectation(description: "All filtered nodes dispatched together")
+        let selected = SubscriptionNodeTableRow.makeRows(subscription.nodes, query: "Node 2") { _ in nil }
+            .sorted(using: SubscriptionLatencyComparator())
+        let model = ManagerModel(workspace: workspace, nodeBatchTester: { nodes, update in
+            XCTAssertEqual(nodes.map(\.id), selected.map(\.id))
+            XCTAssertEqual(nodes.count, 39)
+            started.fulfill()
+            for node in nodes {
+                await update(node.id, .success(ProxyConnectionResult(exitIP: "203.0.113.1", duration: 0.1)))
+            }
+        })
+        model.testNodes(selected.map(\.node), subscriptionID: subscription.id)
+        await fulfillment(of: [started], timeout: 2)
+        try await finish(model, subscription)
+        XCTAssertEqual(model.nodeTests.count, selected.count)
+        for node in subscription.nodes where !selected.contains(where: { $0.id == node.id }) {
+            XCTAssertNil(model.nodeTestState(subscriptionID: subscription.id, node: node))
+        }
+    }
+
     func testCancelClearsQueueAndIgnoresLateSuccessThenAllowsRetry() async throws {
         let subscription = try subscription(count: 5)
         let started = expectation(description: "started")
-        started.expectedFulfillmentCount = ManagerModel.nodeTestConcurrency
+        started.expectedFulfillmentCount = 5
         let model = ManagerModel(workspace: workspace, nodeTester: { _ in
             started.fulfill()
             try? await Task.sleep(for: .milliseconds(150))

@@ -6,6 +6,13 @@ import SafarierCore
 struct SubscriptionDetailView: View {
     @ObservedObject var model: ManagerModel
     let subscription: Subscription
+    @State private var sortOrder = [SubscriptionLatencyComparator()]
+
+    private var rows: [SubscriptionNodeTableRow] {
+        SubscriptionNodeTableRow.makeRows(subscription.nodes) { node in
+            model.nodeTestState(subscriptionID: subscription.id, node: node)
+        }.sorted(using: sortOrder.isEmpty ? [SubscriptionLatencyComparator()] : sortOrder)
+    }
 
     var body: some View {
         let refreshing = model.refreshing.contains(subscription.id)
@@ -22,16 +29,18 @@ struct SubscriptionDetailView: View {
                     description: Text("订阅里没有可识别的节点，点「刷新订阅」重新拉取。")
                 )
             } else {
-                Table(subscription.nodes) {
-                    TableColumn("名称", value: \.name)
-                    TableColumn("协议") { node in ProtocolBadge(type: node.type) }
+                Table(rows, sortOrder: $sortOrder) {
+                    TableColumn("名称") { row in Text(row.node.name) }
+                    TableColumn("协议") { row in ProtocolBadge(type: row.node.type) }
                         .width(min: 60, ideal: 70, max: 90)
-                    TableColumn("服务器") { node in
+                    TableColumn("服务器") { row in
+                        let node = row.node
                         Text(verbatim: "\(node.server):\(node.serverPort)").monospaced()
                     }
-                    TableColumn("传输") { node in Text(node.transport ?? "tcp") }
+                    TableColumn("传输") { row in Text(row.node.transport ?? "tcp") }
                         .width(min: 50, ideal: 60, max: 90)
-                    TableColumn("TLS") { node in
+                    TableColumn("TLS") { row in
+                        let node = row.node
                         if node.tls {
                             Image(systemName: "lock.fill").foregroundStyle(.green).help(node.serverName ?? "TLS")
                         } else {
@@ -39,26 +48,27 @@ struct SubscriptionDetailView: View {
                         }
                     }
                     .width(min: 36, ideal: 40, max: 60)
-                    TableColumn("HTTPS 延迟") { node in
+                    TableColumn("HTTPS 延迟", sortUsing: SubscriptionLatencyComparator()) { row in
                         HStack {
-                            ProxyLatencyView(state: model.nodeTestState(subscriptionID: subscription.id, node: node))
+                            ProxyLatencyView(state: row.testState)
                             Spacer(minLength: 4)
-                            Button { model.testNodes([node], subscriptionID: subscription.id) } label: {
+                            Button { model.testNodes([row.node], subscriptionID: subscription.id) } label: {
                                 Image(systemName: "speedometer")
                             }
                             .buttonStyle(.borderless)
                             .help("测试延迟")
-                            .disabled(model.nodeTestState(subscriptionID: subscription.id, node: node) == .running
-                                      || model.nodeTestState(subscriptionID: subscription.id, node: node) == .queued)
+                            .disabled(row.testState == .running || row.testState == .queued)
                         }
                     }
                     .width(min: 110, ideal: 130, max: 180)
-                    TableColumn("绑定环境") { node in
+                    TableColumn("绑定环境") { row in
+                        let node = row.node
                         Text(usage[node.name]?.map(\.name).joined(separator: L10n.text("、")) ?? "")
                             .foregroundStyle(.secondary)
                     }
                     .width(min: 60, ideal: 110)
-                    TableColumn("用作前置") { node in
+                    TableColumn("用作前置") { row in
+                        let node = row.node
                         Text(upstreamUsage[node.name]?.map(\.name).joined(separator: L10n.text("、")) ?? "")
                             .foregroundStyle(.secondary)
                     }
@@ -171,7 +181,7 @@ struct SubscriptionEditorView: View {
                 } header: {
                     Text("添加订阅")
                 } footer: {
-                    Text("可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。")
+                    Text("可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 HTTP / HTTPS、SOCKS5、Shadowsocks / SS2022、VMess、Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

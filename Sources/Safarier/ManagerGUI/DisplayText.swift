@@ -44,6 +44,7 @@ enum DisplayText {
         case .trojan: return "Trojan"
         case .shadowsocks: return "SS"
         case .socks: return "SOCKS"
+        case .http: return "HTTP(S)"
         case .anytls: return "AnyTLS"
         case .hysteria2: return "Hysteria2"
         case .mieru: return "Mieru"
@@ -57,6 +58,7 @@ enum DisplayText {
         case .trojan: return .red
         case .shadowsocks: return .teal
         case .socks: return .green
+        case .http: return .indigo
         case .anytls: return .orange
         case .hysteria2: return .cyan
         case .mieru: return .mint

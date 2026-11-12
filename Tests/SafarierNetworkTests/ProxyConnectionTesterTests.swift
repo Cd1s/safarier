@@ -192,6 +192,9 @@ def record(file,text):
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         record('target-requests',self.path)
+        if self.path=='/barrier':
+            deadline=time.monotonic()+5
+            while not (root/'barrier-release').exists() and time.monotonic()<deadline:time.sleep(0.01)
         if self.path=='/stall':time.sleep(4)
         body=b'ip=invalid\n' if self.path=='/invalid' else b'ip=203.0.113.7\n'
         self.send_response(503 if self.path=='/status' else 200)
@@ -199,9 +202,13 @@ class Page(http.server.BaseHTTPRequestHandler):
         try:self.wfile.write(body)
         except OSError:pass
     def log_message(self,*args):pass
-page=http.server.ThreadingHTTPServer(('127.0.0.1',0),Page)
+class PageServer(http.server.ThreadingHTTPServer):
+    request_queue_size=512
+    # TLS handshakes belong in workers so a pending client cannot block the accept loop.
+    def finish_request(self,request,address):
+        with context.wrap_socket(request,server_side=True) as connection:self.RequestHandlerClass(connection,address,self)
+page=PageServer(('127.0.0.1',0),Page)
 context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(root/'cert.pem',root/'key.pem')
-page.socket=context.wrap_socket(page.socket,server_side=True)
 threading.Thread(target=page.serve_forever,daemon=True).start()
 def readn(s,n):
     data=b''
@@ -210,9 +217,15 @@ def readn(s,n):
         if not part:raise EOFError()
         data+=part
     return data
+def readable(connections):
+    pending=[s for s in connections if isinstance(s,ssl.SSLSocket) and s.pending()]
+    return pending or select.select(connections,[],[],6)[0]
 class Proxy(socketserver.BaseRequestHandler):
+    def setup(self):
+        if getattr(self.server,'tls',False):self.request=context.wrap_socket(self.request,server_side=True)
     def handle(self):
         if (root/'exit-offline').exists():return
+        if getattr(self.server,'stall',False):time.sleep(4);return
         s=self.request;s.settimeout(6)
         try:
             if self.server.kind=='http':
@@ -233,19 +246,25 @@ class Proxy(socketserver.BaseRequestHandler):
             record('proxy-requests',self.server.kind+' authenticated')
             with socket.create_connection(('127.0.0.1',page.server_port)) as upstream:
                 while True:
-                    ready,_,_=select.select([s,upstream],[],[],6)
+                    ready=readable([s,upstream])
                     if not ready:return
                     for source in ready:
                         data=source.recv(65536)
                         if not data:return
                         (upstream if source is s else s).sendall(data)
         except (OSError,EOFError):pass
-class Server(socketserver.ThreadingTCPServer):daemon_threads=True
+class Server(socketserver.ThreadingTCPServer):
+    daemon_threads=True
+    request_queue_size=512
 ports={'https':page.server_port}
 for kind in ['http','socks']:
     server=Server(('127.0.0.1',0),Proxy);server.kind=kind;ports[kind]=server.server_address[1]
     threading.Thread(target=server.serve_forever,daemon=True).start()
-class Entry(socketserver.BaseRequestHandler):
+server=Server(('127.0.0.1',0),Proxy);server.kind='http';server.stall=True;ports['stall-http']=server.server_address[1]
+threading.Thread(target=server.serve_forever,daemon=True).start()
+server=Server(('127.0.0.1',0),Proxy);server.kind='http';server.tls=True;ports['https-proxy']=server.server_address[1]
+threading.Thread(target=server.serve_forever,daemon=True).start()
+class Entry(Proxy):
     def handle(self):
         if (root/'entry-offline').exists():return
         s=self.request;s.settimeout(6)
@@ -270,7 +289,7 @@ class Entry(socketserver.BaseRequestHandler):
             with socket.create_connection(('127.0.0.1',port)) as upstream:
                 s.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n' if self.server.kind=='http' else b'\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x00')
                 while True:
-                    ready,_,_=select.select([s,upstream],[],[],6)
+                    ready=readable([s,upstream])
                     if not ready:return
                     for source in ready:
                         data=source.recv(65536)
@@ -280,6 +299,8 @@ class Entry(socketserver.BaseRequestHandler):
 for kind in ['http','socks']:
     server=Server(('127.0.0.1',0),Entry);server.kind=kind;ports['entry-'+kind]=server.server_address[1]
     threading.Thread(target=server.serve_forever,daemon=True).start()
+server=Server(('127.0.0.1',0),Entry);server.kind='http';server.tls=True;ports['entry-https']=server.server_address[1]
+threading.Thread(target=server.serve_forever,daemon=True).start()
 (root/'ports.tmp').write_text(json.dumps(ports));(root/'ports.tmp').rename(root/'ports.json')
 signal.pause()
 """#

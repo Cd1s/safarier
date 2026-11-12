@@ -453,16 +453,16 @@ struct NodePickerView: View {
     let onSelect: (String) -> Void
 
     @State private var query = ""
+    @State private var latencyOrder = SortOrder.forward
 
-    private var filtered: [SubscriptionNode] {
-        let text = query.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return nodes }
-        return nodes.filter {
-            $0.name.localizedCaseInsensitiveContains(text) || "\($0.server):\($0.serverPort)".contains(text)
-        }
+    private var rows: [SubscriptionNodeTableRow] {
+        SubscriptionNodeTableRow.makeRows(nodes, query: query) { node in
+            subscriptionID.flatMap { model.nodeTestState(subscriptionID: $0, node: node) }
+        }.sorted(using: SubscriptionLatencyComparator(order: latencyOrder))
     }
 
     var body: some View {
+        let rows = rows
         VStack(spacing: 0) {
             TextField("搜索名称或服务器", text: $query)
                 .autocorrectionDisabled()
@@ -471,17 +471,26 @@ struct NodePickerView: View {
             Divider()
             if let subscriptionID {
                 HStack {
-                    Text("HTTPS 延迟").font(.caption).foregroundStyle(.secondary)
+                    Button {
+                        latencyOrder = latencyOrder == .forward ? .reverse : .forward
+                    } label: {
+                        Label("HTTPS 延迟", systemImage: latencyOrder == .forward ? "arrow.up" : "arrow.down")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("切换延迟升序或降序，失败节点始终置底。")
+                    .accessibilityValue(latencyOrder == .forward ? L10n.text("延迟从低到高") : L10n.text("延迟从高到低"))
                     Spacer()
                     if model.isTestingNodes(subscriptionID: subscriptionID) {
                         Button("取消测试") { model.cancelNodeTests(subscriptionID: subscriptionID) }
                     } else {
-                        Button("测试当前列表") { model.testNodes(filtered, subscriptionID: subscriptionID) }
-                            .disabled(filtered.isEmpty)
+                        Button("测试当前列表") { model.testNodes(rows.map(\.node), subscriptionID: subscriptionID) }
+                            .disabled(rows.isEmpty)
                     }
                 }.padding(.horizontal, 10).padding(.vertical, 6)
             }
-            List(filtered) { node in
+            List(rows) { row in
+                let node = row.node
                 HStack(spacing: 8) {
                     Button { onSelect(node.name) } label: {
                         HStack(spacing: 8) {
@@ -497,8 +506,8 @@ struct NodePickerView: View {
                             }
                             Spacer(minLength: 8)
                             ProtocolBadge(type: node.type)
-                            if let subscriptionID {
-                                ProxyLatencyView(state: model.nodeTestState(subscriptionID: subscriptionID, node: node))
+                            if subscriptionID != nil {
+                                ProxyLatencyView(state: row.testState)
                                     .font(.caption)
                             }
                         }
@@ -511,14 +520,14 @@ struct NodePickerView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("测试延迟")
-                        .disabled(model.nodeTestState(subscriptionID: subscriptionID, node: node) == .running
-                                  || model.nodeTestState(subscriptionID: subscriptionID, node: node) == .queued)
+                        .disabled(row.testState == .running || row.testState == .queued)
                     }
                 }
             }
             .listStyle(.plain)
             Divider()
-            Text(query.isEmpty ? L10n.text("共 %lld 个节点", nodes.count) : L10n.text("%lld / %lld 个节点", filtered.count, nodes.count))
+            Text(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                 ? L10n.text("共 %lld 个节点", nodes.count) : L10n.text("%lld / %lld 个节点", rows.count, nodes.count))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(6)

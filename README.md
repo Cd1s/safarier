@@ -82,9 +82,9 @@ The app is ad-hoc signed rather than signed with an Apple Developer ID and notar
 | **Two-Hop Proxy Chains** | Add a saved proxy, subscription node, or custom sing-box outbound as the upstream for a SOCKS5 / HTTP exit proxy. Environments and connection tests use the entire chain, with no fallback to a single hop or direct access. |
 | **Zero-Leak Protection** | Every environment routes traffic and DNS strictly through its assigned node. If a proxy disconnects, page loading stops immediately and **never** falls back to your real local IP. |
 
-[Clash YAML subscriptions and local files](docs/clash-upstream-proxies.md) support **Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2** (including port hopping). All can be bound to environments or selected as upstreams. Only nodes are imported; Clash DNS, rules, and listeners are not applied.
+[Clash YAML subscriptions and local files](docs/clash-upstream-proxies.md) support **HTTP / HTTPS, SOCKS5, Shadowsocks / SS2022, VMess, Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2** (including port hopping). All can be bound to environments or selected as upstreams. Only nodes are imported; Clash DNS, rules, and listeners are not applied.
 
-Subscription tables and node pickers offer individual and batch **HTTPS latency** tests, with at most three running at once and cancellation support. The upstream editor measures the selected upstream; **Test Connection** on the saved exit measures the complete chain and reports the final exit IP.
+Subscription tables and node pickers offer individual and batch **HTTPS latency** tests, with concurrent requests, an eight-second per-node deadline, and cancellation support. Both default to ascending latency; click the **HTTPS Latency** heading to reverse the order. Failed nodes always stay at the bottom, and unfinished tests follow successful nodes. In a picker, **Test Listed Nodes** tests every search match, or the entire subscription when the search is empty. The upstream editor measures the selected upstream; **Test Connection** on the saved exit measures the complete chain and reports the final exit IP.
 
 ---
 

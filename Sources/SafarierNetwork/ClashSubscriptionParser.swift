@@ -4,6 +4,15 @@ import Yams
 
 /// Import node data only. Clash listeners, routing, DNS and controller settings are never applied.
 enum ClashSubscriptionParser {
+    private static func nodeType(_ type: String) -> SubscriptionNodeType? {
+        switch type.lowercased() {
+        case "ss", "ss2022": return .shadowsocks
+        case "socks5": return .socks
+        case "https": return .http
+        default: return SubscriptionNodeType(rawValue: type.lowercased())
+        }
+    }
+
     static func looksLikeClash(_ text: String) -> Bool {
         let pattern = #"(?m)^[ \t]*(?:proxies|"proxies"|'proxies')\s*:"#
         return text.range(of: pattern, options: .regularExpression) != nil || text.hasPrefix("{")
@@ -48,8 +57,7 @@ enum ClashSubscriptionParser {
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             type = try values.decode(String.self, forKey: .type).lowercased()
-            proxy = ["trojan", "anytls", "mieru", "vless", "hysteria2"].contains(type)
-                ? try Proxy(from: decoder) : nil
+            proxy = ClashSubscriptionParser.nodeType(type) != nil ? try Proxy(from: decoder) : nil
         }
     }
 
@@ -78,6 +86,19 @@ enum ClashSubscriptionParser {
         let ipVersion: String?
         let ws: WebSocket?
         let grpc: GRPC?
+        let cipher: String?
+        let alterID: Int?
+        let plugin: String?
+        let pluginOptions: [String: Scalar]?
+
+        struct Scalar: Decodable {
+            let text: String
+            init(from decoder: Decoder) throws {
+                let value = try decoder.singleValueContainer()
+                if let bool = try? value.decode(Bool.self) { text = bool ? "true" : "false" }
+                else { text = try value.decode(String.self) }
+            }
+        }
 
         struct Reality: Decodable {
             let publicKey: String
@@ -103,10 +124,13 @@ enum ClashSubscriptionParser {
             case ipVersion = "ip-version"
             case ws = "ws-opts"
             case grpc = "grpc-opts"
+            case cipher, plugin
+            case alterID = "alterId"
+            case pluginOptions = "plugin-opts"
         }
 
         func node() throws -> SubscriptionNode {
-            guard let name, let server, let nodeType = SubscriptionNodeType(rawValue: type.lowercased()) else {
+            guard let name, let server, let nodeType = ClashSubscriptionParser.nodeType(type) else {
                 throw SubscriptionParseError.invalidClash
             }
             var parameters: [String: String] = [:]
@@ -142,21 +166,43 @@ enum ClashSubscriptionParser {
                 parameters["sid"] = reality.shortID
             }
             if nodeType == .mieru { parameters["multiplexing"] = multiplexing }
+            if nodeType == .shadowsocks, let plugin {
+                var options: [String] = []
+                switch plugin {
+                case "obfs", "obfs-local", "simple-obfs":
+                    guard let mode = pluginOptions?["mode"]?.text, ["http", "tls"].contains(mode) else {
+                        throw SubscriptionParseError.invalidClash
+                    }
+                    options.append("obfs=\(mode)")
+                    if let host = pluginOptions?["host"]?.text { options.append("obfs-host=\(host)") }
+                    parameters["plugin"] = (["obfs-local"] + options).joined(separator: ";")
+                case "v2ray-plugin":
+                    for key in ["mode", "host", "path"] {
+                        if let value = pluginOptions?[key]?.text { options.append("\(key)=\(value)") }
+                    }
+                    for key in ["tls", "mux", "skip-cert-verify"] where pluginOptions?[key]?.text == "true" {
+                        options.append(key)
+                    }
+                    parameters["plugin"] = ([plugin] + options).joined(separator: ";")
+                default: throw SubscriptionParseError.invalidClash
+                }
+            }
             let nodeTransport = nodeType == .mieru ? (transport ?? "TCP").uppercased() : network?.lowercased()
             if nodeType != .mieru, let nodeTransport, !["tcp", "ws", "grpc"].contains(nodeTransport) {
                 throw SubscriptionParseError.invalidClash
             }
-            if [.anytls, .hysteria2].contains(nodeType), let nodeTransport, nodeTransport != "tcp" {
+            if [.anytls, .hysteria2, .http, .socks, .shadowsocks].contains(nodeType), let nodeTransport, nodeTransport != "tcp" {
                 throw SubscriptionParseError.invalidClash
             }
             if let serviceName = grpc?.serviceName { parameters["serviceName"] = serviceName }
             let node = SubscriptionNode(name: name, type: nodeType, server: server,
                                         serverPort: firstPort, uuid: uuid, username: username, password: password,
-                                        tls: [.trojan, .anytls, .hysteria2].contains(nodeType) || tls == true,
+                                        method: cipher.map { nodeType == .shadowsocks ? SubscriptionNode.normalizedShadowsocksMethod($0) : $0 },
+                                        tls: [.trojan, .anytls, .hysteria2].contains(nodeType) || type.lowercased() == "https" || tls == true,
                                         serverName: sni ?? servername, transport: nodeTransport,
                                         transportPath: ws?.path,
                                         transportHost: ws?.headers?.first(where: { $0.key.lowercased() == "host" })?.value,
-                                        flow: flow, parameters: parameters)
+                                        flow: flow, alterID: alterID, parameters: parameters)
             try node.validate()
             return node
         }

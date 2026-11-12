@@ -118,7 +118,11 @@ public enum ProxyConnectionTester {
 
     /// 执行与结果判定分开，失败优先分类，只有 HTTPS 成功才读取并验证出口 IP。
     private static func readResult(exitCode: Int32, metricsURL: URL, bodyURL: URL) throws -> ProxyConnectionResult {
-        let metrics = try String(contentsOf: metricsURL, encoding: .utf8).split(separator: "\n")
+        try readResult(exitCode: exitCode, metrics: String(contentsOf: metricsURL, encoding: .utf8), bodyURL: bodyURL)
+    }
+
+    static func readResult(exitCode: Int32, metrics: String, bodyURL: URL) throws -> ProxyConnectionResult {
+        let metrics = metrics.split(separator: "\n")
         let status = metrics.first.flatMap { Int($0) } ?? 0
         let connectStatus = metrics.count > 1 ? Int(metrics[1]) ?? 0 : 0
         if connectStatus == 407 || status == 407 { throw ProxyConnectionError.authentication }

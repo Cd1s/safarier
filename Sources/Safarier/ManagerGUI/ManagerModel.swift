@@ -39,10 +39,6 @@ final class ManagerModel: ObservableObject {
         let nodeID: UUID
     }
 
-    private struct NodeTestRequest {
-        let key: NodeTestKey
-        let node: SubscriptionNode
-    }
     enum Selection: Hashable {
         case profile(UUID)
         case subscription(UUID)
@@ -83,11 +79,11 @@ final class ManagerModel: ObservableObject {
     private let proxyTester: ProxyConnectionTester.Test
     private var proxyTestTasks: [UUID: Task<Void, Never>] = [:]
     @Published private(set) var proxyTests: [UUID: ProxyTestState] = [:]
-    private let nodeTester: ProxyConnectionTester.NodeTest
-    private var nodeTestTasks: [NodeTestKey: Task<Void, Never>] = [:]
-    private var nodeTestQueue: [NodeTestRequest] = []
+    private let nodeBatchTester: ProxyConnectionTester.NodeBatchTest
+    private var nodeTestTasks: [UUID: Task<Void, Never>] = [:]
+    private var nodeTestQueue: [UUID: [SubscriptionNode]] = [:]
+    private var nodeTestRuns: [UUID: UUID] = [:]
     @Published private(set) var nodeTests: [NodeTestKey: ProxyTestState] = [:]
-    static let nodeTestConcurrency = 3
 
     @Published private(set) var profiles: [Profile] = []
     @Published private(set) var proxies: [ProxySettings] = []
@@ -132,11 +128,19 @@ final class ManagerModel: ObservableObject {
 
     init(workspace: SafarierWorkspace, credentials: any CredentialStore = KeychainCredentialStore(),
          proxyTester: @escaping ProxyConnectionTester.Test = { try await ProxyConnectionTester.check(proxy: $0, password: $1) },
-         nodeTester: @escaping ProxyConnectionTester.NodeTest = { try await ProxyConnectionTester.check(node: $0) }) {
+         nodeTester: ProxyConnectionTester.NodeTest? = nil,
+         nodeBatchTester: ProxyConnectionTester.NodeBatchTest? = nil) {
         self.workspace = workspace
         self.credentials = credentials
         self.proxyTester = proxyTester
-        self.nodeTester = nodeTester
+        if let nodeBatchTester { self.nodeBatchTester = nodeBatchTester }
+        else if let nodeTester {
+            self.nodeBatchTester = { nodes, update in
+                try await ProxyConnectionTester.checkConcurrently(nodes: nodes, using: nodeTester, update: update)
+            }
+        } else {
+            self.nodeBatchTester = { try await ProxyConnectionTester.check(nodes: $0, update: $1) }
+        }
         reload()
         selection = profiles.first.map { .profile($0.id) } ?? proxies.first.map { .proxy($0.id) } ?? subscriptions.first.map { .subscription($0.id) }
     }
@@ -365,24 +369,23 @@ final class ManagerModel: ObservableObject {
         nodeTests.contains { $0.key.subscriptionID == subscriptionID && ($0.value == .running || $0.value == .queued) }
     }
 
-    /// 批量测试共用有界队列；打开节点选择器不会自动拨测或消耗订阅流量。
+    /// 一次启动整批请求，完成一个就显示一个；打开节点选择器不会自动拨测。
     func testNodes(_ nodes: [SubscriptionNode], subscriptionID: UUID) {
         guard let current = try? workspace.subscriptions.record(id: subscriptionID) else { return }
         for node in nodes where current.nodes.contains(node) {
             let key = NodeTestKey(subscriptionID: subscriptionID, nodeID: node.id)
             guard nodeTests[key] != .running, nodeTests[key] != .queued else { continue }
             nodeTests[key] = .queued
-            nodeTestQueue.append(NodeTestRequest(key: key, node: node))
+            nodeTestQueue[subscriptionID, default: []].append(node)
         }
         startQueuedNodeTests()
     }
 
     func cancelNodeTests(subscriptionID: UUID) {
-        nodeTestQueue.removeAll { $0.key.subscriptionID == subscriptionID }
-        for key in Array(nodeTestTasks.keys) where key.subscriptionID == subscriptionID {
-            // 等实际进程清理完才释放并发名额；连续取消、重试也不会累积后台辅助进程。
-            nodeTestTasks[key]?.cancel()
-        }
+        nodeTestQueue[subscriptionID] = nil
+        nodeTestRuns[subscriptionID] = nil
+        // 等旧批次清理完再启动重试，避免连续取消累积后台辅助进程。
+        nodeTestTasks[subscriptionID]?.cancel()
         nodeTests = nodeTests.filter {
             $0.key.subscriptionID != subscriptionID || ($0.value != .running && $0.value != .queued)
         }
@@ -390,25 +393,49 @@ final class ManagerModel: ObservableObject {
     }
 
     private func startQueuedNodeTests() {
-        while nodeTestTasks.count < Self.nodeTestConcurrency,
-              let index = nodeTestQueue.firstIndex(where: { nodeTestTasks[$0.key] == nil }) {
-            let request = nodeTestQueue.remove(at: index)
-            let tester = nodeTester
-            nodeTests[request.key] = .running
-            nodeTestTasks[request.key] = Task { @MainActor [weak self] in
-                let outcome: ProxyTestState?
-                do { outcome = .success(try await tester(request.node)) }
-                catch is CancellationError { outcome = nil }
-                catch { outcome = .failure(DisplayText.describe(error)) }
+        for subscriptionID in Array(nodeTestQueue.keys) where nodeTestTasks[subscriptionID] == nil {
+            guard let nodes = nodeTestQueue.removeValue(forKey: subscriptionID), !nodes.isEmpty else { continue }
+            let tester = nodeBatchTester
+            let run = UUID()
+            nodeTestRuns[subscriptionID] = run
+            for node in nodes { nodeTests[NodeTestKey(subscriptionID: subscriptionID, nodeID: node.id)] = .running }
+            nodeTestTasks[subscriptionID] = Task { @MainActor [weak self] in
+                var failure: ProxyTestState?
+                do {
+                    try await tester(nodes) { [weak self] id, result in
+                        await self?.receiveNodeTest(result, nodeID: id, nodes: nodes,
+                                                    subscriptionID: subscriptionID, run: run)
+                    }
+                } catch is CancellationError { }
+                catch { failure = .failure(DisplayText.describe(error)) }
                 guard let self else { return }
-                self.nodeTestTasks[request.key] = nil
-                // 刷新、删除或外部 CLI 修改后，旧节点的延迟不能覆盖新节点。
-                if !Task.isCancelled {
-                    let latest = try? self.workspace.subscriptions.record(id: request.key.subscriptionID)
-                    self.nodeTests[request.key] = latest?.nodes.contains(request.node) == true ? outcome : nil
+                self.nodeTestTasks[subscriptionID] = nil
+                if self.nodeTestRuns[subscriptionID] == run {
+                    self.nodeTestRuns[subscriptionID] = nil
+                    let latest = try? self.workspace.subscriptions.record(id: subscriptionID)
+                    for node in nodes {
+                        let key = NodeTestKey(subscriptionID: subscriptionID, nodeID: node.id)
+                        if self.nodeTests[key] == .running {
+                            self.nodeTests[key] = latest?.nodes.contains(node) == true ? failure : nil
+                        }
+                    }
                 }
                 self.startQueuedNodeTests()
             }
+        }
+    }
+
+    private func receiveNodeTest(_ result: Result<ProxyConnectionResult, Error>, nodeID: UUID,
+                                 nodes: [SubscriptionNode], subscriptionID: UUID, run: UUID) {
+        guard nodeTestRuns[subscriptionID] == run, let node = nodes.first(where: { $0.id == nodeID }) else { return }
+        let key = NodeTestKey(subscriptionID: subscriptionID, nodeID: nodeID)
+        guard nodeTests[key] == .running else { return }
+        // 刷新、删除或外部 CLI 修改后，旧节点的延迟不能覆盖新节点。
+        let latest = try? workspace.subscriptions.record(id: subscriptionID)
+        guard latest?.nodes.contains(node) == true else { nodeTests[key] = nil; return }
+        switch result {
+        case .success(let value): nodeTests[key] = .success(value)
+        case .failure(let error): nodeTests[key] = .failure(DisplayText.describe(error))
         }
     }
 
@@ -689,7 +716,7 @@ final class ManagerModel: ObservableObject {
     // MARK: - 订阅
 
     /// 与命令行 `sub add` 一致：订阅网址先拉取成功再保存；直接粘贴的节点链接先解析成功，原文存成本机文件，订阅地址指向它。
-    /// 混着不支持的协议（hysteria2 等）时导入其余节点，并提示跳过了哪些。
+    /// 混着不支持的协议时导入其余节点，并提示跳过了哪些。
     func addSubscription(name: String, input: String) async throws {
         let id = UUID()
         let url: URL
@@ -727,7 +754,8 @@ final class ManagerModel: ObservableObject {
         Task {
             defer { refreshing.remove(subscription.id) }
             do {
-                let nodes = try await SubscriptionFetcher().fetch(from: subscription.url)
+                let result = try await SubscriptionFetcher().fetchResult(from: subscription.url)
+                let nodes = result.nodes
                 // 拉取期间记录可能在别处被改动或删除：以文件里的最新记录为准，只换节点。
                 guard var latest = try workspace.subscriptions.record(id: subscription.id) else { return }
                 // 订阅这次返回的内容里没有节点（服务器偶尔返回空内容）：不拿空列表覆盖已有节点，否则绑定它们的环境全部失效。
@@ -740,6 +768,9 @@ final class ManagerModel: ObservableObject {
                 latest.updatedAt = Date()
                 try workspace.subscriptions.update(latest)
                 reload()
+                if result.skippedCount > 0 {
+                    message = Message(title: L10n.text("已更新「%@」", latest.name), detail: DisplayText.importSummary(result))
+                }
             } catch {
                 report(L10n.text("刷新「%@」失败", subscription.name), error)
             }

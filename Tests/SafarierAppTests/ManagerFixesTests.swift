@@ -91,6 +91,17 @@ final class ManagerFixesTests: XCTestCase {
         XCTAssertEqual(try workspace.subscriptions.record(id: subscription.id)?.nodes.count, 1)
     }
 
+    func testRefreshReportsUnsupportedNodesInsteadOfSilentlyDroppingThem() throws {
+        XCTAssertEqual(ManagerCLI.run(["sub", "add", "--name", "s", "--url", link]), 0)
+        let subscription = try XCTUnwrap(workspace.subscriptions.all().first)
+        try Data((link + "\ntuic://sample@proxy.example.com:443\n").utf8).write(to: subscription.url)
+        let model = ManagerModel(workspace: workspace)
+        model.refresh(subscription)
+        spin(until: { model.message != nil })
+        XCTAssertEqual(model.message?.detail, "导入 1 个节点；跳过 1 个暂不支持的节点（tuic ×1）。")
+        XCTAssertEqual(model.subscriptions.first?.nodes.count, 1)
+    }
+
     /// 编辑器里语言 / 时区选了「自定义」却没填：报错，不悄悄存成「跟随系统」。
     func testCustomRegionMustNotBeEmpty() {
         typealias E = ProfileEditorView

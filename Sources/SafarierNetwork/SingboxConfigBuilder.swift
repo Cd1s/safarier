@@ -175,6 +175,8 @@ public struct SingboxConfigBuilder: Sendable {
             }
         case .socks:
             result["version"] = .string("5")
+            fallthrough
+        case .http:
             if let username = node.username, !username.isEmpty { result["username"] = .string(username) }
             if let password = node.password, !password.isEmpty { result["password"] = .string(password) }
         case .hysteria2:
@@ -285,6 +287,7 @@ private extension SubscriptionNodeType {
         case .trojan: return "trojan"
         case .shadowsocks: return "shadowsocks"
         case .socks: return "socks"
+        case .http: return "http"
         case .anytls: return "anytls"
         case .hysteria2: return "hysteria2"
         case .mieru: return "mieru"

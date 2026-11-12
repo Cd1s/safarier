@@ -366,6 +366,7 @@
 "已完成" = "Completed";
 "已恢复默认收藏" = "Default favorites restored";
 "已更新 %@" = "Updated %@";
+"已更新「%@」" = "“%@” Updated";
 "已更新 %@：%lld nodes" = "Updated %@: %lld nodes";
 "已更新 %@；关联环境重启后生效" = "Updated %@; linked environments pick it up after a restart";
 "已更新 %@；它正在运行，重启后生效" = "Updated %@; it is running, so the changes take effect after a restart";
@@ -835,10 +836,14 @@
 
 "测试当前列表" = "Test Listed Nodes";
 
+"切换延迟升序或降序，失败节点始终置底。" = "Switch between ascending and descending latency. Failed nodes always stay at the bottom.";
+"延迟从低到高" = "Latency: low to high";
+"延迟从高到低" = "Latency: high to low";
+
 "测试延迟" = "Test Latency";
 
 "测试全部延迟" = "Test All Latencies";
 
 "选择 Clash YAML 文件…" = "Choose Clash YAML File…";
 
-"可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。" = "Enter a subscription URL, paste node links or Clash YAML, or choose a local file. Clash supports Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2. Only nodes are imported; routing and DNS settings from the file are not applied.";
+"可填写订阅网址、粘贴节点链接或 Clash YAML，也可选择本地文件。Clash 支持 HTTP / HTTPS、SOCKS5、Shadowsocks / SS2022、VMess、Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2；只导入节点，不应用文件中的路由或 DNS 设置。" = "Enter a subscription URL, paste node links or Clash YAML, or choose a local file. Clash supports HTTP / HTTPS, SOCKS5, Shadowsocks / SS2022, VMess, Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2. Only nodes are imported; routing and DNS settings from the file are not applied.";

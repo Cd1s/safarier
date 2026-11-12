@@ -84,7 +84,7 @@ The app is ad-hoc signed rather than signed with an Apple Developer ID and notar
 
 [Clash YAML subscriptions and local files](docs/clash-upstream-proxies.md) support **HTTP / HTTPS, SOCKS5, Shadowsocks / SS2022, VMess, Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2** (including port hopping). All can be bound to environments or selected as upstreams. Only nodes are imported; Clash DNS, rules, and listeners are not applied.
 
-Subscription tables and node pickers offer individual and batch **HTTPS latency** tests, with at most three running at once and cancellation support. The upstream editor measures the selected upstream; **Test Connection** on the saved exit measures the complete chain and reports the final exit IP.
+Subscription tables and node pickers offer individual and batch **HTTPS latency** tests, with concurrent requests, an eight-second per-node deadline, and cancellation support. Subscription tables default to ascending latency; click the **HTTPS Latency** column header to reverse the order. Failed nodes always stay at the bottom, and unfinished tests follow successful nodes. The upstream editor measures the selected upstream; **Test Connection** on the saved exit measures the complete chain and reports the final exit IP.
 
 ---
 

@@ -143,7 +143,7 @@ struct ProfileEditorView: View {
                 }
 
                 Section {
-                    regionSourcePicker(L10n.text("语言"), selection: $editor.values.languageSource)
+                    regionSourcePicker(L10n.text("语言"), selection: $editor.values.languageSource, isLanguage: true)
                     if editor.values.languageSource == .custom {
                         LabeledContent("语言标签") {
                             HStack(spacing: 6) {
@@ -355,15 +355,15 @@ struct ProfileEditorView: View {
 
     private var regionFooter: String {
         guard editor.values.languageSource == .proxy || editor.values.timeZoneSource == .proxy else {
-            return L10n.text("跟随系统时使用宿主机的语言和时区。")
+            return L10n.text("自动语言按配置的时区匹配；未设置地区时区时跟随系统。自定义语言优先，字体按生效语言过滤。修改后需重启环境。")
         }
-        return L10n.text("跟随代理：每次启动经代理查询出口 IP 所在国家，自动设置语言和时区（时区跟随时一并开启引擎层时区同步）；查询失败时按节点名称推断，仍无法判断则跟随系统。")
+        return L10n.text("跟随代理：每次启动经代理查询出口地区和时区，时区跟随时一并开启引擎层同步。自动语言优先匹配生效时区；查询失败时按节点名称推断，仍无法判断则跟随系统。自定义语言优先。")
     }
 
     /// 选了「自定义」却没填：报错，不悄悄存成「跟随系统」。
     static func customRegionError(languageSource: RegionSource, languages: String, timeZoneSource: RegionSource, timeZone: String) -> String? {
         if languageSource == .custom, !languages.split(separator: ",").contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
-            return L10n.text("请填写语言标签（例如 en-US, en），或改选「跟随系统」。")
+            return L10n.text("请填写语言标签（例如 en-US, en），或改选「跟随时区」。")
         }
         if timeZoneSource == .custom, timeZone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return L10n.text("请填写时区（例如 America/Los_Angeles），或改选「跟随系统」。")
@@ -371,10 +371,14 @@ struct ProfileEditorView: View {
         return nil
     }
 
-    private func regionSourcePicker(_ title: String, selection: Binding<RegionSource>) -> some View {
+    private func regionSourcePicker(_ title: String, selection: Binding<RegionSource>, isLanguage: Bool = false) -> some View {
         Picker(title, selection: selection) {
             Text(DisplayText.followProxy).tag(RegionSource.proxy)
-            Text("跟随系统").tag(RegionSource.system)
+            if isLanguage {
+                Text("跟随时区").tag(RegionSource.system)
+            } else {
+                Text("跟随系统").tag(RegionSource.system)
+            }
             Text("自定义").tag(RegionSource.custom)
         }
     }

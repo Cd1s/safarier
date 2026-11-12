@@ -25,8 +25,8 @@ public struct FontAllowlistPlan: Equatable, Sendable {
     static let noOp = FontAllowlistPlan(names: [], excludedFamilies: [], excludedFontCount: 0, sharedNamesDropped: 0)
 }
 
-/// 字体白名单规划按来源和字体资产的语言安装前提过滤，不按字体覆盖的文字分类。
-/// - 系统卷基础字体（含 Supplemental）在所有 Profile 中保留；英文 macOS 也自带部分 CJK 字体。
+/// 字体白名单按来源、资产安装前提和专用中日韩字体的语言过滤。
+/// - 系统卷内的专用中日韩字体也按语言过滤，避免英文环境暴露宋体等地区特征；泛 Unicode 字体保留。
 /// - AssetsV2 `com_apple_MobileAsset_Font*`（macOS 15 及以前是 Font7，macOS 26 起是 Font8）按需资产只在 Profile 满足安装前提时保留；没有前提的额外下载资产不保留。
 /// - 不扫描 /Library/Fonts 或 ~/Library/Fonts，第三方和用户字体不加入允许集合。
 ///
@@ -66,7 +66,7 @@ public enum FontAllowlistPlanner {
         LanguageMatcher.keys(for: tags)
     }
 
-    /// languages 为空（跟随系统）或没有需要排除的资产字体时返回空计划（不设置白名单）。
+    /// languages 为空或没有需要排除的字体时返回空计划（不设置白名单）。
     public static func plan(languages: [String], roots: [String] = defaultRoots, assetRoots: [String] = defaultAssetRoots) -> FontAllowlistPlan {
         guard !languages.isEmpty else { return .noOp }
         let keys = LanguageMatcher.keys(for: languages)
@@ -83,8 +83,10 @@ public enum FontAllowlistPlanner {
             let assetAllowed = catalog.asset(containing: url.path).map {
                 !$0.prerequisites.isEmpty && LanguageMatcher.profile(keys, satisfies: $0.prerequisites)
             } ?? true
+            let regionalLanguages = regionalCJKLanguages(of: font)
+            let regionAllowed = regionalLanguages.isEmpty || !regionalLanguages.isDisjoint(with: keys)
             let family = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String
-            if assetAllowed {
+            if assetAllowed && regionAllowed {
                 keep.formUnion(names)
             } else {
                 drop.formUnion(names)
@@ -99,6 +101,18 @@ public enum FontAllowlistPlanner {
             excludedFontCount: dropCount,
             sharedNamesDropped: keep.intersection(drop).count
         )
+    }
+
+    /// 中文字体通常也含假名，优先归为中文；韩文字体可能含汉字，优先于日文。
+    /// 同时完整覆盖中、日、韩的泛 Unicode 字体（例如 Arial Unicode MS）保留作通用回退，
+    /// 不因它支持汉字就删掉。整张 name 表随字面一起排除，本地化名和 PostScript 别名不会漏出。
+    private static func regionalCJKLanguages(of font: CTFont) -> Set<String> {
+        let supported = Set((CTFontCopySupportedLanguages(font) as? [String] ?? []).compactMap {
+            $0.split(separator: "-").first.map(String.init)
+        }).intersection(["zh", "ja", "ko"])
+        if supported.count == 3 { return [] }
+        for language in ["zh", "ko", "ja"] where supported.contains(language) { return [language] }
+        return []
     }
 
     /// 遍历 roots 下的字体文件，取出全部字面描述符，并补上文件 URL（文件里读出的描述符没有 URL 属性，资产判断要用）。

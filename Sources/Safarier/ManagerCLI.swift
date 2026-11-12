@@ -9,8 +9,8 @@ enum ManagerCLI {
     static let usage = L10n.text("""
     用法：
       safarier profile list
-      safarier profile create --name NAME [--mode persistent|ephemeral] [--lang proxy|system|en-US,en] [--tz proxy|system|America/Los_Angeles] [--url https://example.com] [--proxy PROXY_ID | --sub SUBSCRIPTION_ID --node NODE_NAME] [--device MODEL] [--notes TEXT] [--spi default|none|all|afp,tz,webrtc,safari,webgpu,fontlist]
-      safarier profile update PROFILE_ID [--name NAME] [--lang proxy|system|en-US,en] [--tz proxy|system|ZONE] [--url URL|none] [--proxy PROXY_ID|none | --sub SUBSCRIPTION_ID --node NODE_NAME | --node none] [--device MODEL|none] [--notes TEXT] [--spi default|none|all|afp,tz,webrtc,safari,webgpu,fontlist]
+      safarier profile create --name NAME [--mode persistent|ephemeral] [--lang proxy|timezone|en-US,en] [--tz proxy|system|America/Los_Angeles] [--url https://example.com] [--proxy PROXY_ID | --sub SUBSCRIPTION_ID --node NODE_NAME] [--device MODEL] [--notes TEXT] [--spi default|none|all|afp,tz,webrtc,safari,webgpu,fontlist]
+      safarier profile update PROFILE_ID [--name NAME] [--lang proxy|timezone|en-US,en] [--tz proxy|system|ZONE] [--url URL|none] [--proxy PROXY_ID|none | --sub SUBSCRIPTION_ID --node NODE_NAME | --node none] [--device MODEL|none] [--notes TEXT] [--spi default|none|all|afp,tz,webrtc,safari,webgpu,fontlist]
       safarier profile clone PROFILE_ID [--name NAME]
       safarier profile delete PROFILE_ID [--purge-data]
       safarier proxy list
@@ -41,13 +41,14 @@ enum ManagerCLI {
       safarier agent tab-list | tab-new | tab-close PROFILE_ID_OR_NAME [--tab N]
     --sub/--node：出站走订阅里的节点（按节点名匹配，名字带空格时加引号）；启动时自动起 sing-box 转成本地 SOCKS5。
            和 --proxy 二选一：设了一个就清掉另一个。
-    --lang/--tz：proxy（或 auto）= 跟随代理，每次启动按代理出口 IP 的国家自动设置；system（或 none）= 跟随系统；
-           其它值是语言标签（逗号分隔）或时区标识。
+    --lang/--tz：proxy（或 auto）= 跟随代理，每次启动按代理出口 IP 的国家自动设置；
+           --lang timezone（兼容 system / none）= 按生效时区匹配；--tz system（或 none）= 跟随系统时区。
+           其它值是语言标签（逗号分隔）或时区标识。未自定义语言时优先匹配生效时区，无地区时区时跟随系统。
     --device：模拟机型（见 device list），决定浏览窗口的默认视口尺寸、比例和屏幕色域 / HDR。
     --spi：系统 WebKit 原生隐私能力。afp=高级隐私保护（反指纹），tz=引擎层时区同步，webrtc=关闭 WebRTC，
            safari=打开 Safari 专有接口（ApplePaySession、PushManager、navigator.mediaDevices），并像 Safari 一样关闭用户安装字体，
            webgpu=打开 WebGPU（真 Safari 在 macOS 15 上没有，打开后和真 Safari 不一致），
-           fontlist=保留系统卷基础字体（含冬青黑体、宋体），按 Profile 语言排除额外下载的字体资产（如英文环境隐藏苹方）。
+           fontlist=按环境语言过滤内置与下载的中日韩专用字体（如英文环境隐藏宋体、冬青黑体、苹方），保留通用字体回退。
            新建环境默认 default（afp,tz,safari,fontlist）；all 是全部六项。launch/probe 上的 --spi 只覆盖这一次运行。
     sub add --url：订阅网址（http / https / file），或直接给节点链接（ss:// ss2022:// vless:// vmess:// trojan:// anytls:// socks://，
            多条用换行分隔，也可以是 Base64；- 表示从标准输入读）。直接给的链接保存在元数据目录的 subscriptions-inline/ 里，
@@ -104,13 +105,14 @@ enum ManagerCLI {
         let proxies = Dictionary(uniqueKeysWithValues: try workspace.proxies.all().map { ($0.id, $0) })
         let subscriptions = Dictionary(uniqueKeysWithValues: try workspace.subscriptions.all().map { ($0.id, $0) })
         let rows = try workspace.profiles.all().map { profile -> [String] in
-            [
+            let languages = profile.resolvedLanguages()
+            return [
                 profile.id.uuidString,
                 profile.mode.rawValue,
                 workspace.isRunning(profile.id) ? "running" : "-",
                 profile.name,
                 outboundLabel(profile, proxies: proxies, subscriptions: subscriptions),
-                profile.followProxyLanguages ? "proxy" : profile.languages.isEmpty ? "-" : profile.languages.joined(separator: ","),
+                languages.isEmpty ? (profile.followProxyLanguages ? "proxy" : "timezone") : languages.joined(separator: ","),
                 profile.followProxyTimeZone ? "proxy" : profile.timeZoneIdentifier ?? "-",
                 profile.spi.description,
                 profile.deviceModel ?? "-",
@@ -256,11 +258,11 @@ enum ManagerCLI {
         raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
-    /// `--lang`：proxy / auto 跟随代理出口，system / none 跟随系统，其它是逗号分隔的语言标签。
+    /// `--lang`：proxy / auto 跟随代理，timezone（兼容 system / none）按时区匹配，其它是语言标签。
     static func parseLanguageOption(_ raw: String) -> (follow: Bool, languages: [String]) {
         switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
         case "proxy", "auto": return (true, [])
-        case "system", "none", "": return (false, [])
+        case "timezone", "system", "none", "": return (false, [])
         default: return (false, parseLanguages(raw))
         }
     }

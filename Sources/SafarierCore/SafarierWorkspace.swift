@@ -167,8 +167,8 @@ public struct SafarierWorkspace: Sendable {
         RunnerLaunchSpec(
             profileID: profile.id,
             startURL: url ?? profile.startURL,
-            languages: profile.languages,
-            timeZoneIdentifier: profile.timeZoneIdentifier,
+            languages: profile.resolvedLanguages(),
+            timeZoneIdentifier: profile.followProxyTimeZone ? nil : profile.timeZoneIdentifier,
             probe: probe,
             spiOverride: spiOverride,
             background: background

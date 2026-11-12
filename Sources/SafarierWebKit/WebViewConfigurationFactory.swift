@@ -78,6 +78,8 @@ public struct WebViewConfigurationFactory {
         proxy: ProxySettings?,
         processLanguages: [String] = UserDefaults.standard.stringArray(forKey: "AppleLanguages") ?? []
     ) throws -> Output {
+        var profile = profile
+        if profile.languages.isEmpty { profile.languages = profile.resolvedLanguages() }
         var report = PrivacyCapabilityReport(engineBaseline: engineBaseline)
         let baselineState: CapabilityState
         if engineBaseline.loadedWebKit == nil {

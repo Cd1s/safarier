@@ -78,7 +78,7 @@ enum DisplayText {
         case .webGPU:
             return (L10n.text("WebGPU 硬件加速"), L10n.text("开启 navigator.gpu 接口（macOS 15 真 Safari 默认未开启，仅在网页需要时打开）"))
         case .fontAllowlist:
-            return (L10n.text("按语言收窄字体"), L10n.text("按环境语言只向网页暴露对应系统的原生字体（已实测对齐真英文 Mac，英文、泰语等环境下自动隐藏宿主机下载的中日韩字体包）"))
+            return (L10n.text("按语言收窄字体"), L10n.text("按环境语言过滤内置及下载的中日韩专用字体；英文环境隐藏宋体、冬青黑体、苹方等字族，保留常用字体和通用字符回退"))
         default:
             return (feature.description, "")
         }
@@ -125,7 +125,11 @@ enum DisplayText {
     }
 
     static func languages(of profile: Profile) -> String {
-        profile.followProxyLanguages ? followProxy : languages(profile.languages)
+        let resolved = profile.resolvedLanguages()
+        if !resolved.isEmpty, profile.followProxyLanguages || profile.languages.isEmpty {
+            return L10n.text("跟随时区：%@", resolved.joined(separator: ", "))
+        }
+        return profile.followProxyLanguages ? followProxy : languages(resolved)
     }
 
     static func timeZone(of profile: Profile) -> String {

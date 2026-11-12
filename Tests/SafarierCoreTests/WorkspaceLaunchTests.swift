@@ -59,6 +59,17 @@ final class WorkspaceLaunchTests: XCTestCase {
         XCTAssertEqual(spec.spiOverride, [])
     }
 
+    func testLaunchDerivesLanguageFromConfiguredTimeZone() throws {
+        let profile = Profile(name: "us-auto", mode: .ephemeral, timeZoneIdentifier: "America/New_York")
+        let spawner = RecordingSpawner()
+        try workspace.launch(profile, launcher: launcher(spawner))
+        let call = try XCTUnwrap(spawner.calls.first)
+        let spec = try RunnerLaunchSpec.parse(call.arguments, environment: call.environment)
+        XCTAssertEqual(spec.languages, ["en-US", "en"])
+        XCTAssertEqual(spec.timeZoneIdentifier, "America/New_York")
+        XCTAssertTrue(profile.languages.isEmpty, "启动时解析，不改写已保存的自动语言配置")
+    }
+
     func testRefusesToLaunchWhileRunnerHoldsLock() throws {
         let profile = Profile(name: "a", mode: .persistent)
         let lock = try ProfileLock.acquire(profileID: profile.id, in: workspace.locksDirectory)

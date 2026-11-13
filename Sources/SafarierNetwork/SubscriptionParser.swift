@@ -48,6 +48,8 @@ public enum SubscriptionParser {
         for physicalLine in decoded.components(separatedBy: .newlines) {
             let line = physicalLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            // Shadowrocket 订阅可能带 STATUS= 流量说明，它既不是节点，也不是上一条链接的续行。
+            if line.hasPrefix("STATUS=") { continue }
             if !line.contains("://"), let previous = lines.last, previous.contains("://") {
                 // 粘贴时折断的链接：续行里的缩进、空格不属于 Base64 内容。
                 lines[lines.count - 1] += line.filter { !$0.isWhitespace }
@@ -426,8 +428,25 @@ public enum SubscriptionFetchError: Error, Equatable {
 
 public struct SubscriptionFetcher: Sendable {
     public var timeout: TimeInterval
+    private let session: URLSession
+    private let directSession: URLSession
 
-    public init(timeout: TimeInterval = 30) { self.timeout = timeout }
+    public init(timeout: TimeInterval = 30) {
+        self.init(timeout: timeout, session: .shared, directSession: Self.directFallbackSession)
+    }
+
+    init(timeout: TimeInterval = 30, session: URLSession, directSession: URLSession) {
+        self.timeout = timeout
+        self.session = session
+        self.directSession = directSession
+    }
+
+    private static let directFallbackSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }()
 
     public func fetch(from url: URL) async throws -> [SubscriptionNode] {
         try await fetchResult(from: url).nodes
@@ -435,20 +454,68 @@ public struct SubscriptionFetcher: Sendable {
 
     /// 和 `fetch` 一样，另外带回跳过了哪些不支持的协议。
     public func fetchResult(from url: URL) async throws -> SubscriptionParseResult {
-        let data: Data
         if url.scheme?.lowercased() == "file" {
-            data = try Data(contentsOf: url)
-        } else {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = timeout
-            // 使用代理客户端兼容标识，避免服务端返回浏览器提示页；节点链接和 Clash YAML 均可解析。
-            request.setValue("Shadowrocket", forHTTPHeaderField: "User-Agent")
-            let (body, response) = try await URLSession.shared.data(for: request)
-            if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
-                throw SubscriptionFetchError.invalidHTTPStatus(response.statusCode)
-            }
-            data = body
+            return try Self.parse(Data(contentsOf: url))
         }
+        let download = try await download(from: url, userAgent: "Shadowrocket")
+        let result: SubscriptionParseResult
+        do {
+            result = try Self.parse(download.data)
+        } catch SubscriptionParseError.unsupportedScheme(let scheme) where Self.needsClash(scheme) {
+            // 全部是 Hysteria2 链接时，解析器尚无可用节点；向服务商请求引擎支持的 Clash 格式。
+            return try await fetchClash(from: url, directly: download.directly)
+        }
+        guard result.skippedSchemes.keys.contains(where: Self.needsClash) else { return result }
+        do {
+            let complete = try await fetchClash(from: url, directly: download.directly)
+            // 格式切换必须补齐节点，并保留原来可用节点的名称和连接身份，避免已有环境失去绑定。
+            guard complete.nodes.count > result.nodes.count, complete.skippedCount < result.skippedCount,
+                  result.nodes.allSatisfy({ original in
+                      complete.nodes.contains {
+                          $0.name == original.name && $0.type == original.type && $0.server == original.server &&
+                          $0.serverPort == original.serverPort && $0.uuid == original.uuid &&
+                          $0.username == original.username && $0.password == original.password
+                      }
+                  }) else { return result }
+            return complete
+        } catch {
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
+            try Task.checkCancellation()
+            // 服务商不支持格式协商时，仍保留第一次已经取得的可用节点和跳过说明。
+            return result
+        }
+    }
+
+    private static func needsClash(_ scheme: String) -> Bool {
+        ["hysteria2", "hy2"].contains(scheme)
+    }
+
+    private func fetchClash(from url: URL, directly: Bool) async throws -> SubscriptionParseResult {
+        let download = try await download(from: url, userAgent: "ClashMeta", directly: directly)
+        return try Self.parse(download.data)
+    }
+
+    private func download(from url: URL, userAgent: String, directly: Bool = false) async throws -> (data: Data, directly: Bool) {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        try Task.checkCancellation()
+        var usedDirectly = directly
+        var (body, response) = try await (directly ? directSession : session).data(for: request)
+        if !directly, (response as? HTTPURLResponse)?.statusCode == 403 {
+            // 系统代理出口可能被订阅站拦截；只对订阅下载直连重试一次，不用于环境浏览。
+            try Task.checkCancellation()
+            (body, response) = try await directSession.data(for: request)
+            usedDirectly = true
+        }
+        if let response = response as? HTTPURLResponse, !(200...299).contains(response.statusCode) {
+            throw SubscriptionFetchError.invalidHTTPStatus(response.statusCode)
+        }
+        return (body, usedDirectly)
+    }
+
+    private static func parse(_ data: Data) throws -> SubscriptionParseResult {
+        try Task.checkCancellation()
         guard let text = String(data: data, encoding: .utf8) else { throw SubscriptionParseError.invalidBase64 }
         return try SubscriptionParser.parseResult(text)
     }

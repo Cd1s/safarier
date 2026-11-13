@@ -188,6 +188,30 @@ final class SubscriptionParserTests: XCTestCase {
         XCTAssertEqual(try SubscriptionParser.parse(text).map(\.type), [.socks, .anytls])
     }
 
+    func testShadowrocketStatusHeaderIsIgnoredInPlainAndBase64Subscriptions() throws {
+        let text = """
+        STATUS=🚀↑:1GB,↓:2GB,TOT:100GB
+        socks://proxy.example:1080#Example
+        anytls://pw@h.example:443?sni=h.example#AnyTLS
+        """
+        let encoded = Data(text.utf8).base64EncodedString(options: [.lineLength76Characters, .endLineWithLineFeed])
+        for content in [text, encoded] {
+            let result = try SubscriptionParser.parseResult(content)
+            XCTAssertEqual(result.nodes.map(\.type), [.socks, .anytls])
+            XCTAssertEqual(result.nodes.map(\.name), ["Example", "AnyTLS"])
+            XCTAssertTrue(result.skippedSchemes.isEmpty)
+        }
+    }
+
+    func testShadowrocketStatusLineDoesNotBecomeNodeContinuation() throws {
+        let text = """
+        socks://proxy.example:1080#Example
+          STATUS=🚀↑:1GB,↓:2GB,TOT:100GB
+        anytls://pw@h.example:443#AnyTLS
+        """
+        XCTAssertEqual(try SubscriptionParser.parse(text).map(\.name), ["Example", "AnyTLS"])
+    }
+
     // MARK: - Shadowsocks / SS2022
 
     /// 16 / 32 字节的 SS2022 密钥，Base64 里故意带 `+`、`/`、`=`。

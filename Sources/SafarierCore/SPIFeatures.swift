@@ -23,7 +23,7 @@ public struct SPIFeatures: OptionSet, Hashable, Sendable, CustomStringConvertibl
     /// 打开后反而和真 Safari 不一致，所以不默认开。
     public static let webGPU = SPIFeatures(rawValue: 1 << 4)
     /// 按 Profile 语言收窄网页能按名字用的字体（原生引擎桥接）：英文、泰语等环境里网页查不到
-    /// 宿主机按中日韩语言下载的字体包（如苹方），和真英文 Mac 一致。只在已验证的 WebKit 版本上尝试，失败时不改变行为。
+    /// 宿主机的中日韩专用字体（包括内置宋体和下载的苹方），保留通用字体回退。只在已验证的 WebKit 版本上尝试，失败时不改变行为。
     public static let fontAllowlist = SPIFeatures(rawValue: 1 << 5)
 
     /// 新建直连环境默认开启的项：高级隐私保护、引擎层时区、Safari 专有接口与字体、按语言收窄字体。

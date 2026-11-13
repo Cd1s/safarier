@@ -15,7 +15,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     public var mode: ProfileMode
     public var proxyID: UUID?
     public let createdAt: Date
-    /// BCP-47 语言标签，如 ["en-US", "en"]；空数组表示跟随系统。
+    /// BCP-47 语言标签，如 ["en-US", "en"]；空数组按有效时区匹配，没有地区时区时跟随系统。
     public var languages: [String]
     /// IANA 时区标识，如 "America/Los_Angeles"；nil 表示跟随系统。
     public var timeZoneIdentifier: String?
@@ -40,6 +40,14 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     /// 是否配置了出站代理（独立代理、订阅节点或自定义 sing-box 出站）。
     public var hasOutboundProxy: Bool {
         proxyID != nil || subscriptionID != nil || !(customOutboundJSON?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    /// 自定义语言优先；自动语言按配置或代理解析出的时区匹配，再退回代理国家和系统。
+    public func resolvedLanguages(proxyLanguages: [String]? = nil, proxyTimeZone: String? = nil) -> [String] {
+        if !followProxyLanguages, !languages.isEmpty { return languages }
+        let zone = followProxyTimeZone ? proxyTimeZone : timeZoneIdentifier
+        if let zone, let locale = CountryLocaleTable.locale(forTimeZone: zone) { return locale.languages }
+        return followProxyLanguages ? proxyLanguages ?? [] : []
     }
 
     public init(

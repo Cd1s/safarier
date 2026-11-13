@@ -565,6 +565,13 @@ final class LoopbackHTTPServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "safarier.test.http")
     private let lock = NSLock()
     private var boundPort: UInt16?
+    private var receivedRequests: [String] = []
+
+    var requests: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return receivedRequests
+    }
 
     var port: UInt16? {
         lock.lock()
@@ -601,8 +608,14 @@ final class LoopbackHTTPServer: @unchecked Sendable {
 
     private func serve(_ connection: NWConnection) {
         connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [routes] data, _, _, _ in
-            let requestLine = data.flatMap { String(data: $0, encoding: .utf8) }?.components(separatedBy: "\r\n").first ?? ""
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self, routes] data, _, _, _ in
+            let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            if let self {
+                self.lock.lock()
+                self.receivedRequests.append(request)
+                self.lock.unlock()
+            }
+            let requestLine = request.components(separatedBy: "\r\n").first ?? ""
             let target = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
             let path = String(target.split(separator: "?", maxSplits: 1).first ?? "/")
             let response = routes[path] ?? Response(status: 404, headers: [:], body: "not found")

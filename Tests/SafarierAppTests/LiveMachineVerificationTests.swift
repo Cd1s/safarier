@@ -119,21 +119,18 @@ final class LiveMachineVerificationTests: XCTestCase {
 
     // MARK: - 字体
 
-    /// 英文 Profile 保留系统卷基础 CJK 字体，隐藏额外的中文资产和第三方字体。
-    /// “检测到中文字体”本身不等于泄漏：真实英文 macOS 也自带冬青黑体、宋体和黑体。
-    func testEnglishProfileKeepsBaseFontsAndHidesUnmatchedAssetsAndVendorFonts() throws {
+    /// 英文 Profile 同时隐藏内置中文专用字体、下载资产和第三方字体。
+    func testEnglishProfileHidesChineseSystemAssetsAndVendorFonts() throws {
         let english = Profile(name: "live-en", mode: .ephemeral, languages: ["en-US", "en"], timeZoneIdentifier: "Asia/Singapore")
         let output = try makeOutput(english)
         XCTAssertEqual(output.report[.fontAllowlist].name, "active", output.report[.fontAllowlist].summary)
         let probe = try probeFonts(output.configuration)
         for (thread, hits) in [("main", probe.main), ("worker", probe.worker)] {
             XCTAssertNil(hits.error, "\(thread)：\(hits.error ?? "")")
-            let chinese = Set(try XCTUnwrap(hits.chinese))
-            for name in Self.assetAndUserFonts { XCTAssertFalse(chinese.contains(name), "\(thread) leaked \(name)") }
-            for name in Self.baseCJKFonts { XCTAssertTrue(chinese.contains(name), "\(thread) lost system font \(name)") }
+            XCTAssertEqual(hits.chinese, [], "\(thread) 检出了中文字体")
             XCTAssertEqual(hits.vendor, [], "\(thread) 检出了国产厂商字体")
             XCTAssertEqual(hits.standard, Self.standardFonts, "\(thread) 的英文标准字体不全")
-            print("[live] en-US \(thread) base CJK visible: \(chinese.sorted()); language assets/vendor hidden")
+            print("[live] en-US \(thread): Chinese system fonts, language assets and vendor fonts hidden")
         }
         let chinese = Profile(name: "live-zh", mode: .ephemeral, languages: ["zh-CN"], timeZoneIdentifier: "Asia/Singapore")
         let control = try probeFonts(try makeOutput(chinese).configuration)
@@ -143,7 +140,7 @@ final class LiveMachineVerificationTests: XCTestCase {
     }
 
     /// Profile.languages == [] 必须走进程英文首选语言；第二语言含中文也不能放行额外中文资产。
-    func testSystemFollowingEnglishKeepsBaseFontsAndFiltersLanguageAssetsInRunner() throws {
+    func testSystemFollowingEnglishFiltersChineseFontsInRunner() throws {
         let profile = Profile(name: "live-system-en", mode: .ephemeral, languages: [])
         let document = try runProbe(profile, preferredLanguages: ["en-US", "zh-CN"])
         XCTAssertTrue(profile.languages.isEmpty)
@@ -153,13 +150,49 @@ final class LiveMachineVerificationTests: XCTestCase {
             XCTAssertEqual(values["language"] as? String, "en-US", thread)
             let fonts = try XCTUnwrap(values["fonts"] as? [String: Any])
             let detected = try XCTUnwrap(fonts["detected"] as? [String: Bool])
-            for name in Self.assetAndUserFonts + Self.vendorFonts {
+            for name in Self.chineseFonts + Self.assetAndUserFonts + Self.vendorFonts + Self.baseCJKFonts {
                 XCTAssertEqual(detected[name], false, "\(thread) leaked \(name)")
             }
-            for name in Self.baseCJKFonts + Self.standardFonts {
+            for name in Self.standardFonts {
                 XCTAssertEqual(detected[name], true, "\(thread) lost system font \(name)")
             }
-            print("[live] follow-system en-US \(thread): base fonts visible, language assets/vendor hidden")
+            print("[live] follow-system en-US \(thread): standard fonts visible, Chinese fonts hidden")
+        }
+    }
+
+    /// 从中文进程语言启动只有美国时区的环境，Runner 必须带英文参数重启；主线程和 Worker 都不能漏中文字体。
+    func testUSConfiguredTimeZoneSetsEnglishAndHidesChineseFontsEndToEnd() throws {
+        let server = try LoopbackHTTPServer(routes: [
+            "/": .init(status: 200, headers: ["Content-Type": "text/html; charset=utf-8"], body: "<!doctype html><body>region probe</body>"),
+        ])
+        defer { server.stop() }
+        spin(until: { server.port != nil }, timeout: 5)
+        let port = try XCTUnwrap(server.port)
+        let profile = Profile(name: "live-us-auto", mode: .ephemeral, timeZoneIdentifier: "America/New_York",
+                              startURL: URL(string: "http://127.0.0.1:\(port)/"))
+        let document = try runProbe(profile, preferredLanguages: ["zh-CN", "zh"])
+        let languageHeader = try XCTUnwrap(server.requests.flatMap { $0.components(separatedBy: "\r\n") }
+            .first { $0.lowercased().hasPrefix("accept-language:") })
+        let headerValue = languageHeader.split(separator: ":", maxSplits: 1).last?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        XCTAssertTrue(headerValue.hasPrefix("en-us"), languageHeader)
+        XCTAssertFalse(headerValue.contains("zh"), languageHeader)
+        XCTAssertEqual(capability(document, .languages), "active")
+        XCTAssertEqual(capability(document, .timeZone), "active")
+        XCTAssertEqual(capability(document, .fontAllowlist), "active")
+        for thread in ["main", "worker"] {
+            let values = try observed(document, thread)
+            XCTAssertEqual(values["language"] as? String, "en-US", thread)
+            XCTAssertEqual(values["locale"] as? String, "en-US", thread)
+            XCTAssertEqual(values["timeZone"] as? String, "America/New_York", thread)
+            XCTAssertEqual(values["januaryOffsetMinutes"] as? Int, 300, thread)
+            XCTAssertEqual(values["julyOffsetMinutes"] as? Int, 240, thread)
+            let fonts = try XCTUnwrap(values["fonts"] as? [String: Any])
+            let detected = try XCTUnwrap(fonts["detected"] as? [String: Bool])
+            for name in Self.chineseFonts + Self.baseCJKFonts {
+                XCTAssertEqual(detected[name], false, "\(thread) leaked \(name)")
+            }
+            for name in Self.standardFonts { XCTAssertEqual(detected[name], true, thread) }
+            print("[live] US time zone \(thread): en-US, America/New_York, no Chinese font hits")
         }
     }
 

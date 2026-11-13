@@ -2,7 +2,7 @@ import XCTest
 import SafarierCore
 @testable import Safarier
 
-/// 命令行 `--lang` / `--tz` 的取值：proxy / auto 跟随代理，system / none 跟随系统，其它照原样。
+/// 命令行 `--lang` / `--tz` 的来源选项和自定义值。
 @MainActor
 final class ManagerCLITests: XCTestCase {
     func testLanguageOption() {
@@ -11,7 +11,7 @@ final class ManagerCLITests: XCTestCase {
             XCTAssertTrue(option.follow, raw)
             XCTAssertEqual(option.languages, [], raw)
         }
-        for raw in ["system", "none"] {
+        for raw in ["timezone", "TIMEZONE", "system", "none"] {
             let option = ManagerCLI.parseLanguageOption(raw)
             XCTAssertFalse(option.follow, raw)
             XCTAssertEqual(option.languages, [], raw)

@@ -85,31 +85,36 @@ enum RunnerMain {
             var spiFeatures = spec.spiOverride ?? profile.spi
 
             // 语言 / 时区跟随代理：按出口 IP 的国家定下语言和时区，再交给工厂。
+            var resolvedGeo: ProxyGeoResult?
             if profile.followProxyLanguages || profile.followProxyTimeZone {
-                // 重新启动过的 Runner 带着上一次的结果：先记下是不是重启过，用完就把这些环境变量清掉，不再传给子进程。
-                let wasRelaunched = ProcessInfo.processInfo.environment[ProxyGeoResult.relaunchFlag] != nil
+                // 重新启动过的 Runner 直接使用上一次的解析结果，用完清掉环境变量，不再传给子进程。
                 let resolved = resolveFollowProxy(proxy: proxy, nodeHint: bound?.node.name)
+                resolvedGeo = resolved
                 for key in ProcessInfo.processInfo.environment.keys where key.hasPrefix("SAFARIER_GEO_") { unsetenv(key) }
                 if let resolved {
                     outbound["geo"] = [
                         "country": resolved.countryCode, "languages": resolved.languages,
                         "timeZone": resolved.timeZoneIdentifier, "source": "\(resolved.source)",
                     ]
-                    if profile.followProxyLanguages {
-                        // -AppleLanguages 只能在进程启动时生效：语言不一样就带上新参数重新启动自己（只重启一次）。
-                        let current = UserDefaults.standard.stringArray(forKey: "AppleLanguages") ?? []
-                        if current != resolved.languages && !wasRelaunched {
-                            relaunch(arguments: arguments, resolved: resolved, followTimeZone: profile.followProxyTimeZone)
-                        }
-                        effectiveProfile.languages = resolved.languages
-                    }
                     if profile.followProxyTimeZone {
                         effectiveProfile.timeZoneIdentifier = resolved.timeZoneIdentifier
                         spiFeatures.insert(.engineTimeZone)
                     }
                 } else {
-                    FileHandle.standardError.write(Data("[geo] 跟随代理没能确定出口国家，语言和时区沿用系统\n".utf8))
+                    if profile.followProxyTimeZone { effectiveProfile.timeZoneIdentifier = nil }
+                    FileHandle.standardError.write(Data("[geo] 跟随代理没能确定出口国家，未解析的区域设置沿用系统\n".utf8))
                 }
+            }
+            effectiveProfile.languages = profile.resolvedLanguages(
+                proxyLanguages: resolvedGeo?.languages, proxyTimeZone: resolvedGeo?.timeZoneIdentifier
+            )
+            // 语言必须在进程启动时生效，包括手动 run 和「只跟随代理时区」的入口。
+            // 参数已经是目标值时不再重试，由工厂报告实际 AppleLanguages 是否生效。
+            let currentLanguages = UserDefaults.standard.stringArray(forKey: "AppleLanguages") ?? []
+            if !effectiveProfile.languages.isEmpty, currentLanguages != effectiveProfile.languages,
+               spec.languages != effectiveProfile.languages {
+                relaunch(arguments: arguments, languages: effectiveProfile.languages,
+                         timeZoneIdentifier: effectiveProfile.timeZoneIdentifier, resolved: resolvedGeo)
             }
             let privacy = CompositePrivacyAdapter([
                 PublicAPIPrivacyAdapter(),
@@ -165,15 +170,17 @@ enum RunnerMain {
 
     /// 带上新的 `-AppleLanguages`（和跟随代理的 TZ）重新执行自己：先停 sing-box、释放 profile 锁，
     /// 进程号不变，管理器的进程跟踪不受影响。重新启动后的进程从头开始，再起 sing-box、再拿锁。
-    private static func relaunch(arguments: [String], resolved: ProxyGeoResult, followTimeZone: Bool) -> Never {
+    private static func relaunch(arguments: [String], languages: [String], timeZoneIdentifier: String?, resolved: ProxyGeoResult?) -> Never {
         stopSingbox()
         lock?.release()
         lock = nil
-        for (key, value) in resolved.relaunchEnvironment { setenv(key, value, 1) }
-        if followTimeZone { setenv("TZ", resolved.timeZoneIdentifier, 1) }
+        if let resolved {
+            for (key, value) in resolved.relaunchEnvironment { setenv(key, value, 1) }
+        }
+        if let timeZoneIdentifier { setenv("TZ", timeZoneIdentifier, 1) }
         let executable = RunnerLauncher.currentExecutableURL().path
-        let argv = [executable] + RunnerLaunchSpec.replacingAppleLanguages(resolved.languages, in: arguments)
-        FileHandle.standardError.write(Data("[geo] 带上 -AppleLanguages \(resolved.languages) 重新启动 Runner\n".utf8))
+        let argv = [executable] + RunnerLaunchSpec.replacingAppleLanguages(languages, in: arguments)
+        FileHandle.standardError.write(Data("[geo] 带上 -AppleLanguages \(languages) 重新启动 Runner\n".utf8))
         var cArguments = argv.map { strdup($0) } + [nil]
         execv(executable, &cArguments)
         fail(L10n.text("重新启动 Runner 失败（errno %d）", errno))

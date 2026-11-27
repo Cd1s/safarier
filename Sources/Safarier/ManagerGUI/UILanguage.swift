@@ -52,6 +52,7 @@ enum UILanguage {
 
     /// 启动时套用保存的选择：进程语言还不是选中的语言就重启自己。
     /// 裸可执行文件（`scripts/dev.sh`）没法重新拉起自己，保存后继续运行。
+    @MainActor
     static func applyAtLaunch() {
         guard let selected = stored() else { return }
         // 已经带着 -AppleLanguages 启动（就是我们重启的）：不再重启，避免系统把语言代码归一化后反复拉起。
@@ -60,6 +61,7 @@ enum UILanguage {
         relaunch()
     }
 
+    @MainActor
     private static func relaunch() {
         let bundle = Bundle.main.bundleURL
         guard bundle.pathExtension == "app" else {
@@ -70,9 +72,16 @@ enum UILanguage {
         configuration.createsNewApplicationInstance = true
         configuration.arguments = launchArguments(for: stored())
         configuration.activates = true
+        if let home = ProcessInfo.processInfo.environment["SAFARIER_HOME"], !home.isEmpty {
+            configuration.environment = ["SAFARIER_HOME": home]
+        }
+        // 先释放单实例锁再拉新实例，避免新进程在旧进程退出前误判双开而退出。
+        let workspace = ManagerApp.workspace
+        ManagerGUI.releaseManagerLock()
         NSWorkspace.shared.openApplication(at: bundle, configuration: configuration) { _, error in
             Task { @MainActor in
                 guard error == nil else {
+                    if let workspace { _ = ManagerGUI.acquireManagerLock(for: workspace) }
                     let alert = NSAlert()
                     alert.messageText = L10n.text("无法重新启动 Safarier")
                     alert.informativeText = L10n.text("语言设置已保存，下次启动时生效。")

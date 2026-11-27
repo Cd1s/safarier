@@ -410,6 +410,7 @@
 "打开 Safarier 的 GitHub 项目页" = "Open the Safarier project on GitHub";
 "打开" = "Open";
 "打开位置…" = "Open Location…";
+"打开环境管理器" = "Open Environment Manager";
 "扩展不存在：%@。" = "The extension does not exist: %@.";
 "扩展加载失败：%@" = "Couldn’t load extension: %@";
 "扩展已经安装：%@。" = "The extension is already installed: %@.";

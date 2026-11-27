@@ -193,6 +193,7 @@ enum DisplayText {
             case .invalidLanguageTag(let tag): return L10n.text("语言标签不合法：%@（例如 en-US）。", tag)
             case .unknownTimeZone(let identifier): return L10n.text("未知时区：%@。", identifier)
             case .unsupportedStartURLScheme(let scheme): return L10n.text("起始网址只能是 http 或 https，现在是「%@」。", scheme)
+            case .invalidStartupTab(let index): return L10n.text("第 %lld 个启动页签无效，请检查网址及标识。", index)
             case .conflictingOutbound: return L10n.text("独立代理、订阅节点和自定义代理只能选一个。")
             case .missingNodeName: return L10n.text("请选择订阅里的节点。")
             case .unknownDeviceModel(let id): return L10n.text("未知机型：%@。", id)

@@ -234,9 +234,9 @@ struct ProfileEditorView: View {
                     ProfileMetadataSections(model: model, profile: original)
                 }
 
+                StartupTabsSection(tabs: $editor.values.startupTabs, showsAllValidationErrors: editor.errorText != nil)
+
                 Section("其他") {
-                    TextField("起始网址", text: $editor.values.startURL, prompt: Text("https://example.com"))
-                        .autocorrectionDisabled()
                     TextField("备注", text: $editor.values.notes, prompt: Text("可选"), axis: .vertical)
                         .lineLimit(2...4)
                     if inline, let original {
@@ -294,7 +294,8 @@ struct ProfileEditorView: View {
                 }
             }
         }
-        .onChange(of: [editor.values.name, editor.values.languages, editor.values.timeZone, editor.values.startURL]) { editor.errorText = nil }
+        .onChange(of: [editor.values.name, editor.values.languages, editor.values.timeZone]) { editor.errorText = nil }
+        .onChange(of: editor.values.startupTabs) { editor.errorText = nil }
         .onChange(of: editor.values.subscriptionID) {
             // 单节点订阅直接选中；多节点订阅保留仍然有效的原选择。
             if let nodes = selectedSubscription?.nodes, nodes.count == 1 {

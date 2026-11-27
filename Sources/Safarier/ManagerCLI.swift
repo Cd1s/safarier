@@ -57,7 +57,7 @@ enum ManagerCLI {
     前置连接：本机 → 前置代理/节点 → 当前代理 → 网站。仅支持两跳；--upstream-proxy none 清除前置。
            自定义前置从文件读取单个 sing-box 出站 JSON，避免认证信息出现在命令行参数中。
     环境变量 SAFARIER_HOME 可覆盖元数据目录（默认 ~/Library/Application Support/Safarier）。
-    """)
+    """) + "\n" + L10n.text("profile create/update 的 --url 可重复，按顺序替换启动页签列表；--url none 清空列表，省略时保留原配置。launch --url 只覆盖本次启动。")
 
     static func run(_ arguments: [String]) -> Int32 {
         do {
@@ -183,7 +183,7 @@ enum ManagerCLI {
         } ?? .persistent
         let outbound = try parseOutbound(workspace, args)
         let deviceModel = try args.value("--device").flatMap(parseDevice)
-        let startURL = try args.value("--url").map(parseURL)
+        let startupTabs = try startupTabsOption(args)
         let language = args.value("--lang").map(parseLanguageOption)
         let timeZone = args.value("--tz").map(parseTimeZoneOption)
 
@@ -195,12 +195,12 @@ enum ManagerCLI {
             timeZoneIdentifier: timeZone?.identifier,
             followProxyLanguages: language?.follow ?? false,
             followProxyTimeZone: timeZone?.follow ?? false,
-            startURL: startURL,
             notes: args.value("--notes") ?? "",
             spi: try args.spi() ?? SPIFeatures.defaultFeatures(hasProxy: outbound != nil),
             subscriptionID: outbound?.subscriptionID,
             nodeName: outbound?.nodeName,
-            deviceModel: deviceModel
+            deviceModel: deviceModel,
+            startupTabs: startupTabs
         )
         try workspace.profiles.insert(profile)
         print(profile.id.uuidString)
@@ -220,7 +220,7 @@ enum ManagerCLI {
             profile.followProxyTimeZone = option.follow
             profile.timeZoneIdentifier = option.identifier
         }
-        if let raw = args.value("--url") { profile.startURL = raw == "none" ? nil : try parseURL(raw) }
+        if let tabs = try startupTabsOption(args) { profile.startupTabs = tabs }
         if let raw = args.value("--notes") { profile.notes = raw }
         let hadProxy = profile.hasOutboundProxy
         if args.value("--node") == "none", args.value("--sub") == nil, args.value("--proxy") == nil {
@@ -245,6 +245,21 @@ enum ManagerCLI {
             print(L10n.text("已更新 %@", profile.name))
         }
         return 0
+    }
+
+    /// profile 的重复 --url 替换整个启动列表；不传参数则保留原设置。
+    private static func startupTabsOption(_ args: ParsedArguments) throws -> [StartupTab]? {
+        let urls = args.values("--url")
+        guard !urls.isEmpty else { return nil }
+        if urls == ["none"] { return [] }
+        return try urls.map { StartupTab(url: try parseWebURL($0)) }
+    }
+
+    private static func parseWebURL(_ raw: String) throws -> URL {
+        guard let url = AddressInput.webURL(for: raw) else {
+            throw CLIError(L10n.text("--url 不是合法 URL：%@", raw))
+        }
+        return url
     }
 
     private static func parseURL(_ raw: String) throws -> URL {
@@ -871,7 +886,7 @@ struct CLIError: Error {
 /// `--key value` 选项、无值开关（flags）和位置参数。
 struct ParsedArguments {
     private(set) var positionals: [String] = []
-    private var options: [String: String] = [:]
+    private var options: [String: [String]] = [:]
     private var flags: Set<String> = []
 
     init<S: Sequence>(_ arguments: S, flags knownFlags: Set<String> = []) throws where S.Element == String {
@@ -881,24 +896,25 @@ struct ParsedArguments {
                 flags.insert(arg)
             } else if arg.hasPrefix("--") {
                 guard let value = iterator.next() else { throw CLIError(L10n.text("%@ 缺少参数值", arg)) }
-                options[arg] = value
+                options[arg, default: []].append(value)
             } else {
                 positionals.append(arg)
             }
         }
     }
 
-    func value(_ key: String) -> String? { options[key] }
+    func value(_ key: String) -> String? { options[key]?.last }
+    func values(_ key: String) -> [String] { options[key] ?? [] }
     func flag(_ key: String) -> Bool { flags.contains(key) }
 
     func required(_ key: String) throws -> String {
-        guard let value = options[key], !value.isEmpty else { throw CLIError(L10n.text("缺少 %@", key)) }
+        guard let value = value(key), !value.isEmpty else { throw CLIError(L10n.text("缺少 %@", key)) }
         return value
     }
 
     /// `--spi` 没给时返回 nil。
     func spi() throws -> SPIFeatures? {
-        guard let raw = options["--spi"] else { return nil }
+        guard let raw = value("--spi") else { return nil }
         do {
             return try SPIFeatures(parsing: raw)
         } catch {

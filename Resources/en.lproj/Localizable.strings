@@ -722,8 +722,6 @@
 "请选择订阅里的节点。" = "Select a node from the subscription.";
 "读取数据失败" = "Failed to Load Data";
 "调用失败：%@" = "Call failed: %@";
-"起始网址" = "Start URL";
-"起始网址不合法：%@" = "Invalid Start Page URL: %@";
 "起始网址只能是 http 或 https，现在是「%@」。" = "The start page URL must be http or https; it is currently “%@”.";
 "起始页面" = "Home Page";
 "超时（%lld 秒）" = "Timed out after %lld seconds";
@@ -859,3 +857,39 @@
 "按环境语言过滤内置及下载的中日韩专用字体；英文环境隐藏宋体、冬青黑体、苹方等字族，保留常用字体和通用字符回退" = "Filters built-in and downloaded CJK-specific fonts by profile language. English profiles hide families such as Songti, Hiragino Sans GB and PingFang, while keeping common fonts and general character fallback.";
 
 "跟随时区：%@" = "Follow Time Zone: %@";
+
+/* 启动页签 */
+"启动页签" = "Startup Tabs";
+"启动时打开" = "Open on startup";
+"网址" = "URL";
+"上移" = "Move Up";
+"下移" = "Move Down";
+"删除页签" = "Remove Tab";
+"添加启动页签" = "Add Startup Tab";
+"未配置启动页签" = "No Startup Tabs";
+"启动时默认打开起始页，可按顺序添加多个常用网址。" = "The start page opens by default. Add URLs below to open them in order on launch.";
+"关闭开关可暂停此页签的自动启动" = "Turn off to pause opening this tab on startup";
+"开启开关以恢复此页签的自动启动" = "Turn on to resume opening this tab on startup";
+"启动时打开第 %lld 个页签" = "Open tab %lld on startup";
+"第 %lld 个启动页签的网址" = "URL for startup tab %lld";
+"请输入有效的 http 或 https 网址。" = "Enter a valid http or https URL.";
+"请输入网址，或删除此空白行。" = "Enter a URL or remove this empty row.";
+"%lld / %lld 已启用" = "%lld / %lld enabled";
+"全部已暂停（共 %lld 个）" = "All paused (%lld total)";
+"主页" = "Home";
+"已暂停" = "Paused";
+"启动时自动聚焦，并作为主页（⇧⌘H）" = "Focused on launch and used as Home (⇧⌘H)";
+"启动打开顺序第 %lld 位" = "Opens as tab %lld on launch";
+"已暂停，启动时跳过" = "Paused and skipped on launch";
+"拖拽调整打开顺序" = "Drag to reorder";
+"按回车可连续添加" = "Press Return to add another";
+"设为首个（主页）" = "Move to First (Home)";
+"暂停此页签" = "Pause Tab";
+"启用此页签" = "Enable Tab";
+"已删除 1 项" = "Removed 1 tab";
+"撤销" = "Undo";
+"撤销删除" = "Undo Remove";
+"启动时按顺序打开已启用的网址，第 1 个启用项同时作为主页（⇧⌘H）。修改在下次启动时生效。" = "Enabled URLs open in order in the same window, and the first enabled tab also serves as Home (⇧⌘H). Changes apply the next time this environment starts.";
+"第 %lld 个启动页签的网址无效，请输入 http 或 https 网址，或删除该项。" = "Startup tab %lld has an invalid URL. Enter an http or https URL, or remove the tab.";
+"第 %lld 个启动页签无效，请检查网址及标识。" = "Startup tab %lld is invalid. Check its URL and identifier.";
+"profile create/update 的 --url 可重复，按顺序替换启动页签列表；--url none 清空列表，省略时保留原配置。launch --url 只覆盖本次启动。" = "Repeat --url in profile create/update to replace startup tabs in order. Use --url none to clear the list; omit it to keep existing settings. launch --url overrides only this launch.";

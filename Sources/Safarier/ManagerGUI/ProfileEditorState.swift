@@ -10,7 +10,7 @@ struct ProfileEditorValues: Equatable {
     var languages: String
     var timeZoneSource: ProfileEditorView.RegionSource
     var timeZone: String
-    var startURL: String
+    var startupTabs: [StartupTabDraft]
     var outboundKind: ProfileEditorView.OutboundKind
     var proxyID: UUID?
     var subscriptionID: UUID?
@@ -32,7 +32,7 @@ struct ProfileEditorValues: Equatable {
             $0.followProxyTimeZone ? .proxy : $0.timeZoneIdentifier == nil ? .system : .custom
         } ?? .system
         timeZone = original?.timeZoneIdentifier ?? ""
-        startURL = original?.startURL?.absoluteString ?? ""
+        startupTabs = original?.startupTabs.map(StartupTabDraft.init) ?? []
         customJSON = original?.customOutboundJSON ?? CustomOutbound.defaultJSON
         let outbound: ProfileEditorView.OutboundKind
         if original?.customOutboundJSON != nil {
@@ -53,15 +53,7 @@ struct ProfileEditorValues: Equatable {
     }
 
     func profile(original: Profile?) throws -> Profile {
-        var url: URL?
-        let rawURL = startURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !rawURL.isEmpty {
-            // 和浏览窗口的地址栏一样规范化（去掉看不见的字符、没写协议时补上），但起始网址必须是有主机的网页地址，不当成搜索。
-            url = AddressInput.webURL(for: rawURL)
-            guard url != nil else {
-                throw ProfileEditorError.invalid(L10n.text("起始网址不合法：%@", rawURL))
-            }
-        }
+        let tabs = try startupTabs.enumerated().map { try $0.element.validatedTab(at: $0.offset) }
 
         if outboundKind == .direct, languageSource == .proxy || timeZoneSource == .proxy {
             throw ProfileEditorError.invalid(L10n.text("「跟随代理」需要选择独立代理或订阅节点。"))
@@ -80,7 +72,7 @@ struct ProfileEditorValues: Equatable {
         profile.followProxyTimeZone = timeZoneSource == .proxy
         let zone = timeZone.trimmingCharacters(in: .whitespacesAndNewlines)
         profile.timeZoneIdentifier = timeZoneSource != .custom || zone.isEmpty ? nil : zone
-        profile.startURL = url
+        profile.startupTabs = tabs
         switch outboundKind {
         case .custom:
             profile.customOutboundJSON = customJSON

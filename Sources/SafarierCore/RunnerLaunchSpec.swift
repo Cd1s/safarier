@@ -6,7 +6,12 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
     public static let subcommand = "run"
 
     public var profileID: UUID
-    public var startURL: URL?
+    public var startURLs: [URL]
+    /// 单页探针和旧调用方使用第一个网址。
+    public var startURL: URL? {
+        get { startURLs.first }
+        set { startURLs = newValue.map { [$0] } ?? [] }
+    }
     /// BCP-47 列表；非空时以 `-AppleLanguages` 传给 Runner 进程（NSArgumentDomain，公开行为）。
     public var languages: [String]
     /// IANA 时区；非空时以 `TZ` 环境变量传给 Runner 进程。M0-2 实测：TZ 不会传到 WebContent 进程，
@@ -26,10 +31,11 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
         timeZoneIdentifier: String? = nil,
         probe: Bool = false,
         spiOverride: SPIFeatures? = nil,
-        background: Bool = false
+        background: Bool = false,
+        startURLs: [URL]? = nil
     ) {
         self.profileID = profileID
-        self.startURL = startURL
+        self.startURLs = startURLs ?? startURL.map { [$0] } ?? []
         self.languages = languages
         self.timeZoneIdentifier = timeZoneIdentifier
         self.probe = probe
@@ -40,8 +46,8 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
     /// 不含可执行文件路径本身。
     public func arguments() -> [String] {
         var args = [Self.subcommand, "--profile", profileID.uuidString]
-        if let startURL {
-            args += ["--url", startURL.absoluteString]
+        for url in startURLs {
+            args += ["--url", url.absoluteString]
         }
         if probe {
             args.append("--probe")
@@ -75,7 +81,7 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
         guard arguments.first == subcommand else { throw RunnerLaunchSpecError.missingSubcommand }
 
         var profileID: UUID?
-        var startURL: URL?
+        var startURLs: [URL] = []
         var languages: [String] = []
         var probe = false
         var spiOverride: SPIFeatures?
@@ -98,7 +104,7 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
             case "--url":
                 let raw = try value(after: arg)
                 guard let url = URL(string: raw), url.scheme != nil else { throw RunnerLaunchSpecError.invalidURL(raw) }
-                startURL = url
+                startURLs.append(url)
             case "--probe":
                 probe = true
             case "--background":
@@ -126,12 +132,12 @@ public struct RunnerLaunchSpec: Equatable, Sendable {
         let tz = environment["TZ"].flatMap { $0.isEmpty ? nil : $0 }
         return RunnerLaunchSpec(
             profileID: profileID,
-            startURL: startURL,
             languages: languages,
             timeZoneIdentifier: tz,
             probe: probe,
             spiOverride: spiOverride,
-            background: background
+            background: background,
+            startURLs: startURLs
         )
     }
 

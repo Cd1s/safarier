@@ -156,7 +156,7 @@ public struct SafarierWorkspace: Sendable {
         }
     }
 
-    /// 按 profile 生成 Runner 参数；`url` 为 nil 时用 profile 的起始网址。
+    /// 显式网址覆盖本次启动列表；否则按顺序打开启用项，探针只取第一项。
     public func runnerSpec(
         for profile: Profile,
         url: URL? = nil,
@@ -164,14 +164,15 @@ public struct SafarierWorkspace: Sendable {
         spiOverride: SPIFeatures? = nil,
         background: Bool = false
     ) -> RunnerLaunchSpec {
-        RunnerLaunchSpec(
+        let urls = url.map { [$0] } ?? profile.startupURLs
+        return RunnerLaunchSpec(
             profileID: profile.id,
-            startURL: url ?? profile.startURL,
             languages: profile.resolvedLanguages(),
             timeZoneIdentifier: profile.followProxyTimeZone ? nil : profile.timeZoneIdentifier,
             probe: probe,
             spiOverride: spiOverride,
-            background: background
+            background: background,
+            startURLs: probe ? Array(urls.prefix(1)) : urls
         )
     }
 

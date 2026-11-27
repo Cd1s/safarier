@@ -23,7 +23,15 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     public var followProxyLanguages: Bool
     /// 时区跟随代理：Runner 启动时按出口 IP 的国家自动匹配时区（此时 `timeZoneIdentifier` 不用）。
     public var followProxyTimeZone: Bool
-    public var startURL: URL?
+    /// 启动页签按数组顺序打开，暂停项仍保存在配置中。
+    public var startupTabs: [StartupTab]
+    public var startupURLs: [URL] { startupTabs.filter(\.isEnabled).map(\.url) }
+
+    /// 兼容单网址调用方；赋值表示用一个启用项替换整个列表，nil 清空列表。
+    public var startURL: URL? {
+        get { startupURLs.first }
+        set { startupTabs = newValue.map { [StartupTab(id: startupTabs.first?.id ?? id, url: $0)] } ?? [] }
+    }
     public var notes: String
     /// 开启的原生引擎接口能力。新建时默认 `SPIFeatures.defaultFeatures`；旧 JSON 没有这个字段时是空（保持当时的行为）。
     public var spi: SPIFeatures
@@ -67,7 +75,8 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         nodeName: String? = nil,
         deviceModel: String? = nil,
         customOutboundJSON: String? = nil,
-        hideApplePayCardStatus: Bool = true
+        hideApplePayCardStatus: Bool = true,
+        startupTabs: [StartupTab]? = nil
     ) {
         let hasProxy = proxyID != nil || subscriptionID != nil || !(customOutboundJSON?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         self.id = id
@@ -79,7 +88,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         self.timeZoneIdentifier = timeZoneIdentifier
         self.followProxyLanguages = followProxyLanguages
         self.followProxyTimeZone = followProxyTimeZone
-        self.startURL = startURL
+        self.startupTabs = startupTabs ?? startURL.map { [StartupTab(id: id, url: $0)] } ?? []
         self.notes = notes
         self.spi = spi ?? SPIFeatures.defaultFeatures(hasProxy: hasProxy)
         self.hideApplePayCardStatus = hideApplePayCardStatus
@@ -93,7 +102,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, name, mode, proxyID, createdAt, languages, timeZoneIdentifier, startURL, notes, spi
         case subscriptionID, nodeName, deviceModel, followProxyLanguages, followProxyTimeZone
-        case customOutboundJSON, hideApplePayCardStatus
+        case customOutboundJSON, hideApplePayCardStatus, startupTabs
     }
 
     public init(from decoder: Decoder) throws {
@@ -105,7 +114,14 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         languages = try container.decodeIfPresent([String].self, forKey: .languages) ?? []
         timeZoneIdentifier = try container.decodeIfPresent(String.self, forKey: .timeZoneIdentifier)
-        startURL = try container.decodeIfPresent(URL.self, forKey: .startURL)
+        if container.contains(.startupTabs), (try? container.decodeNil(forKey: .startupTabs)) != true {
+            startupTabs = try container.decode([StartupTab].self, forKey: .startupTabs)
+        } else {
+            // 旧记录（或显式 null）使用环境 ID，重复读取不会生成不同的草稿身份。
+            let tabID = id
+            startupTabs = try container.decodeIfPresent(URL.self, forKey: .startURL)
+                .map { [StartupTab(id: tabID, url: $0)] } ?? []
+        }
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         spi = try container.decodeIfPresent(SPIFeatures.self, forKey: .spi) ?? []
         hideApplePayCardStatus = try container.decodeIfPresent(Bool.self, forKey: .hideApplePayCardStatus) ?? true
@@ -115,6 +131,29 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         deviceModel = try container.decodeIfPresent(String.self, forKey: .deviceModel)
         followProxyLanguages = try container.decodeIfPresent(Bool.self, forKey: .followProxyLanguages) ?? false
         followProxyTimeZone = try container.decodeIfPresent(Bool.self, forKey: .followProxyTimeZone) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(mode, forKey: .mode)
+        try container.encodeIfPresent(proxyID, forKey: .proxyID)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(languages, forKey: .languages)
+        try container.encodeIfPresent(timeZoneIdentifier, forKey: .timeZoneIdentifier)
+        try container.encode(followProxyLanguages, forKey: .followProxyLanguages)
+        try container.encode(followProxyTimeZone, forKey: .followProxyTimeZone)
+        try container.encode(startupTabs, forKey: .startupTabs)
+        // 旧版只能识别一个网址；全部暂停时不输出旧字段，防止回退后误打开。
+        try container.encodeIfPresent(startURL, forKey: .startURL)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(spi, forKey: .spi)
+        try container.encode(hideApplePayCardStatus, forKey: .hideApplePayCardStatus)
+        try container.encodeIfPresent(subscriptionID, forKey: .subscriptionID)
+        try container.encodeIfPresent(nodeName, forKey: .nodeName)
+        try container.encodeIfPresent(deviceModel, forKey: .deviceModel)
+        try container.encodeIfPresent(customOutboundJSON, forKey: .customOutboundJSON)
     }
 
     // MARK: - 复制环境
@@ -141,9 +180,10 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
             id: newID, name: newName, mode: mode, proxyID: proxyID, createdAt: createdAt,
             languages: languages, timeZoneIdentifier: timeZoneIdentifier,
             followProxyLanguages: followProxyLanguages, followProxyTimeZone: followProxyTimeZone,
-            startURL: startURL, notes: notes, spi: spi,
+            notes: notes, spi: spi,
             subscriptionID: subscriptionID, nodeName: nodeName, deviceModel: deviceModel,
-            customOutboundJSON: customOutboundJSON, hideApplePayCardStatus: hideApplePayCardStatus
+            customOutboundJSON: customOutboundJSON, hideApplePayCardStatus: hideApplePayCardStatus,
+            startupTabs: startupTabs.map { StartupTab(url: $0.url, isEnabled: $0.isEnabled) }
         )
     }
 
@@ -173,10 +213,14 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         if let deviceModel, MacDeviceModel.preset(deviceModel) == nil {
             throw ProfileValidationError.unknownDeviceModel(deviceModel)
         }
-        if let url = startURL {
-            let scheme = url.scheme?.lowercased() ?? ""
+        var tabIDs = Set<UUID>()
+        for (index, tab) in startupTabs.enumerated() {
+            let scheme = tab.url.scheme?.lowercased() ?? ""
             guard scheme == "http" || scheme == "https" else {
                 throw ProfileValidationError.unsupportedStartURLScheme(scheme)
+            }
+            guard AddressInput.webURL(for: tab.url.absoluteString) != nil, tabIDs.insert(tab.id).inserted else {
+                throw ProfileValidationError.invalidStartupTab(index + 1)
             }
         }
     }
@@ -190,6 +234,7 @@ public enum ProfileValidationError: Error, Equatable {
     case invalidLanguageTag(String)
     case unknownTimeZone(String)
     case unsupportedStartURLScheme(String)
+    case invalidStartupTab(Int)
     /// 同时绑定了独立代理和订阅节点。
     case conflictingOutbound
     /// 绑定了订阅却没指定节点（或指定了节点却没有订阅）。

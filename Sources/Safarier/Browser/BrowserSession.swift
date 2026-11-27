@@ -112,12 +112,31 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     }
 
     func start(url: URL?, background: Bool = false) {
+        start(urls: url.map { [$0] } ?? [], background: background)
+    }
+
+    /// 启动页签共用一个窗口，全部挂好后再统一选中第一项并决定前后台显示，避免中途切页和窗口闪烁。
+    func start(urls: [URL], background: Bool = false) {
         _ = try? startAgentBridge()
-        let controller = openWindow(url: url, background: background)
-        controller.window.center()
+        let first = openWindow(url: urls.first, background: true)
+        first.window.center()
+        var anchor = first
+        for url in urls.dropFirst() {
+            anchor = appendStartupTab(after: anchor, url: url)
+        }
+        first.window.tabGroup?.selectedWindow = first.window
         if !background {
+            first.window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    /// 仅供启动阶段批量挂入后续页签，不修改当前选中页签或窗口层级。
+    private func appendStartupTab(after host: BrowserWindowController, url: URL?) -> BrowserWindowController {
+        let controller = makeController(configuration: nil, contentSize: host.window.contentLayoutRect.size)
+        host.window.addTabbedWindow(controller.window, ordered: .above)
+        show(controller, url: url, popup: false, background: true)
+        return controller
     }
 
     /// 新窗口。`configuration` 来自网页的 window.open（必须用它，opener 关系才在）；`contentSize` 是弹窗要求的尺寸。

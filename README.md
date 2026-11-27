@@ -75,6 +75,7 @@ The app is ad-hoc signed rather than signed with an Apple Developer ID and notar
 | Capability | What It Does for You |
 |---|---|
 | **Independent Account Spaces** | Create unlimited **Persistent** spaces (stay logged in forever) or **Temporary Private** spaces (auto-wiped when closed). Press **`⌘D`** to clone any environment in one click. |
+| **Startup Tab Lists** | Configure multiple URLs per environment, reorder them, and pause individual tabs without deleting them. Enabled tabs open in order in one window with the first tab selected as Home. See [Startup Tabs](docs/startup-tabs.md). |
 | **34 Real Mac Models** | Simulate **MacBook Pro 16" & 14"** (Apple Silicon XDR), **MacBook Air 15" & 13"**, **iMac 24" 4.5K**, **Mac Studio (5K Studio Display)**, **Mac mini (4K Retina)**, and **Mac Pro (6K XDR)** — complete with matching Retina ratio, P3 wide color, and HDR display traits. |
 | **Auto Follow-Proxy Region** | Safarier detects the proxy exit region and time zone at launch. Automatic languages follow the effective time zone (for example, en-US for US time zones), including manually configured time zones. Custom languages take priority. |
 | **Real Mac Font Isolation** | Enabled by default: blocks third-party fonts and filters built-in and downloaded CJK-specific fonts by the effective language. English profiles hide Songti, Hiragino Sans GB, PingFang and their localized aliases, while keeping common fonts and general character fallback. Restart the profile after language, time zone or font changes. |

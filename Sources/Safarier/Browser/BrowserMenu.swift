@@ -27,6 +27,7 @@ enum BrowserMenu {
             item("新建标签页", #selector(BrowserActions.newTab(_:)), "t"),
             item("重新打开上次关闭的标签页", #selector(BrowserActions.reopenClosedTab(_:)), "t", [.command, .shift]),
             item("打开位置…", #selector(BrowserActions.focusLocation(_:)), "l"),
+            item("添加到启动页签…", #selector(BrowserActions.addStartupTab(_:)), "d"),
             .separator(),
             item("关闭标签页", #selector(BrowserActions.closeTab(_:)), "w"),
             item("关闭其他标签页", #selector(BrowserActions.closeOtherTabs(_:)), "w", [.command, .option]),
@@ -212,6 +213,7 @@ enum BrowserMenu {
     @objc optional func newTab(_ sender: Any?)
     @objc optional func reopenClosedTab(_ sender: Any?)
     @objc optional func focusLocation(_ sender: Any?)
+    @objc optional func addStartupTab(_ sender: Any?)
     @objc optional func closeTab(_ sender: Any?)
     @objc optional func closeOtherTabs(_ sender: Any?)
     @objc optional func closeWindow(_ sender: Any?)

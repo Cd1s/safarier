@@ -48,9 +48,12 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     private(set) var historyPage: HistoryPageView?
     /// 当前标签正显示历史记录（盖在网页上，下面的网页保留）。
     private(set) var showingHistory = false
-    /// 正在显示的关闭确认 / 清除历史确认（测试用）。
+    /// 正在显示的关闭确认 / 清除历史确认 / 添加启动页签表单（测试用）。
     private(set) var closeConfirmation: NSAlert?
     private(set) var clearHistoryConfirmation: NSAlert?
+    private(set) var addStartupTabSheet: AddStartupTabSheetController?
+    private(set) var startupTabToast: StartupTabToastView?
+    private var toastDismissWorkItem: DispatchWorkItem?
 
     struct NavigationDiagnostics: Equatable {
         /// 最近一次主框架响应的 HTTP 状态码；新导航开始时清空，非 HTTP 响应（about:、出错页）没有。
@@ -519,6 +522,107 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
         failedURL = nil
         webView.goForward()
     }
+    /// ⌘D：弹出原生 Safari 风格下拉表单，把当前网页（或手动编辑的网址）加入本环境的启动页签。
+    @objc func addStartupTab(_ sender: Any?) {
+        guard window.attachedSheet == nil, addStartupTabSheet == nil else { return }
+        let sheet = AddStartupTabSheetController(
+            profileName: session.profile.name,
+            initialURL: initialStartupTabURL,
+            existingTabs: session.latestStartupTabs()
+        )
+        sheet.onSubmit = { [weak self] url, position, reenableTabID in
+            guard let self else { return .failure(StartupTabShortcutError.profileNotFound) }
+            do {
+                let result = try self.session.addOrReenableStartupTab(
+                    url: url,
+                    position: position,
+                    reenableTabID: reenableTabID
+                )
+                return .success(result)
+            } catch {
+                return .failure(error)
+            }
+        }
+        sheet.onFinished = { [weak self] result in
+            guard let self else { return }
+            self.addStartupTabSheet = nil
+            if let result {
+                self.showStartupTabToast(for: result)
+            }
+        }
+        addStartupTabSheet = sheet
+        sheet.present(attachedTo: window)
+    }
+
+    /// 供 ⌘D 表单预填的当前网页地址：优先有效 http/https 网址，空白起始页或历史记录视图返回 nil。
+    var initialStartupTabURL: URL? {
+        guard !showingHome, !showingHistory else { return nil }
+        guard let candidate = failedURL ?? webView.url else { return nil }
+        return AddressInput.webURL(for: candidate.absoluteString)
+    }
+
+    private func showStartupTabToast(for result: StartupTabSaveResult) {
+        let message: String
+        if result.wasReenabled {
+            message = L10n.text("已重新启用启动页签")
+        } else if result.setAsHome {
+            message = L10n.text("已设为首页启动页签（共 %lld 项）", result.totalCount)
+        } else {
+            message = L10n.text("已添加到启动页签（共 %lld 项）", result.totalCount)
+        }
+        presentStartupTabToast(message: message, undoToken: result.undoToken, duration: 3.8)
+    }
+
+    private func presentStartupTabToast(message: String, undoToken: StartupTabUndoToken?, duration: TimeInterval) {
+        guard let container = window.contentView else { return }
+        toastDismissWorkItem?.cancel()
+        toastDismissWorkItem = nil
+
+        let toast: StartupTabToastView
+        if let existing = startupTabToast {
+            toast = existing
+            // 确保复用的轻提示位于后加入的历史记录视图等覆盖层之上。
+            container.addSubview(toast, positioned: .above, relativeTo: nil)
+        } else {
+            toast = StartupTabToastView(frame: .zero)
+            toast.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(toast)
+            NSLayoutConstraint.activate([
+                toast.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                toast.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+            ])
+            startupTabToast = toast
+        }
+
+        toast.configure(message: message, allowsUndo: undoToken != nil)
+        toast.onUndo = undoToken.map { token in
+            { [weak self] in
+                guard let self else { return }
+                do {
+                    _ = try self.session.undoStartupTabChange(token)
+                    self.presentStartupTabToast(message: L10n.text("已撤销更改"), undoToken: nil, duration: 1.8)
+                } catch {
+                    self.presentStartupTabToast(message: error.localizedDescription, undoToken: nil, duration: 2.5)
+                }
+            }
+        }
+        toast.isHidden = false
+        toast.alphaValue = 1
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.dismissStartupTabToast()
+        }
+        toastDismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+    }
+
+    func dismissStartupTabToast() {
+        toastDismissWorkItem?.cancel()
+        toastDismissWorkItem = nil
+        startupTabToast?.removeFromSuperview()
+        startupTabToast = nil
+    }
+
     /// ⇧⌘H：打开环境的起始网址；没设时回到起始页。
     @objc func goHome(_ sender: Any?) {
         hideHistory()
@@ -769,6 +873,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
              #selector(showFind(_:)), #selector(findNextMatch(_:)), #selector(findPreviousMatch(_:)), #selector(duplicateTab(_:)):
             return displayURL != nil
         case #selector(goHome(_:)): return displayURL != nil || session.profile.startURL != nil
+        case #selector(addStartupTab(_:)): return window.attachedSheet == nil && addStartupTabSheet == nil
         case #selector(closeOtherTabs(_:)): return tabs.count > 1
         case #selector(reopenClosedTab(_:)): return !session.closedTabURLs.isEmpty
         case #selector(selectTabByNumber(_:)): return Self.tab(number: item.tag, in: tabs) != nil
@@ -913,6 +1018,9 @@ final class BrowserWindowController: NSObject, NSWindowDelegate, NSToolbarDelega
     }
 
     func windowWillClose(_ notification: Notification) {
+        addStartupTabSheet?.dismiss(result: nil)
+        addStartupTabSheet = nil
+        dismissStartupTabToast()
         session.recordClosedTab(displayURL)
         observations.removeAll()
         webView.stopLoading()

@@ -127,6 +127,7 @@ final class ManagerModel: ObservableObject {
     private var orphanCleanupTask: Task<Void, Never>?
     private var monitor: Timer?
     private var activationObserver: NSObjectProtocol?
+    private var profilesSyncObserver: NSObjectProtocol?
 
     init(workspace: SafarierWorkspace, credentials: any CredentialStore = KeychainCredentialStore(),
          proxyTester: @escaping ProxyConnectionTester.Test = { try await ProxyConnectionTester.check(proxy: $0, password: $1) },
@@ -151,6 +152,13 @@ final class ManagerModel: ObservableObject {
         orphanCleanupTask?.cancel()
         for task in proxyTestTasks.values { task.cancel() }
         for task in nodeTestTasks.values { task.cancel() }
+        monitor?.invalidate()
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+        if let profilesSyncObserver {
+            DistributedNotificationCenter.default().removeObserver(profilesSyncObserver)
+        }
     }
 
     // MARK: - 读取
@@ -214,6 +222,26 @@ final class ManagerModel: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
+        }
+        startObservingProfilesSync()
+    }
+
+    /// 监听同工作目录的跨进程环境配置变更通知（例如浏览器按 ⌘D 新增/撤销启动页签后即时刷新）。
+    func startObservingProfilesSync() {
+        stopObservingProfilesSync()
+        profilesSyncObserver = DistributedNotificationCenter.default().addObserver(
+            forName: ProfilesSyncNotification.notificationName,
+            object: ProfilesSyncNotification.workspaceScope(for: workspace.root),
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reload() }
+        }
+    }
+
+    func stopObservingProfilesSync() {
+        if let profilesSyncObserver {
+            DistributedNotificationCenter.default().removeObserver(profilesSyncObserver)
+            self.profilesSyncObserver = nil
         }
     }
 

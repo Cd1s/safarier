@@ -107,6 +107,13 @@ struct ProfileDetailHeader: View {
             Button { model.duplicate(profile) } label: { Label("复制环境", systemImage: "plus.square.on.square") }
                 .help("复制全部设置，新环境不带 Cookie 和登录状态")
                 .disabled(editor.hasChanges || editor.isSaving)
+            Button { model.sheet = .importCookies(profile) } label: {
+                Label("导入 Cookie…", systemImage: "square.and.arrow.down")
+            }
+            .disabled(profile.mode == .ephemeral || state != .stopped || purging)
+            .help(profile.mode == .ephemeral
+                ? L10n.text("临时环境不在磁盘上保存网站数据")
+                : L10n.text("从 JSON 或 Netscape cookies.txt 导入 Cookie"))
             Button { model.confirmation = .purgeProfile(profile) } label: {
                 Label(purging ? L10n.text("正在清理…") : L10n.text("清理沙盒数据…"), systemImage: "eraser")
             }

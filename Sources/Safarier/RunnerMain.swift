@@ -144,7 +144,7 @@ enum RunnerMain {
                 let session = BrowserSession(profile: effectiveProfile, output: output, outboundDescription: outboundDescription, diagnostics: diagnostics, workspace: workspace)
                 controller = session
                 app.delegate = session
-                session.start(urls: spec.startURLs, background: spec.background)
+                session.scheduleStart(urls: spec.startURLs, background: spec.background)
             }
             app.run()
             exit(0)

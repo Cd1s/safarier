@@ -27,6 +27,7 @@ struct SafarierAppView: View {
             case .newSubscription: SubscriptionEditorView(model: model)
             case .newProxy: ProxyEditorView(model: model, original: nil)
             case .editProxy(let proxy): ProxyEditorView(model: model, original: proxy)
+            case .importCookies(let profile): CookieImportView(model: model, profile: profile)
             }
         }
         .confirmationDialog(
@@ -335,6 +336,8 @@ struct ManagerSidebar: View {
                 .disabled(state != .stopped)
         }
         Button("复制环境") { model.duplicate(profile) }
+        Button("导入 Cookie…") { model.sheet = .importCookies(profile) }
+            .disabled(profile.mode == .ephemeral || state != .stopped)
         Divider()
         Button("清理沙盒数据…") { model.confirmation = .purgeProfile(profile) }
             .disabled(profile.mode == .ephemeral || state != .stopped)

@@ -50,6 +50,7 @@ final class ManagerModel: ObservableObject {
         case newSubscription
         case newProxy
         case editProxy(ProxySettings)
+        case importCookies(Profile)
 
         var id: String {
             switch self {
@@ -57,6 +58,7 @@ final class ManagerModel: ObservableObject {
             case .newSubscription: return "new-subscription"
             case .newProxy: return "new-proxy"
             case .editProxy(let proxy): return "edit-proxy-\(proxy.id.uuidString)"
+            case .importCookies(let profile): return "import-cookies-\(profile.id.uuidString)"
             }
         }
     }
@@ -711,6 +713,15 @@ final class ManagerModel: ObservableObject {
                 report(L10n.text("清理「%@」的数据失败", profile.name), error)
             }
         }
+    }
+
+    func importCookies(from raw: String, for profile: Profile) async throws -> CookieImportResult {
+        guard profile.mode == .persistent, runState(profile.id) == .stopped, !purging.contains(profile.id) else {
+            throw CookieImportError.noValidCookies
+        }
+        let result = try CookieImportParser.parse(raw)
+        await DataStoreManager().importCookies(result.cookies, for: profile.id)
+        return result
     }
 
     // MARK: - 订阅

@@ -43,4 +43,19 @@ final class StartupBrowserTabsTests: XCTestCase {
         XCTAssertEqual(session.openControllers.count, 1)
         XCTAssertTrue(try XCTUnwrap(session.openControllers.first).isBlankStartPage)
     }
+
+    func testScheduleStartWaitsForDidFinishLaunching() throws {
+        let url = URL(string: "about:blank#deferred")!
+        session.scheduleStart(urls: [url], background: true)
+        XCTAssertTrue(session.openControllers.isEmpty)
+
+        session.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        XCTAssertEqual(session.openControllers.count, 1)
+        XCTAssertEqual(session.openControllers.first?.webView.url, url)
+
+        // 已经完成启动后再次调用 scheduleStart 应立即生效。
+        let secondURL = URL(string: "about:blank#immediate")!
+        session.scheduleStart(urls: [secondURL], background: true)
+        XCTAssertEqual(session.openControllers.count, 2)
+    }
 }

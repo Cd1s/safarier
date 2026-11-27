@@ -130,6 +130,15 @@ public final class DataStoreManager {
         try await WKWebsiteDataStore.remove(forIdentifier: profileID)
     }
 
+    /// 将解析好的 Cookie 写入持久 profile 的 `WKHTTPCookieStore`。
+    public func importCookies(_ cookies: [HTTPCookie], for profileID: UUID) async {
+        Self.ensureWebKitInitialized()
+        let cookieStore = WKWebsiteDataStore(forIdentifier: profileID).httpCookieStore
+        for cookie in cookies {
+            await cookieStore.setCookie(cookie)
+        }
+    }
+
     /// 进程里还没创建过任何 WebKit API 对象时（例如命令行 Manager），直接调 `remove(forIdentifier:)`
     /// 会在 WebsiteDataStoreIO 队列里访问未初始化的主 RunLoop 而崩溃（2026-10-24 在 macOS 15.7.3 实测）。
     /// 先创建一个配置对象，让 WebKit 完成主线程初始化。

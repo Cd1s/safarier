@@ -893,3 +893,17 @@
 "第 %lld 个启动页签的网址无效，请输入 http 或 https 网址，或删除该项。" = "Startup tab %lld has an invalid URL. Enter an http or https URL, or remove the tab.";
 "第 %lld 个启动页签无效，请检查网址及标识。" = "Startup tab %lld is invalid. Check its URL and identifier.";
 "profile create/update 的 --url 可重复，按顺序替换启动页签列表；--url none 清空列表，省略时保留原配置。launch --url 只覆盖本次启动。" = "Repeat --url in profile create/update to replace startup tabs in order. Use --url none to clear the list; omit it to keep existing settings. launch --url overrides only this launch.";
+"请粘贴 Cookie 内容或选择文件。" = "Paste cookie content or choose a file.";
+"Cookie JSON 格式无效：%@" = "Invalid cookie JSON: %@";
+"未解析到有效的 Cookie，请检查格式（支持 JSON 数组或 Netscape cookies.txt）。" = "No valid cookies found. Check the format (supports JSON arrays or Netscape cookies.txt).";
+"顶层应为 Cookie 数组或包含 cookies 数组的对象" = "Top-level JSON must be an array of cookies or an object containing a cookies array";
+"主机名或 IP（支持粘贴 ip:端口:用户名:密码）" = "Hostname or IP (supports pasting ip:port:user:pass)";
+"导入 Cookie…" = "Import Cookies…";
+"从 JSON 或 Netscape cookies.txt 导入 Cookie" = "Import cookies from JSON or Netscape cookies.txt";
+"导入 Cookie — %@" = "Import Cookies — %@";
+"支持粘贴 JSON 数组（EditThisCookie / Cookie-Editor / AdsPower）或 Netscape cookies.txt，也可以选择本地文件。" = "Paste a JSON array (EditThisCookie / Cookie-Editor / AdsPower) or Netscape cookies.txt, or choose a local file.";
+"选择文件…" = "Choose File…";
+"导入" = "Import";
+"已导入 %lld 条 Cookie（跳过 %lld 条无效项）。" = "Imported %lld cookies (%lld invalid entries skipped).";
+"已导入 %lld 条 Cookie。" = "Imported %lld cookies.";
+"导入成功" = "Import Succeeded";

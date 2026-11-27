@@ -35,6 +35,8 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     private var sourceWindows: [PageSourceWindowController] = []
     private(set) var agentBridge: AgentBridgeServer?
     private var reportPrinted = false
+    private var didFinishLaunching = false
+    private var pendingStartup: (urls: [URL], background: Bool)?
     /// 默认关闭：普通浏览时不向系统登记可远程检查的调试目标。「开发 → 允许检查网页元素」打开，
     /// ⌥⌘I / ⌥⌘C 打开检查器时也会自动打开（之后新开的窗口、网页弹窗都跟着这个值）。网页读不到它。
     private(set) var inspectable = false
@@ -126,8 +128,18 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
         }
         first.window.tabGroup?.selectedWindow = first.window
         if !background {
-            first.window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            first.window.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    /// Runner 入口在 `app.run()` 之前调这里：等 `applicationDidFinishLaunching` 完成再建窗并激活，
+    /// 避免窗口在 AppKit 尚未完成启动握手前抢先订到前台而偶发无法响应点击。
+    func scheduleStart(urls: [URL], background: Bool = false) {
+        if didFinishLaunching {
+            start(urls: urls, background: background)
+        } else {
+            pendingStartup = (urls, background)
         }
     }
 
@@ -551,6 +563,13 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     }
 
     // MARK: - NSApplicationDelegate
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        didFinishLaunching = true
+        guard let startup = pendingStartup else { return }
+        pendingStartup = nil
+        start(urls: startup.urls, background: startup.background)
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 

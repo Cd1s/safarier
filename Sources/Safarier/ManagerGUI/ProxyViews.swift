@@ -104,8 +104,11 @@ struct ProxyEditorView: View {
                         Text("SOCKS5").tag(ProxyKind.socks5)
                         Text("HTTP CONNECT").tag(ProxyKind.httpConnect)
                     }
-                    TextField("服务器", text: $host, prompt: Text("主机名或 IP 地址"))
+                    TextField("服务器", text: $host, prompt: Text("主机名或 IP（支持粘贴 ip:端口:用户名:密码）"))
                         .autocorrectionDisabled()
+                        .onChange(of: host) { oldValue, newValue in
+                            applyParsedProxyIfNeeded(oldValue: oldValue, newValue: newValue)
+                        }
                     TextField("端口", text: $port)
                         .autocorrectionDisabled()
                 }
@@ -266,6 +269,24 @@ struct ProxyEditorView: View {
             }
         case .custom:
             CustomOutboundJSONEditor(json: $customJSON)
+        }
+    }
+
+    private func applyParsedProxyIfNeeded(oldValue: String, newValue: String) {
+        guard let parsed = ProxyStringParser.parseForAutoFill(oldValue: oldValue, newValue: newValue) else { return }
+        if host != parsed.host {
+            host = parsed.host
+        }
+        port = String(parsed.port)
+        if let parsedKind = parsed.kind {
+            kind = parsedKind
+        }
+        if let parsedUser = parsed.username {
+            authenticated = true
+            username = parsedUser
+            if let parsedPassword = parsed.password {
+                password = parsedPassword
+            }
         }
     }
 

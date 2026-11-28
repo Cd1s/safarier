@@ -82,6 +82,7 @@ The app is ad-hoc signed rather than signed with an Apple Developer ID and notar
 | **Built-in All-Protocol Proxy** | No external proxy client needed. Paste a subscription URL or paste node links (`VLESS` / `Reality`, `VMess`, `Trojan`, `Shadowsocks` / `SS2022`, `AnyTLS`, `SOCKS5`, `HTTP`) directly. |
 | **Two-Hop Proxy Chains** | Add a saved proxy, subscription node, or custom sing-box outbound as the upstream for a SOCKS5 / HTTP exit proxy. Environments and connection tests use the entire chain, with no fallback to a single hop or direct access. |
 | **Zero-Leak Protection** | Every environment routes traffic and DNS strictly through its assigned node. If a proxy disconnects, page loading stops immediately and **never** falls back to your real local IP. |
+| **Local Network Bypass (Skip System Proxy & TUN)** | Under Direct outbound, enable **Force Local Network** to automatically bind the active physical interface and local DNS so the window bypasses macOS system proxies and Clash/VPN TUN interfaces without affecting other apps or profiles. Fails closed if no physical interface is available. CLI supports `--bypass-system-proxy` / `--no-bypass-system-proxy`. |
 
 [Clash YAML subscriptions and local files](docs/clash-upstream-proxies.md) support **HTTP / HTTPS, SOCKS5, Shadowsocks / SS2022, VMess, Trojan, AnyTLS, VLESS / Reality, Mieru, and Hysteria2** (including port hopping). All can be bound to environments or selected as upstreams. Only nodes are imported; Clash DNS, rules, and listeners are not applied.
 

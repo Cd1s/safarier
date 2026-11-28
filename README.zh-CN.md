@@ -82,6 +82,7 @@ Cask 会自动选择 Apple Silicon 或 Intel 版本，后续用 `brew upgrade --
 | **内置全协议代理引擎** | 无需额外开启代理软件。支持直接导入机场订阅链接，或直接粘贴单条/多条节点链接（全面支持 `VLESS` / `Reality`、`VMess`、`Trojan`、`Shadowsocks` / `SS2022`、`AnyTLS`、`SOCKS5`、`HTTP`）。 |
 | **两跳链式代理** | 在代理编辑页为 SOCKS5 / HTTP 出口添加前置：已保存代理、订阅节点或自定义 sing-box 出站 JSON。环境选择此代理后使用完整链路，连接测试显示最终出口 IP；任一跳失败都不会退回单跳或直连。 |
 | **断连阻断，零真实 IP 泄漏** | 每个环境的网页请求与 DNS 解析强制走该环境的独立代理通道；如果节点断开，页面立即停止加载，绝不静默退回本机网络。 |
+| **直连绕过系统代理与 TUN** | 在出站选择「直连」时可开启「**强制使用本机网络**」，自动绑定活跃物理网卡与本地真实 DNS 出网，跳过电脑系统代理与 Clash / VPN 虚拟网卡（TUN），且完全不影响电脑上其他软件和其他环境；无可用物理网卡时直接阻断，绝不偷偷切回代理软件。CLI 支持 `--bypass-system-proxy` / `--no-bypass-system-proxy`。 |
 
 支持 [Clash YAML 订阅及本地文件](docs/clash-upstream-proxies.md)中的 **HTTP / HTTPS、SOCKS5、Shadowsocks / SS2022、VMess、Trojan、AnyTLS、VLESS / Reality、Mieru 和 Hysteria2**（含端口跳跃）。这些节点均可直接绑定环境或用作前置；只导入节点，不应用 Clash 的 DNS、路由规则和监听配置。
 

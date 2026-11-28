@@ -71,6 +71,7 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(profile.spi, [], "旧记录没有 spi 字段时保持关闭，不因默认值变化而改变已有环境")
         XCTAssertFalse(profile.followProxyLanguages)
         XCTAssertFalse(profile.followProxyTimeZone)
+        XCTAssertFalse(profile.bypassSystemProxy)
     }
 
     func testApplePayCardStatusSettingRoundTripsAndClones() throws {
@@ -153,5 +154,60 @@ final class ProfileTests: XCTestCase {
         let data = try JSONEncoder().encode(profile)
         let decoded = try JSONDecoder().decode(Profile.self, from: data)
         XCTAssertEqual(decoded, profile)
+    }
+
+    func testBypassSystemProxyRoundTripsClonesAndRejectsConflictingOutbound() throws {
+        let localDirect = Profile(name: "LocalDirect", mode: .persistent, bypassSystemProxy: true)
+        XCTAssertNoThrow(try localDirect.validate())
+        XCTAssertFalse(localDirect.hasOutboundProxy, "本机网络直连不视作远程代理")
+        XCTAssertFalse(localDirect.spi.contains(.disableWebRTC), "直连默认不强制关闭 WebRTC")
+
+        let decoded = try JSONDecoder().decode(Profile.self, from: JSONEncoder().encode(localDirect))
+        XCTAssertTrue(decoded.bypassSystemProxy)
+        XCTAssertTrue(decoded.duplicated(name: "LocalDirect 副本").bypassSystemProxy)
+
+        let conflicts: [Profile] = [
+            Profile(name: "WithProxy", mode: .persistent, proxyID: UUID(), bypassSystemProxy: true),
+            Profile(name: "WithSub", mode: .persistent, subscriptionID: UUID(), nodeName: "node", bypassSystemProxy: true),
+            Profile(name: "WithCustom", mode: .persistent, customOutboundJSON: "{\"type\":\"socks\"}", bypassSystemProxy: true),
+        ]
+        for conflict in conflicts {
+            XCTAssertThrowsError(try conflict.validate()) { error in
+                XCTAssertEqual(error as? ProfileValidationError, .conflictingOutbound)
+            }
+        }
+    }
+
+    func testOutboundAtomicSwitchingClearsMutuallyExclusiveFieldsAndReportsSingboxRequirement() throws {
+        var profile = Profile(name: "Switch", mode: .persistent)
+        XCTAssertEqual(profile.outbound, .direct(bypassSystemProxy: false))
+        XCTAssertFalse(profile.requiresSingbox(hasUpstreamProxy: { _ in false }))
+
+        profile.setOutbound(.direct(bypassSystemProxy: true))
+        XCTAssertEqual(profile.outbound, .direct(bypassSystemProxy: true))
+        XCTAssertTrue(profile.requiresSingbox(hasUpstreamProxy: { _ in false }))
+        XCTAssertNoThrow(try profile.validate())
+
+        let proxyID = UUID()
+        profile.setOutbound(.proxy(proxyID))
+        XCTAssertEqual(profile.outbound, .proxy(proxyID))
+        XCTAssertFalse(profile.bypassSystemProxy)
+        XCTAssertFalse(profile.requiresSingbox(hasUpstreamProxy: { _ in false }))
+        XCTAssertTrue(profile.requiresSingbox(hasUpstreamProxy: { $0 == proxyID }))
+        XCTAssertNoThrow(try profile.validate())
+
+        let subID = UUID()
+        profile.setOutbound(.subscriptionNode(subscriptionID: subID, nodeName: "node-1"))
+        XCTAssertEqual(profile.outbound, .subscriptionNode(subscriptionID: subID, nodeName: "node-1"))
+        XCTAssertNil(profile.proxyID)
+        XCTAssertTrue(profile.requiresSingbox(hasUpstreamProxy: { _ in false }))
+        XCTAssertNoThrow(try profile.validate())
+
+        profile.setOutbound(.customSingbox("{\"type\":\"socks\"}"))
+        XCTAssertEqual(profile.outbound, .customSingbox("{\"type\":\"socks\"}"))
+        XCTAssertNil(profile.subscriptionID)
+        XCTAssertNil(profile.nodeName)
+        XCTAssertTrue(profile.requiresSingbox(hasUpstreamProxy: { _ in false }))
+        XCTAssertNoThrow(try profile.validate())
     }
 }

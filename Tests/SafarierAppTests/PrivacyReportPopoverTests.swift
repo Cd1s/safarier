@@ -66,6 +66,19 @@ final class PrivacyReportPopoverTests: XCTestCase {
         }
     }
 
+    func testLocalDirectOutboundShowsActiveFailClosedProtection() {
+        let profile = Profile(name: "本地业务", mode: .persistent, bypassSystemProxy: true)
+        let items = PrivacyReportPopover.protectionItems(
+            profile: profile,
+            report: PrivacyCapabilityReport(),
+            outboundDescription: "本机网络（en0）"
+        )
+        let proxyItem = items.first { $0.title == "出站代理通道" }
+        XCTAssertNotNil(proxyItem)
+        XCTAssertTrue(proxyItem?.detail.contains("本机网络（en0）") == true)
+        XCTAssertTrue(proxyItem?.detail.contains("Fail-Closed 零泄漏保护已启用") == true)
+    }
+
     private func collectTexts(in view: NSView) -> [String] {
         var result: [String] = []
         if let field = view as? NSTextField {

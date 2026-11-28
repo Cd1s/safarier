@@ -14,6 +14,7 @@ enum RunState {
 /// profile 的出站：直连、独立代理，或订阅节点（启动时经 sing-box 转成本地 SOCKS5）。
 enum ProxyBinding {
     case direct
+    case localDirect
     case custom
     case proxy(ProxySettings)
     /// proxyID 指向的代理已经被删除。
@@ -524,17 +525,20 @@ final class ManagerModel: ObservableObject {
     }
 
     func proxyBinding(for profile: Profile) -> ProxyBinding {
-        if profile.customOutboundJSON != nil { return .custom }
-        if let subscriptionID = profile.subscriptionID {
-            let name = profile.nodeName ?? ""
+        switch profile.outbound {
+        case .direct(let bypass):
+            return bypass ? .localDirect : .direct
+        case .customSingbox:
+            return .custom
+        case .subscriptionNode(let subscriptionID, let name):
             guard let subscription = subscription(subscriptionID) else { return .missingNode(subscription: nil, node: name) }
             guard let node = subscription.nodes.first(where: { $0.name == name }) else {
                 return .missingNode(subscription: subscription.name, node: name)
             }
             return .node(subscription, node)
+        case .proxy(let id):
+            return proxies.first { $0.id == id }.map(ProxyBinding.proxy) ?? .missing(id)
         }
-        guard let id = profile.proxyID else { return .direct }
-        return proxies.first { $0.id == id }.map(ProxyBinding.proxy) ?? .missing(id)
     }
 
     // MARK: - Runner
@@ -566,7 +570,7 @@ final class ManagerModel: ObservableObject {
         }
         // Runner 找不到 sing-box 也会失败退出，这里先拦下来，提示更直接。
         let singbox = SingboxProcessManager.defaultExecutableURL
-        if profile.subscriptionID != nil || profile.customOutboundJSON != nil || profile.proxyID.flatMap(proxy)?.upstream != nil,
+        if profile.requiresSingbox(hasUpstreamProxy: { proxy($0)?.upstream != nil }),
            !FileManager.default.isExecutableFile(atPath: singbox.path) {
             starting.remove(profile.id)
             report(L10n.text("无法启动「%@」", profile.name), SingboxProcessError.executableNotFound(singbox))

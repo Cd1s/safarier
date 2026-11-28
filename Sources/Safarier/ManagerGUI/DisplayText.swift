@@ -30,6 +30,7 @@ enum DisplayText {
         switch binding {
         case .custom: return L10n.text("自定义 sing-box")
         case .direct: return L10n.text("直连")
+        case .localDirect: return L10n.text("本机网络")
         case .proxy(let proxy): return proxy.name
         case .missing: return L10n.text("代理缺失")
         case .node(_, let node): return node.name

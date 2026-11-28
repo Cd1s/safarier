@@ -157,7 +157,6 @@
 "不安全" = "Güvenli Değil";
 "不支持的扩展 manifest 版本：%@。" = "Desteklenmeyen genişletme manifest sürümü: %@.";
 "不支持的节点协议：%@。" = "Desteklenmeyen düğüm protokolü: %@.";
-"不经过代理。" = "Trafik proxy üzerinden geçmiyor.";
 "个人收藏" = "Favoriler";
 "临时" = "Geçici";
 "临时无痕 · 关闭窗口即销毁全部网站数据" = "Geçici · Pencere kapandığında tüm site verileri yok edilir";
@@ -904,3 +903,18 @@
 "已导入 %lld 条 Cookie（跳过 %lld 条无效项）。" = "%lld çerez içe aktarıldı (%lld geçersiz kayıt atlandı).";
 "已导入 %lld 条 Cookie。" = "%lld çerez içe aktarıldı.";
 "导入成功" = "İçe Aktarma Başarılı";
+
+/* 本机物理网络直连（绕过系统代理与 TUN） */
+"找不到可用的本地物理网络，已中止启动（未回退到系统代理或 VPN）。" = "Kullanılabilir yerel fiziksel ağ arayüzü bulunamadı; başlatma iptal edildi (sistem vekil sunucusuna veya VPN'e geri dönülmedi).";
+"本地物理网络接口名无效：%@。" = "Geçersiz yerel fiziksel ağ arayüzü adı: %@.";
+"找不到可用的本地 DNS 服务器，已中止启动。" = "Kullanılabilir yerel DNS sunucusu bulunamadı; başlatma iptal edildi.";
+"本机网络（%@）" = "Yerel Ağ (%@)";
+"本机网络" = "Yerel Ağ";
+"强制使用本机网络" = "Yerel Ağı Zorla";
+"即使电脑开着 Clash 等代理软件或 VPN，这个窗口也直接走本地 Wi-Fi / 网线，不影响其他软件。" = "Bu Mac'te Clash veya VPN çalışıyor olsa bile bu pencere diğer uygulamaları etkilemeden doğrudan yerel Wi-Fi veya Ethernet üzerinden bağlanır.";
+"如果当前连不上本地网络，窗口会直接停止加载，不会偷偷切回代理软件。切换 Wi-Fi 或网线后，重启本环境即可生效。" = "Yerel ağa ulaşılamazsa sayfalar sistem vekil sunucularına geçmek yerine yüklemeyi durdurur. Wi-Fi ve Ethernet arasında geçiş yaptıktan sonra bu ortamı yeniden başlatın.";
+"不设置应用内代理；如果电脑开着代理软件或 VPN，这个窗口会跟着电脑一起走。" = "Uygulama içi vekil sunucu ayarlanmadı; bu Mac'te sistem vekil sunucusu veya VPN etkinse bu pencere onu izler.";
+"profile create/update 的 --bypass-system-proxy 可在直连模式下强制使用本机网络（绕过系统代理与 TUN），与 --proxy/--sub/--node 互斥；--no-bypass-system-proxy 关闭该选项。" = "Doğrudan modda yerel fiziksel ağ erişimini zorlamak (sistem vekil sunucularını ve TUN'u atlamak) için profile create/update komutunda --bypass-system-proxy kullanın; --proxy/--sub/--node ile birlikte kullanılamaz. Kapatmak için --no-bypass-system-proxy kullanın.";
+"--bypass-system-proxy 不能和 --proxy 或 --sub/--node 同时使用" = "--bypass-system-proxy, --proxy veya --sub/--node ile birlikte kullanılamaz";
+"--bypass-system-proxy 和 --no-bypass-system-proxy 不能同时使用" = "--bypass-system-proxy ve --no-bypass-system-proxy birlikte kullanılamaz";
+"--bypass-system-proxy 不能和已绑定的代理或节点同时使用，请先传入 --proxy none 或 --node none" = "Bir vekil sunucu veya düğüm bağlıyken --bypass-system-proxy kullanılamaz; önce --proxy none veya --node none geçin";

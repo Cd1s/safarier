@@ -32,28 +32,59 @@ enum RunnerMain {
             let displayState = profile.deviceModel.flatMap(MacDeviceModel.preset)
                 .map { DeviceSimulation.installDisplayOverride(for: $0, diagnostics: diagnostics) }
 
-            // 出站：独立代理直接交给 WebKit；订阅节点先起 sing-box，把它的本地 SOCKS5 入站当成代理交给 WebKit。
-            // 后者在工厂看来就是"绑定了一个代理"，所以 sing-box 断了时页面加载失败，不会退回直连。
+            // 出站：统一按 profile.outbound 分派；代理/节点/本机直连分别经 WebKit 或环境专属 sing-box 通道出网。
             var effectiveProfile = profile
-            var proxy = try profile.proxyID.flatMap { try workspace.proxies.record(id: $0) }
-            var outbound: [String: Any] = proxy.map { ["kind": "proxy", "name": $0.name] } ?? ["kind": "direct"]
-            var outboundDescription = proxy.map {
-                L10n.text("代理「%@」（%@ %@:%lld）", $0.name, $0.kind.rawValue, $0.host, $0.port)
-            } ?? L10n.text("直连")
+            var proxy: ProxySettings?
+            var outbound: [String: Any] = ["kind": "direct"]
+            var outboundDescription = L10n.text("直连")
+            var nodeHint: String?
 
-            let bound = try workspace.boundNode(for: profile)
-            if let saved = proxy, let chain = try ProxyChainBuilder.resolve(saved, in: workspace, credentials: KeychainCredentialStore()) {
-                let local = try startSingbox(profileID: profile.id, workspace: workspace) {
-                    try $0.start(profileID: profile.id, chain: chain)
+            switch profile.outbound {
+            case .direct(let bypassSystemProxy):
+                if bypassSystemProxy {
+                    let target = try LocalNetworkInterfaceResolver.resolveCurrent()
+                    guard let activeDNS = LocalNetworkInterfaceResolver.sanitizedDirectDNSServers(target.dnsServers).first else {
+                        throw LocalNetworkDirectError.noUsableDNSServer
+                    }
+                    let local = try startSingbox(profileID: profile.id, workspace: workspace) {
+                        try $0.startLocalDirect(
+                            profileID: profile.id,
+                            target: LocalDirectNetworkTarget(interfaceName: target.interfaceName, dnsServers: [activeDNS])
+                        )
+                    }
+                    effectiveProfile.setOutbound(.proxy(local.proxy.id))
+                    proxy = local.proxy
+                    outbound = [
+                        "kind": "localDirect",
+                        "interface": target.interfaceName,
+                        "dns": [activeDNS],
+                        "singboxPID": local.pid,
+                        "localProxy": "\(local.proxy.host):\(local.proxy.port)",
+                    ]
+                    outboundDescription = L10n.text("本机网络（%@）", target.interfaceName)
+                    FileHandle.standardError.write(Data("[proxy] local-direct interface=\(target.interfaceName) dns=\(activeDNS)\n".utf8))
                 }
-                effectiveProfile.proxyID = local.proxy.id
-                proxy = local.proxy
-                outbound = [
-                    "kind": "proxyChain", "entry": chain.entryName, "exit": chain.exitName,
-                    "singboxPID": local.pid, "localProxy": "\(local.proxy.host):\(local.proxy.port)",
-                ]
-                outboundDescription = "\(chain.entryName) → \(chain.exitName)（链式代理）"
-            } else if let json = profile.customOutboundJSON {
+
+            case .proxy(let proxyID):
+                proxy = try workspace.proxies.record(id: proxyID)
+                if let saved = proxy {
+                    outbound = ["kind": "proxy", "name": saved.name]
+                    outboundDescription = L10n.text("代理「%@」（%@ %@:%lld）", saved.name, saved.kind.rawValue, saved.host, saved.port)
+                    if let chain = try ProxyChainBuilder.resolve(saved, in: workspace, credentials: KeychainCredentialStore()) {
+                        let local = try startSingbox(profileID: profile.id, workspace: workspace) {
+                            try $0.start(profileID: profile.id, chain: chain)
+                        }
+                        effectiveProfile.proxyID = local.proxy.id
+                        proxy = local.proxy
+                        outbound = [
+                            "kind": "proxyChain", "entry": chain.entryName, "exit": chain.exitName,
+                            "singboxPID": local.pid, "localProxy": "\(local.proxy.host):\(local.proxy.port)",
+                        ]
+                        outboundDescription = "\(chain.entryName) → \(chain.exitName)（链式代理）"
+                    }
+                }
+
+            case .customSingbox(let json):
                 let local = try startSingbox(profileID: profile.id, workspace: workspace) {
                     try $0.start(profileID: profile.id, outboundJSON: json)
                 }
@@ -62,23 +93,27 @@ enum RunnerMain {
                 proxy = local.proxy
                 outbound = ["kind": "customSingbox", "singboxPID": local.pid, "localProxy": "\(local.proxy.host):\(local.proxy.port)"]
                 outboundDescription = L10n.text("自定义代理（经 sing-box）")
-            } else if let bound {
-                let local = try startSingbox(profileID: profile.id, workspace: workspace) {
-                    try $0.start(profileID: profile.id, node: bound.node)
+
+            case .subscriptionNode:
+                if let bound = try workspace.boundNode(for: profile) {
+                    nodeHint = bound.node.name
+                    let local = try startSingbox(profileID: profile.id, workspace: workspace) {
+                        try $0.start(profileID: profile.id, node: bound.node)
+                    }
+                    effectiveProfile.proxyID = local.proxy.id
+                    proxy = local.proxy
+                    outbound = [
+                        "kind": "subscriptionNode",
+                        "subscription": bound.subscription.name,
+                        "node": bound.node.name,
+                        "protocol": bound.node.type.rawValue,
+                        "singboxPID": local.pid,
+                        "localProxy": "\(local.proxy.host):\(local.proxy.port)",
+                    ]
+                    outboundDescription = bound.node.type == .mieru
+                        ? L10n.text("订阅「%@」节点「%@」（经 Mieru）", bound.subscription.name, bound.node.name)
+                        : L10n.text("订阅「%@」节点「%@」（经 sing-box）", bound.subscription.name, bound.node.name)
                 }
-                effectiveProfile.proxyID = local.proxy.id
-                proxy = local.proxy
-                outbound = [
-                    "kind": "subscriptionNode",
-                    "subscription": bound.subscription.name,
-                    "node": bound.node.name,
-                    "protocol": bound.node.type.rawValue,
-                    "singboxPID": local.pid,
-                    "localProxy": "\(local.proxy.host):\(local.proxy.port)",
-                ]
-                outboundDescription = bound.node.type == .mieru
-                    ? L10n.text("订阅「%@」节点「%@」（经 Mieru）", bound.subscription.name, bound.node.name)
-                    : L10n.text("订阅「%@」节点「%@」（经 sing-box）", bound.subscription.name, bound.node.name)
             }
 
             // 原生引擎接口只在 profile（或本次 --spi）显式开启时才碰；公开适配器先写结论，SPI 适配器再覆盖。
@@ -88,7 +123,7 @@ enum RunnerMain {
             var resolvedGeo: ProxyGeoResult?
             if profile.followProxyLanguages || profile.followProxyTimeZone {
                 // 重新启动过的 Runner 直接使用上一次的解析结果，用完清掉环境变量，不再传给子进程。
-                let resolved = resolveFollowProxy(proxy: proxy, nodeHint: bound?.node.name)
+                let resolved = resolveFollowProxy(proxy: proxy, nodeHint: nodeHint)
                 resolvedGeo = resolved
                 for key in ProcessInfo.processInfo.environment.keys where key.hasPrefix("SAFARIER_GEO_") { unsetenv(key) }
                 if let resolved {

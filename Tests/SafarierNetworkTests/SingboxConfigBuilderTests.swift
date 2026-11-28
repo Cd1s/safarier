@@ -319,6 +319,56 @@ final class SingboxConfigBuilderTests: XCTestCase {
                 let message = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
                 XCTAssertEqual(process.terminationStatus, 0, "\(executable.path) \(node.name): \(message)")
             }
+
+            let localDirectURL = directory.appendingPathComponent("local-direct.json")
+            try SingboxConfigBuilder.makeLocalDirectConfiguration(
+                inboundPort: 20_002,
+                interfaceName: "en0",
+                dnsServers: ["192.0.2.1", "198.51.100.53"],
+                logLevel: "warn"
+            ).encoded().write(to: localDirectURL)
+            let localProcess = Process()
+            localProcess.executableURL = executable
+            localProcess.arguments = ["check", "-c", localDirectURL.path]
+            let localOutput = Pipe()
+            localProcess.standardOutput = localOutput
+            localProcess.standardError = localOutput
+            try localProcess.run()
+            localProcess.waitUntilExit()
+            let localMessage = String(data: localOutput.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            XCTAssertEqual(localProcess.terminationStatus, 0, "\(executable.path) local-direct: \(localMessage)")
+        }
+    }
+
+    func testLocalDirectConfigurationBindsInterfaceAndDNS() throws {
+        let config = try SingboxConfigBuilder.makeLocalDirectConfiguration(
+            inboundPort: 23_456,
+            interfaceName: "en0",
+            dnsServers: ["2001:db8::53", "198.18.0.2", "192.0.2.1", "198.51.100.53"]
+        )
+        XCTAssertEqual(config.inbounds.first?["listen_port"], .number(23_456))
+        XCTAssertEqual(config.outbounds.first?["type"], .string("direct"))
+        XCTAssertEqual(config.outbounds.first?["bind_interface"], .string("en0"))
+        XCTAssertEqual(config.outbounds.first?["domain_resolver"], .string(SingboxConfigBuilder.localDirectDNSTag))
+        XCTAssertEqual(config.route, ["final": .string(SingboxConfigBuilder.directTag)])
+        XCTAssertEqual(config.dns?["final"], .string(SingboxConfigBuilder.localDirectDNSTag))
+        guard case .array(let servers) = config.dns?["servers"] else {
+            return XCTFail("缺少 dns servers")
+        }
+        XCTAssertEqual(servers.count, 1, "只写入实际生效的主 DNS，避免死配置")
+        XCTAssertEqual(servers.first, .object([
+            "tag": .string(SingboxConfigBuilder.localDirectDNSTag),
+            "type": .string("udp"),
+            "server": .string("192.0.2.1"),
+            "server_port": .number(53),
+            "bind_interface": .string("en0"),
+        ]))
+
+        XCTAssertThrowsError(try SingboxConfigBuilder.makeLocalDirectConfiguration(inboundPort: 23_456, interfaceName: " ", dnsServers: ["198.51.100.53"])) {
+            XCTAssertEqual($0 as? LocalNetworkDirectError, .invalidInterfaceName(" "))
+        }
+        XCTAssertThrowsError(try SingboxConfigBuilder.makeLocalDirectConfiguration(inboundPort: 23_456, interfaceName: "en0", dnsServers: ["198.18.0.2", "127.0.0.1"])) {
+            XCTAssertEqual($0 as? LocalNetworkDirectError, .noUsableDNSServer)
         }
     }
 }

@@ -106,6 +106,8 @@ enum BrowserMenu {
 
         let windowMenu = NSMenu(title: L10n.text("窗口"))
         var windowItems: [NSMenuItem] = [
+            item("打开环境管理器", #selector(BrowserActions.openManager(_:)), "0", [.command, .option]),
+            .separator(),
             item("最小化", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("缩放", #selector(NSWindow.performZoom(_:))),
             .separator(),
@@ -254,6 +256,7 @@ enum BrowserMenu {
     @objc optional func showAbout(_ sender: Any?)
     @objc optional func checkForUpdates(_ sender: Any?)
     @objc optional func openGitHub(_ sender: Any?)
+    @objc optional func openManager(_ sender: Any?)
 }
 
 /// 「历史记录」菜单打开前，按当前环境（应用代理 BrowserSession）的历史记录刷新最近访问。

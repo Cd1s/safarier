@@ -136,7 +136,7 @@ Safarier is designed to feel right at home for every Mac and Safari user:
 | **Focus Address Bar** | `⌘L` | **Show All Tabs Overview** | `⇧⌘\` |
 | **Reload / Force Reload** | `⌘R` / `⌥⌘R` | **Zoom Page / Zoom Text Only** | `⌘+` `⌘-` / `⌥⌘+` `⌥⌘-` |
 | **Find on Page / Use Selection** | `⌘F` / `⌘E` | **Web Inspector / Page Source** | `⌥⌘I` / `⌥⌘U` |
-| **Save Page / Export PDF** | `⌘S` / `⌘P` | **Show Downloads** | `⌥⌘L` |
+| **Save Page / Export PDF** | `⌘S` / `⌘P` | **Show Downloads / Open Manager** | `⌥⌘L` / `⌥⌘0` |
 
 ---
 

@@ -189,7 +189,10 @@ enum AboutAndUpdateController {
         let relaunch = Process()
         relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
         relaunch.arguments = ["-c", "(sleep 0.5; /usr/bin/open -n \"$1\") >/dev/null 2>&1 &", "sh", target.path]
-        try relaunch.run()
+        // 先释放单实例锁再启动新版，避免新版启动时撞到旧进程持有的 manager.lock。
+        try ManagerGUI.withLockReleasedForRelaunch(workspace: ManagerApp.workspace) {
+            try relaunch.run()
+        }
         NSApp.terminate(nil)
     }
 

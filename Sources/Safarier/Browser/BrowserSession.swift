@@ -524,6 +524,9 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     }
     @objc func cycleWindowsForward(_ sender: Any?) { cycleWindows(forward: true) }
     @objc func cycleWindowsBackward(_ sender: Any?) { cycleWindows(forward: false) }
+    @objc func openManager(_ sender: Any?) {
+        ManagerLauncher.openOrWakeManager(workspace: workspace)
+    }
 
     /// 打开后右键菜单里有「检查元素」。对网页不可见。
     @objc func toggleInspectable(_ sender: Any?) {
@@ -555,7 +558,8 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
             item.state = confirmsBeforeClose ? .on : .off
             return true
         case #selector(newWindow(_:)), #selector(newTab(_:)), #selector(focusLocation(_:)),
-             #selector(cycleWindowsForward(_:)), #selector(cycleWindowsBackward(_:)), #selector(showHistory(_:)), #selector(openHistoryEntry(_:)):
+             #selector(cycleWindowsForward(_:)), #selector(cycleWindowsBackward(_:)),
+             #selector(showHistory(_:)), #selector(openHistoryEntry(_:)), #selector(openManager(_:)):
             return true
         default:
             return false
@@ -576,6 +580,14 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { openWindow(url: nil) }
         return true
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: L10n.text("打开环境管理器"), action: #selector(openManager(_:)), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        return menu
     }
 
     /// ⌘Q（菜单、Dock）：开关打开且还有浏览窗口时，在最前面的窗口上先确认。

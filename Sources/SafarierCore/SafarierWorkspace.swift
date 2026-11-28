@@ -121,6 +121,21 @@ public struct SafarierWorkspace: Sendable {
         ProfileLock.holderPID(profileID: profileID, in: locksDirectory)
     }
 
+    /// 图形管理器是否正在运行（按 `locks/manager.lock` 判断）。
+    public func isManagerRunning() -> Bool {
+        ManagerLock.isHeld(in: locksDirectory)
+    }
+
+    /// 正在运行的图形管理器 pid（从 `locks/manager.lock` 读）。
+    public func managerPID() -> Int32? {
+        ManagerLock.holderPID(in: locksDirectory)
+    }
+
+    /// 当前工作目录对应的跨进程唤醒通知隔离键。
+    public var managerWakeupScope: String {
+        ManagerWakeup.workspaceScope(for: root)
+    }
+
     /// Runner 的 stdout/stderr 追加到这里，和 `RunnerLauncher` 的命名一致。
     public func runnerLogURL(for profileID: UUID) -> URL {
         logsDirectory.appendingPathComponent("\(profileID.uuidString).log")

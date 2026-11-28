@@ -55,6 +55,21 @@ public final class RecordRepository<Record: ValidatableRecord>: @unchecked Senda
         }
     }
 
+    /// 在同一把文件锁内按 ID 读取最新记录、执行局部修改、校验并保存；修改或校验失败不写回。
+    @discardableResult
+    public func mutate<T>(id: UUID, _ body: (inout Record) throws -> T) throws -> T {
+        try mutate { records in
+            guard let index = records.firstIndex(where: { $0.id == id }) else {
+                throw RepositoryError.notFound(id)
+            }
+            var record = records[index]
+            let result = try body(&record)
+            try record.validate()
+            records[index] = record
+            return result
+        }
+    }
+
     @discardableResult
     public func delete(id: UUID, check: ([Record]) throws -> Void = { _ in }) throws -> Record {
         try mutate { records in

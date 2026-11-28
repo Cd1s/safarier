@@ -69,4 +69,51 @@ final class AddressInputTests: XCTestCase {
         XCTAssertEqual(MacDeviceModel.webVisibleCPUCores(hostCores: 4), 4)
         XCTAssertEqual(MacDeviceModel.webVisibleGPU, "Apple GPU")
     }
+
+    func testStartupURLTrimmingAndEquality() throws {
+        let full = try XCTUnwrap(URL(string: "https://docs.example.com/project/issues?q=open&utm_source=test#top"))
+        XCTAssertEqual(
+            AddressInput.removingQueryAndFragment(from: full)?.absoluteString,
+            "https://docs.example.com/project/issues"
+        )
+        XCTAssertEqual(
+            AddressInput.originOnly(from: full)?.absoluteString,
+            "https://docs.example.com"
+        )
+
+        let localWithPort = try XCTUnwrap(URL(string: "http://localhost:8080/dashboard?tab=1#sec"))
+        XCTAssertEqual(
+            AddressInput.removingQueryAndFragment(from: localWithPort)?.absoluteString,
+            "http://localhost:8080/dashboard"
+        )
+        XCTAssertEqual(
+            AddressInput.originOnly(from: localWithPort)?.absoluteString,
+            "http://localhost:8080"
+        )
+
+        let defaultPort = try XCTUnwrap(URL(string: "https://EXAMPLE.COM:443/"))
+        XCTAssertEqual(AddressInput.originOnly(from: defaultPort)?.absoluteString, "https://EXAMPLE.COM")
+        let withUserInfo = try XCTUnwrap(URL(string: "https://user:secret@example.com:8443/path?a=1"))
+        XCTAssertEqual(AddressInput.originOnly(from: withUserInfo)?.absoluteString, "https://example.com:8443")
+        XCTAssertNil(AddressInput.removingQueryAndFragment(from: URL(string: "about:blank")!))
+        XCTAssertNil(AddressInput.originOnly(from: URL(string: "file:///tmp/a.html")!))
+
+        // 启动页签等价比较：忽略协议/域名大小写、默认端口与根路径斜杠，但区分路径与查询参数。
+        XCTAssertTrue(AddressInput.isSameStartupURL(
+            try XCTUnwrap(URL(string: "https://example.com")),
+            try XCTUnwrap(URL(string: "HTTPS://EXAMPLE.COM:443/"))
+        ))
+        XCTAssertTrue(AddressInput.isSameStartupURL(
+            try XCTUnwrap(URL(string: "http://localhost:80")),
+            try XCTUnwrap(URL(string: "http://localhost/"))
+        ))
+        XCTAssertFalse(AddressInput.isSameStartupURL(
+            try XCTUnwrap(URL(string: "https://example.com/a")),
+            try XCTUnwrap(URL(string: "https://example.com/b"))
+        ))
+        XCTAssertFalse(AddressInput.isSameStartupURL(
+            try XCTUnwrap(URL(string: "https://example.com/a?x=1")),
+            try XCTUnwrap(URL(string: "https://example.com/a?x=2"))
+        ))
+    }
 }

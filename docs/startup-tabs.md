@@ -7,6 +7,7 @@ Use the **Startup Tabs** section in the new or existing environment editor to co
 - Drag the left row handle or use the row's context menu (**Move to First (Home)**, **Move Up**, **Move Down**) to reorder tabs, and use the hover remove button to the right of the switch to delete an entry.
 - Click **Save** or **Create** to persist changes; **Revert** restores the latest saved configuration.
 - Editing a running environment affects only future launches and does not close or append tabs in the open window.
+- Inside any browser window, press **`⌘D`** (or choose **File → Add to Startup Tabs…**) to open a native Safari-style confirmation sheet for the current environment. You can edit the URL, strip query/fragment parameters or keep only the domain, choose whether to append to the end or set as position 1 (Home), re-enable an existing paused entry instead of duplicating it, and undo immediately from the bottom toast. Changes sync live to the running Environment Manager.
 
 On launch, all enabled entries open in order in the same browser window, with the first enabled tab selected and badged as **Home**. When no URLs are configured or every entry is paused, Safarier opens a single start page. A load failure in one tab does not affect the remaining tabs.
 

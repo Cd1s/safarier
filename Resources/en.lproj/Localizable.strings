@@ -907,3 +907,26 @@
 "已导入 %lld 条 Cookie（跳过 %lld 条无效项）。" = "Imported %lld cookies (%lld invalid entries skipped).";
 "已导入 %lld 条 Cookie。" = "Imported %lld cookies.";
 "导入成功" = "Import Succeeded";
+
+/* 浏览器 ⌘D 添加启动页签 */
+"添加到启动页签…" = "Add to Startup Tabs…";
+"将此页面添加到「%@」启动页签：" = "Add this page to Startup Tabs for “%@”:";
+"下次启动该环境时自动打开，不影响当前已打开的标签页。" = "Opens automatically the next time this environment starts without affecting currently open tabs.";
+"启动页签末尾（作为第 %lld 项）" = "End of Startup Tabs (item %lld)";
+"第 1 位 · 设为首页（同步作为 ⇧⌘H）" = "Position 1 · Set as Home (also used by ⇧⌘H)";
+"输入或粘贴网址，例如 example.com" = "Enter or paste a URL, e.g. example.com";
+"去掉参数" = "Strip Parameters";
+"仅保留域名" = "Domain Only";
+"还原原网址" = "Restore Original URL";
+"仍要添加" = "Add Anyway";
+"重新启用" = "Re-enable";
+"网址格式无效，请输入有效的 http 或 https 网址。" = "Invalid URL. Enter a valid http or https address.";
+"将自动补全为 %@" = "Will be saved as %@";
+"提示：此网址已在启动页签中（第 %lld 项），确认将继续追加。" = "Note: This URL is already in Startup Tabs (item %lld). Confirming will append another copy.";
+"此网址已存在但处于暂停状态（第 %lld 项），确认后将重新启用。" = "This URL already exists as a paused item (item %lld) and will be re-enabled.";
+"该环境配置已不存在，无法添加到启动页签。" = "This environment configuration no longer exists and cannot be updated.";
+"无法保存启动页签：%@" = "Unable to save startup tab: %@";
+"已添加到启动页签（共 %lld 项）" = "Added to Startup Tabs (%lld total)";
+"已设为首页启动页签（共 %lld 项）" = "Set as Home Startup Tab (%lld total)";
+"已重新启用启动页签" = "Re-enabled Startup Tab";
+"已撤销更改" = "Change undone";

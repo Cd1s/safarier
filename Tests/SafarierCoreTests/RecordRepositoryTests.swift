@@ -141,4 +141,48 @@ final class RecordRepositoryTests: XCTestCase {
         profile.nodeName = "node"
         XCTAssertThrowsError(try profile.validate())
     }
+
+    func testMutateByIDPreservesConcurrentExternalEdits() throws {
+        let repository = ProfileRepository.profiles(in: directory)
+        let original = Profile(name: "Work", mode: .persistent, notes: "初始备注")
+        try repository.insert(original)
+
+        // 模拟管理器在外部先修改并保存了备注与代理 ID。
+        var managerCopy = original
+        let proxyID = UUID()
+        managerCopy.proxyID = proxyID
+        managerCopy.notes = "管理器新备注"
+        try repository.update(managerCopy)
+
+        // 模拟浏览器只通过 mutate(id:) 追加启动页签，不应覆盖管理器新保存的字段。
+        let added = StartupTab(url: URL(string: "https://example.com")!)
+        let updatedTabs = try repository.mutate(id: original.id) { profile -> [StartupTab] in
+            profile.startupTabs.append(added)
+            return profile.startupTabs
+        }
+
+        XCTAssertEqual(updatedTabs, [added])
+        let persisted = try XCTUnwrap(repository.record(id: original.id))
+        XCTAssertEqual(persisted.proxyID, proxyID)
+        XCTAssertEqual(persisted.notes, "管理器新备注")
+        XCTAssertEqual(persisted.startupTabs, [added])
+    }
+
+    func testMutateByIDThrowsNotFoundAndLeavesFileUnchangedOnValidationFailure() throws {
+        let repository = ProfileRepository.profiles(in: directory)
+        let missingID = UUID()
+        XCTAssertThrowsError(try repository.mutate(id: missingID) { $0.notes = "x" }) { error in
+            XCTAssertEqual(error as? RepositoryError, .notFound(missingID))
+        }
+
+        let profile = Profile(name: "Valid", mode: .persistent)
+        try repository.insert(profile)
+        let fileURL = directory.appendingPathComponent("profiles.json")
+        let before = try Data(contentsOf: fileURL)
+
+        XCTAssertThrowsError(try repository.mutate(id: profile.id) { $0.name = "   " }) { error in
+            XCTAssertEqual(error as? ProfileValidationError, .emptyName)
+        }
+        XCTAssertEqual(try Data(contentsOf: fileURL), before)
+    }
 }

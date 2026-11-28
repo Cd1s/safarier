@@ -40,6 +40,70 @@ public enum AddressInput {
         return url
     }
 
+    /// 去掉网址中的查询参数（`?`）与锚点（`#`），保留协议、主机、端口与路径；非 http/https 返回 nil。
+    public static func removingQueryAndFragment(from url: URL) -> URL? {
+        guard isWebScheme(url), !(url.host ?? "").isEmpty,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.percentEncodedQuery = nil
+        components.percentEncodedFragment = nil
+        return components.url
+    }
+
+    /// 仅保留协议、主机与非默认端口（去掉凭据、路径、查询参数与锚点）；非 http/https 返回 nil。
+    public static func originOnly(from url: URL) -> URL? {
+        guard isWebScheme(url), !(url.host ?? "").isEmpty,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = components.scheme?.lowercased()
+        if (scheme == "http" && components.port == 80) || (scheme == "https" && components.port == 443) {
+            components.port = nil
+        }
+        components.percentEncodedUser = nil
+        components.percentEncodedPassword = nil
+        components.percentEncodedPath = ""
+        components.percentEncodedQuery = nil
+        components.percentEncodedFragment = nil
+        return components.url
+    }
+
+    /// 判断两个启动页签网址是否等价：忽略协议与域名大小写、忽略协议默认端口、根路径 `""` 与 `"/"` 视为一致。
+    public static func isSameStartupURL(_ lhs: URL, _ rhs: URL) -> Bool {
+        guard let a = startupComparisonKey(for: lhs), let b = startupComparisonKey(for: rhs) else {
+            return lhs.absoluteString == rhs.absoluteString
+        }
+        return a == b
+    }
+
+    private struct StartupURLKey: Equatable {
+        let scheme: String
+        let host: String
+        let port: Int?
+        let path: String
+        let query: String?
+        let fragment: String?
+    }
+
+    private static func startupComparisonKey(for url: URL) -> StartupURLKey? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased(), !host.isEmpty else { return nil }
+        let effectivePort: Int?
+        if (scheme == "http" && components.port == 80) || (scheme == "https" && components.port == 443) {
+            effectivePort = nil
+        } else {
+            effectivePort = components.port
+        }
+        let rawPath = components.percentEncodedPath
+        let normalizedPath = rawPath.isEmpty ? "/" : rawPath
+        return StartupURLKey(
+            scheme: scheme,
+            host: host,
+            port: effectivePort,
+            path: normalizedPath,
+            query: components.percentEncodedQuery,
+            fragment: components.percentEncodedFragment
+        )
+    }
+
     /// 复制来的网址常夹着看不见的格式字符（零宽空格、方向标记、BOM、软连字符、连接符等）：先去掉
     /// （零宽连接符 U+200D 保留，它是组合表情的一部分）。全角的 `。．｡：／` 换成半角后，只有网址的主机部分全是 ASCII
     /// 才采用（`example。com` → `example.com`），中文句子不会被当成网址。

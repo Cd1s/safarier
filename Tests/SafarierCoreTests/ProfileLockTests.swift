@@ -34,4 +34,20 @@ final class ProfileLockTests: XCTestCase {
         a.release()
         b.release()
     }
+    func testProfilesSyncNotificationScopeIsolatesDifferentWorkspaces() throws {
+        let dirA = directory.appendingPathComponent("ws-a", isDirectory: true)
+        let dirB = directory.appendingPathComponent("ws-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: dirA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dirB, withIntermediateDirectories: true)
+
+        let linkToA = directory.appendingPathComponent("ws-a-link", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linkToA, withDestinationURL: dirA)
+
+        let scopeA = ProfilesSyncNotification.workspaceScope(for: dirA)
+        let scopeB = ProfilesSyncNotification.workspaceScope(for: dirB)
+        let scopeLink = ProfilesSyncNotification.workspaceScope(for: linkToA)
+
+        XCTAssertNotEqual(scopeA, scopeB, "不同工作目录的同步隔离键必须互不相等")
+        XCTAssertEqual(scopeA, scopeLink, "指向同一工作目录的符号链接应归一化到同一个隔离键")
+    }
 }

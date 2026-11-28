@@ -9,7 +9,7 @@ import SafarierWebKit
 final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     static let defaultContentSize = NSSize(width: 1280, height: 800)
 
-    let profile: Profile
+    private(set) var profile: Profile
     let workspace: SafarierWorkspace
     let outboundDescription: String
     let configuration: WKWebViewConfiguration
@@ -50,6 +50,10 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     static let confirmBeforeCloseKey = "SafarierConfirmBeforeClosingWindows"
     /// ⌘Q 确认后回复 AppKit（测试换掉它，不真的退出测试进程）。
     var replyToTermination: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
+    /// 写入或撤销启动页签后广播跨进程同步通知（测试可注入拦截）。
+    var onProfilesDidChange: (String) -> Void = { scope in
+        ProfilesSyncNotification.post(scope: scope)
+    }
 
     /// 和管理器里环境头像一样的配色（按 id 固定），方便认出窗口属于哪个环境。
     private static let palette: [NSColor] = [.systemBlue, .systemPurple, .systemPink, .systemOrange, .systemTeal, .systemGreen, .systemIndigo, .systemMint, .systemBrown]
@@ -525,6 +529,93 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
     @objc func cycleWindowsForward(_ sender: Any?) { cycleWindows(forward: true) }
     @objc func cycleWindowsBackward(_ sender: Any?) { cycleWindows(forward: false) }
 
+    // MARK: - ⌘D 启动页签写入与撤销
+
+    /// 读取当前环境在磁盘上的最新启动页签；读取失败时回落到内存快照。
+    func latestStartupTabs() -> [StartupTab] {
+        (try? workspace.profiles.record(id: profile.id))?.startupTabs ?? profile.startupTabs
+    }
+
+    /// 在跨进程文件锁内原子添加或重新启用启动页签，同步会话首页状态并通知环境管理器实时刷新。
+    @discardableResult
+    func addOrReenableStartupTab(
+        url: URL,
+        position: StartupTabInsertionPosition,
+        reenableTabID: UUID? = nil
+    ) throws -> StartupTabSaveResult {
+        do {
+            let result = try workspace.profiles.mutate(id: profile.id) { persisted -> StartupTabSaveResult in
+                if let reenableTabID,
+                   let existingIndex = persisted.startupTabs.firstIndex(where: { $0.id == reenableTabID && !$0.isEnabled }) {
+                    var tab = persisted.startupTabs[existingIndex]
+                    tab.isEnabled = true
+                    if position == .home && existingIndex != 0 {
+                        persisted.startupTabs.remove(at: existingIndex)
+                        persisted.startupTabs.insert(tab, at: 0)
+                    } else {
+                        persisted.startupTabs[existingIndex] = tab
+                    }
+                    return StartupTabSaveResult(
+                        undoToken: .reenabled(tabID: tab.id, previousIndex: existingIndex),
+                        totalCount: persisted.startupTabs.count,
+                        wasReenabled: true,
+                        setAsHome: position == .home,
+                        updatedTabs: persisted.startupTabs
+                    )
+                }
+
+                let newTab = StartupTab(url: url, isEnabled: true)
+                if position == .home {
+                    persisted.startupTabs.insert(newTab, at: 0)
+                } else {
+                    persisted.startupTabs.append(newTab)
+                }
+                return StartupTabSaveResult(
+                    undoToken: .added(tabID: newTab.id),
+                    totalCount: persisted.startupTabs.count,
+                    wasReenabled: false,
+                    setAsHome: position == .home,
+                    updatedTabs: persisted.startupTabs
+                )
+            }
+            profile.startupTabs = result.updatedTabs
+            onProfilesDidChange(ProfilesSyncNotification.workspaceScope(for: workspace.root))
+            return result
+        } catch RepositoryError.notFound {
+            throw StartupTabShortcutError.profileNotFound
+        } catch {
+            throw StartupTabShortcutError.saveFailed(error.localizedDescription)
+        }
+    }
+
+    /// 原子回滚最近一次 ⌘D 启动页签写入（按 tabID 精准撤销，不影响管理器期间修改的其他条目）。
+    @discardableResult
+    func undoStartupTabChange(_ token: StartupTabUndoToken) throws -> [StartupTab] {
+        do {
+            let updatedTabs = try workspace.profiles.mutate(id: profile.id) { persisted -> [StartupTab] in
+                switch token {
+                case .added(let tabID):
+                    persisted.startupTabs.removeAll { $0.id == tabID }
+                case .reenabled(let tabID, let previousIndex):
+                    if let currentIndex = persisted.startupTabs.firstIndex(where: { $0.id == tabID }) {
+                        var tab = persisted.startupTabs.remove(at: currentIndex)
+                        tab.isEnabled = false
+                        let targetIndex = min(max(0, previousIndex), persisted.startupTabs.count)
+                        persisted.startupTabs.insert(tab, at: targetIndex)
+                    }
+                }
+                return persisted.startupTabs
+            }
+            profile.startupTabs = updatedTabs
+            onProfilesDidChange(ProfilesSyncNotification.workspaceScope(for: workspace.root))
+            return updatedTabs
+        } catch RepositoryError.notFound {
+            throw StartupTabShortcutError.profileNotFound
+        } catch {
+            throw StartupTabShortcutError.saveFailed(error.localizedDescription)
+        }
+    }
+
     /// 打开后右键菜单里有「检查元素」。对网页不可见。
     @objc func toggleInspectable(_ sender: Any?) {
         setInspectable(!inspectable)
@@ -605,3 +696,17 @@ final class BrowserSession: NSObject, NSApplicationDelegate, BrowserActions {
 }
 
 extension BrowserSession: NSMenuItemValidation {}
+
+enum StartupTabShortcutError: LocalizedError, Equatable {
+    case profileNotFound
+    case saveFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .profileNotFound:
+            return L10n.text("该环境配置已不存在，无法添加到启动页签。")
+        case .saveFailed(let detail):
+            return L10n.text("无法保存启动页签：%@", detail)
+        }
+    }
+}

@@ -42,10 +42,66 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
     public var nodeName: String?
     /// 单个 sing-box 出站对象，可能包含认证信息；运行时配置的生命周期不影响它。
     public var customOutboundJSON: String?
+    /// 仅直连模式可用：通过环境专属本地 sing-box 绑定物理网卡和本地 DNS，绕过系统代理与 TUN。
+    public var bypassSystemProxy: Bool
     /// `MacDeviceModel.id`；nil 表示跟随系统。
     public var deviceModel: String?
 
-    /// 是否配置了出站代理（独立代理、订阅节点或自定义 sing-box 出站）。
+    /// 环境的唯一有效出站方式；统一封装底层互斥字段，磁盘 JSON 结构保持完全兼容。
+    public enum Outbound: Equatable, Sendable {
+        case direct(bypassSystemProxy: Bool)
+        case proxy(UUID)
+        case subscriptionNode(subscriptionID: UUID, nodeName: String)
+        case customSingbox(String)
+    }
+
+    /// 读取当前生效的强类型出站配置。
+    public var outbound: Outbound {
+        if let json = customOutboundJSON {
+            return .customSingbox(json)
+        }
+        if let subscriptionID {
+            return .subscriptionNode(subscriptionID: subscriptionID, nodeName: nodeName ?? "")
+        }
+        if let proxyID {
+            return .proxy(proxyID)
+        }
+        return .direct(bypassSystemProxy: bypassSystemProxy)
+    }
+
+    /// 原子切换出站方式，自动清零其余互斥字段。
+    public mutating func setOutbound(_ newOutbound: Outbound) {
+        proxyID = nil
+        subscriptionID = nil
+        nodeName = nil
+        customOutboundJSON = nil
+        bypassSystemProxy = false
+        switch newOutbound {
+        case .direct(let bypass):
+            bypassSystemProxy = bypass
+        case .proxy(let id):
+            proxyID = id
+        case .subscriptionNode(let id, let name):
+            subscriptionID = id
+            nodeName = name
+        case .customSingbox(let json):
+            customOutboundJSON = json
+        }
+    }
+
+    /// 当前出站是否依赖本地 sing-box 进程。
+    public func requiresSingbox(hasUpstreamProxy: (UUID) -> Bool) -> Bool {
+        switch outbound {
+        case .direct(let bypass):
+            return bypass
+        case .proxy(let id):
+            return hasUpstreamProxy(id)
+        case .subscriptionNode, .customSingbox:
+            return true
+        }
+    }
+
+    /// 是否配置了远程出站代理（独立代理、订阅节点或自定义 sing-box 出站）。
     public var hasOutboundProxy: Bool {
         proxyID != nil || subscriptionID != nil || !(customOutboundJSON?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
@@ -75,6 +131,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         nodeName: String? = nil,
         deviceModel: String? = nil,
         customOutboundJSON: String? = nil,
+        bypassSystemProxy: Bool = false,
         hideApplePayCardStatus: Bool = true,
         startupTabs: [StartupTab]? = nil
     ) {
@@ -96,13 +153,14 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         self.nodeName = nodeName
         self.deviceModel = deviceModel
         self.customOutboundJSON = customOutboundJSON
+        self.bypassSystemProxy = bypassSystemProxy
     }
 
     /// 旧版 JSON 只有 id/name/mode/createdAt（及可选 proxyID），新增字段（含 spi）缺失时使用默认值。
     private enum CodingKeys: String, CodingKey {
         case id, name, mode, proxyID, createdAt, languages, timeZoneIdentifier, startURL, notes, spi
         case subscriptionID, nodeName, deviceModel, followProxyLanguages, followProxyTimeZone
-        case customOutboundJSON, hideApplePayCardStatus, startupTabs
+        case customOutboundJSON, bypassSystemProxy, hideApplePayCardStatus, startupTabs
     }
 
     public init(from decoder: Decoder) throws {
@@ -128,6 +186,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         subscriptionID = try container.decodeIfPresent(UUID.self, forKey: .subscriptionID)
         nodeName = try container.decodeIfPresent(String.self, forKey: .nodeName)
         customOutboundJSON = try container.decodeIfPresent(String.self, forKey: .customOutboundJSON)
+        bypassSystemProxy = try container.decodeIfPresent(Bool.self, forKey: .bypassSystemProxy) ?? false
         deviceModel = try container.decodeIfPresent(String.self, forKey: .deviceModel)
         followProxyLanguages = try container.decodeIfPresent(Bool.self, forKey: .followProxyLanguages) ?? false
         followProxyTimeZone = try container.decodeIfPresent(Bool.self, forKey: .followProxyTimeZone) ?? false
@@ -154,6 +213,7 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
         try container.encodeIfPresent(nodeName, forKey: .nodeName)
         try container.encodeIfPresent(deviceModel, forKey: .deviceModel)
         try container.encodeIfPresent(customOutboundJSON, forKey: .customOutboundJSON)
+        try container.encode(bypassSystemProxy, forKey: .bypassSystemProxy)
     }
 
     // MARK: - 复制环境
@@ -182,12 +242,16 @@ public struct Profile: Codable, Equatable, Identifiable, Sendable {
             followProxyLanguages: followProxyLanguages, followProxyTimeZone: followProxyTimeZone,
             notes: notes, spi: spi,
             subscriptionID: subscriptionID, nodeName: nodeName, deviceModel: deviceModel,
-            customOutboundJSON: customOutboundJSON, hideApplePayCardStatus: hideApplePayCardStatus,
+            customOutboundJSON: customOutboundJSON, bypassSystemProxy: bypassSystemProxy,
+            hideApplePayCardStatus: hideApplePayCardStatus,
             startupTabs: startupTabs.map { StartupTab(url: $0.url, isEnabled: $0.isEnabled) }
         )
     }
 
     public func validate() throws {
+        if bypassSystemProxy && (proxyID != nil || subscriptionID != nil || nodeName != nil || customOutboundJSON != nil) {
+            throw ProfileValidationError.conflictingOutbound
+        }
         if customOutboundJSON != nil, proxyID != nil || subscriptionID != nil || nodeName != nil {
             throw ProfileValidationError.conflictingOutbound
         }

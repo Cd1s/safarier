@@ -20,6 +20,7 @@ struct ProfileEditorValues: Equatable {
     var hideApplePayCardStatus: Bool
     var notes: String
     var customJSON: String
+    var bypassSystemProxy: Bool
 
     init(original: Profile?) {
         name = original?.name ?? ""
@@ -34,15 +35,23 @@ struct ProfileEditorValues: Equatable {
         timeZone = original?.timeZoneIdentifier ?? ""
         startupTabs = original?.startupTabs.map(StartupTabDraft.init) ?? []
         customJSON = original?.customOutboundJSON ?? CustomOutbound.defaultJSON
-        let outbound: ProfileEditorView.OutboundKind
-        if original?.customOutboundJSON != nil {
-            outbound = .custom
-        } else if original?.subscriptionID != nil {
-            outbound = .node
-        } else {
-            outbound = original?.proxyID != nil ? .proxy : .direct
+        switch original?.outbound {
+        case .customSingbox:
+            outboundKind = .custom
+            bypassSystemProxy = false
+        case .subscriptionNode:
+            outboundKind = .node
+            bypassSystemProxy = false
+        case .proxy:
+            outboundKind = .proxy
+            bypassSystemProxy = false
+        case .direct(let bypass):
+            outboundKind = .direct
+            bypassSystemProxy = bypass
+        case nil:
+            outboundKind = .direct
+            bypassSystemProxy = false
         }
-        outboundKind = outbound
         proxyID = original?.proxyID
         subscriptionID = original?.subscriptionID
         nodeName = original?.nodeName
@@ -63,7 +72,6 @@ struct ProfileEditorValues: Equatable {
         }
 
         var profile = original ?? Profile(name: name, mode: mode)
-        profile.customOutboundJSON = nil
         profile.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         profile.followProxyLanguages = languageSource == .proxy
         profile.languages = languageSource != .custom ? [] : languages.split(separator: ",")
@@ -75,28 +83,19 @@ struct ProfileEditorValues: Equatable {
         profile.startupTabs = tabs
         switch outboundKind {
         case .custom:
-            profile.customOutboundJSON = customJSON
-            profile.proxyID = nil
-            profile.subscriptionID = nil
-            profile.nodeName = nil
+            profile.setOutbound(.customSingbox(customJSON))
         case .direct:
-            profile.proxyID = nil
-            profile.subscriptionID = nil
-            profile.nodeName = nil
+            profile.setOutbound(.direct(bypassSystemProxy: bypassSystemProxy))
         case .proxy:
-            guard proxyID != nil else {
+            guard let proxyID else {
                 throw ProfileEditorError.invalid(L10n.text("请选择代理。"))
             }
-            profile.proxyID = proxyID
-            profile.subscriptionID = nil
-            profile.nodeName = nil
+            profile.setOutbound(.proxy(proxyID))
         case .node:
-            guard subscriptionID != nil, nodeName != nil else {
+            guard let subscriptionID, let nodeName else {
                 throw ProfileEditorError.invalid(L10n.text("请选择订阅和节点。"))
             }
-            profile.proxyID = nil
-            profile.subscriptionID = subscriptionID
-            profile.nodeName = nodeName
+            profile.setOutbound(.subscriptionNode(subscriptionID: subscriptionID, nodeName: nodeName))
         }
         profile.deviceModel = deviceModel
         profile.spi = spi

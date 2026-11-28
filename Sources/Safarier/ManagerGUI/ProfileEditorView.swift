@@ -83,7 +83,10 @@ struct ProfileEditorView: View {
                     }
                     switch editor.values.outboundKind {
                     case .direct:
-                        EmptyView()
+                        Toggle(isOn: $editor.values.bypassSystemProxy) {
+                            Text("强制使用本机网络")
+                            Text("即使电脑开着 Clash 等代理软件或 VPN，这个窗口也直接走本地 Wi-Fi / 网线，不影响其他软件。")
+                        }
                     case .custom:
                         CustomOutboundJSONEditor(json: $editor.values.customJSON)
                     case .proxy:
@@ -135,7 +138,7 @@ struct ProfileEditorView: View {
                 } header: {
                     Text("网络")
                 } footer: {
-                    if !inline || editor.values.outboundKind == .custom {
+                    if showsOutboundFooter {
                         Text(outboundFooter)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -307,6 +310,9 @@ struct ProfileEditorView: View {
         }
         .onChange(of: editor.values.outboundKind) {
             editor.errorText = nil
+            if editor.values.outboundKind != .direct {
+                editor.values.bypassSystemProxy = false
+            }
             let follow = editor.values.outboundKind != .direct
             // 未手动改过 WebRTC 开关时：新环境或原本直连的环境切到代理/节点/自定义出站自动开启「关闭 WebRTC」，新环境切回直连则恢复默认。
             if !editor.userToggledWebRTC, original == nil || original?.hasOutboundProxy == false {
@@ -345,9 +351,16 @@ struct ProfileEditorView: View {
         return selectedSubscription?.nodes.first { $0.name == nodeName }
     }
 
+    private var showsOutboundFooter: Bool {
+        !inline || editor.values.outboundKind == .custom || editor.values.outboundKind == .direct
+    }
+
     private var outboundFooter: String {
         switch editor.values.outboundKind {
-        case .direct: return L10n.text("不经过代理。")
+        case .direct:
+            return editor.values.bypassSystemProxy
+                ? L10n.text("如果当前连不上本地网络，窗口会直接停止加载，不会偷偷切回代理软件。切换 Wi-Fi 或网线后，重启本环境即可生效。")
+                : L10n.text("不设置应用内代理；如果电脑开着代理软件或 VPN，这个窗口会跟着电脑一起走。")
         case .custom: return L10n.text("保存前使用 sing-box 校验，校验成功不代表节点可达。配置随环境保存，修改在下次启动时生效；本地入站和默认路由由应用管理。")
         case .proxy: return L10n.text("在左侧「代理」中统一管理 HTTP / SOCKS5 代理和前置连接，供多个环境复用。已配置前置时使用完整两跳链路，修改后需重启环境。")
         case .node: return L10n.text("启动时为这个环境单独起一个 sing-box，把节点转成本地 SOCKS5 交给 WebKit；节点连不上时页面加载失败，不会退回直连。节点按名字匹配，订阅刷新后仍然有效。")

@@ -57,15 +57,15 @@ enum ManagerCLI {
     前置连接：本机 → 前置代理/节点 → 当前代理 → 网站。仅支持两跳；--upstream-proxy none 清除前置。
            自定义前置从文件读取单个 sing-box 出站 JSON，避免认证信息出现在命令行参数中。
     环境变量 SAFARIER_HOME 可覆盖元数据目录（默认 ~/Library/Application Support/Safarier）。
-    """) + "\n" + L10n.text("profile create/update 的 --url 可重复，按顺序替换启动页签列表；--url none 清空列表，省略时保留原配置。launch --url 只覆盖本次启动。")
+    """) + "\n" + L10n.text("profile create/update 的 --url 可重复，按顺序替换启动页签列表；--url none 清空列表，省略时保留原配置。launch --url 只覆盖本次启动。") + "\n" + L10n.text("profile create/update 的 --bypass-system-proxy 可在直连模式下强制使用本机网络（绕过系统代理与 TUN），与 --proxy/--sub/--node 互斥；--no-bypass-system-proxy 关闭该选项。")
 
     static func run(_ arguments: [String]) -> Int32 {
         do {
             let workspace = try SafarierWorkspace.default()
             switch (arguments.first, arguments.dropFirst().first) {
             case ("profile", "list"): return try listProfiles(workspace)
-            case ("profile", "create"): return try createProfile(workspace, try ParsedArguments(arguments.dropFirst(2)))
-            case ("profile", "update"): return try updateProfile(workspace, try ParsedArguments(arguments.dropFirst(2)))
+            case ("profile", "create"): return try createProfile(workspace, try ParsedArguments(arguments.dropFirst(2), flags: ["--bypass-system-proxy"]))
+            case ("profile", "update"): return try updateProfile(workspace, try ParsedArguments(arguments.dropFirst(2), flags: ["--bypass-system-proxy", "--no-bypass-system-proxy"]))
             case ("profile", "clone"): return try cloneProfile(workspace, try ParsedArguments(arguments.dropFirst(2)))
             case ("profile", "delete"): return try deleteProfile(workspace, try ParsedArguments(arguments.dropFirst(2), flags: ["--purge-data"]))
             case ("proxy", "list"): return try listProxies(workspace)
@@ -97,241 +97,6 @@ enum ManagerCLI {
             printError(L10n.text("失败：%@", String(describing: error)))
             return 1
         }
-    }
-
-    // MARK: - profile
-
-    private static func listProfiles(_ workspace: SafarierWorkspace) throws -> Int32 {
-        let proxies = Dictionary(uniqueKeysWithValues: try workspace.proxies.all().map { ($0.id, $0) })
-        let subscriptions = Dictionary(uniqueKeysWithValues: try workspace.subscriptions.all().map { ($0.id, $0) })
-        let rows = try workspace.profiles.all().map { profile -> [String] in
-            let languages = profile.resolvedLanguages()
-            return [
-                profile.id.uuidString,
-                profile.mode.rawValue,
-                workspace.isRunning(profile.id) ? "running" : "-",
-                profile.name,
-                outboundLabel(profile, proxies: proxies, subscriptions: subscriptions),
-                languages.isEmpty ? (profile.followProxyLanguages ? "proxy" : "timezone") : languages.joined(separator: ","),
-                profile.followProxyTimeZone ? "proxy" : profile.timeZoneIdentifier ?? "-",
-                profile.spi.description,
-                profile.deviceModel ?? "-",
-            ]
-        }
-        printTable(["ID", "MODE", "STATE", "NAME", "PROXY", "LANG", "TZ", "SPI", "DEVICE"], rows)
-        return 0
-    }
-
-    private static func outboundLabel(_ profile: Profile, proxies: [UUID: ProxySettings], subscriptions: [UUID: Subscription]) -> String {
-        if profile.customOutboundJSON != nil { return "custom:sing-box" }
-        if let subscriptionID = profile.subscriptionID {
-            let name = profile.nodeName ?? ""
-            guard let subscription = subscriptions[subscriptionID] else { return "missing-sub:\(subscriptionID.uuidString.prefix(8))" }
-            return subscription.nodes.contains { $0.name == name } ? "node:\(name)" : "missing-node:\(name)"
-        }
-        return profile.proxyID.map { proxies[$0]?.name ?? "missing:\($0.uuidString.prefix(8))" } ?? "-"
-    }
-
-    /// `--proxy`、`--sub`/`--node` 互斥；校验引用存在。返回 nil 表示命令行没提出站。
-    private static func parseOutbound(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> (proxyID: UUID?, subscriptionID: UUID?, nodeName: String?)? {
-        let rawProxy = args.value("--proxy")
-        let rawSub = args.value("--sub")
-        let rawNode = args.value("--node")
-        if rawProxy != nil, rawSub != nil || rawNode != nil {
-            throw CLIError(L10n.text("--proxy 和 --sub/--node 只能二选一"))
-        }
-        if let rawProxy {
-            if rawProxy == "none" { return (nil, nil, nil) }
-            guard let proxyID = UUID(uuidString: rawProxy) else {
-                throw CLIError(L10n.text("--proxy 不是合法 UUID：%@", rawProxy))
-            }
-            guard try workspace.proxies.record(id: proxyID) != nil else {
-                throw CLIError(L10n.text("找不到代理 %@", rawProxy))
-            }
-            return (proxyID, nil, nil)
-        }
-        if rawNode == "none", rawSub == nil { return (nil, nil, nil) }
-        guard rawSub != nil || rawNode != nil else { return nil }
-        guard let rawSub, let rawNode else { throw CLIError(L10n.text("--sub 和 --node 要一起给")) }
-        guard let subscriptionID = UUID(uuidString: rawSub) else {
-            throw CLIError(L10n.text("--sub 不是合法 UUID：%@", rawSub))
-        }
-        guard let subscription = try workspace.subscriptions.record(id: subscriptionID) else {
-            throw CLIError(L10n.text("找不到订阅 %@", rawSub))
-        }
-        guard subscription.nodes.contains(where: { $0.name == rawNode }) else {
-            throw CLIError(L10n.text("订阅「%@」里没有节点「%@」（用 sub nodes %@ 查看）", subscription.name, rawNode, rawSub))
-        }
-        return (nil, subscriptionID, rawNode)
-    }
-
-    private static func parseDevice(_ raw: String) throws -> String? {
-        if raw == "none" { return nil }
-        guard MacDeviceModel.preset(raw) != nil else {
-            throw CLIError(L10n.text("--device 只能是 none 或 %@", MacDeviceModel.presets.map(\.id).joined(separator: ", ")))
-        }
-        return raw
-    }
-
-    private static func createProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
-        let name = try args.required("--name")
-        let mode = try args.value("--mode").map { raw -> ProfileMode in
-            guard let mode = ProfileMode(rawValue: raw) else {
-                throw CLIError(L10n.text("--mode 只能是 persistent 或 ephemeral"))
-            }
-            return mode
-        } ?? .persistent
-        let outbound = try parseOutbound(workspace, args)
-        let deviceModel = try args.value("--device").flatMap(parseDevice)
-        let startupTabs = try startupTabsOption(args)
-        let language = args.value("--lang").map(parseLanguageOption)
-        let timeZone = args.value("--tz").map(parseTimeZoneOption)
-
-        let profile = Profile(
-            name: name,
-            mode: mode,
-            proxyID: outbound?.proxyID,
-            languages: language?.languages ?? [],
-            timeZoneIdentifier: timeZone?.identifier,
-            followProxyLanguages: language?.follow ?? false,
-            followProxyTimeZone: timeZone?.follow ?? false,
-            notes: args.value("--notes") ?? "",
-            spi: try args.spi() ?? SPIFeatures.defaultFeatures(hasProxy: outbound != nil),
-            subscriptionID: outbound?.subscriptionID,
-            nodeName: outbound?.nodeName,
-            deviceModel: deviceModel,
-            startupTabs: startupTabs
-        )
-        try workspace.profiles.insert(profile)
-        print(profile.id.uuidString)
-        return 0
-    }
-
-    /// 只改给出的字段；`none` 清空可选字段。模式（persistent/ephemeral）不能改，数据目录跟着 id 走。
-    private static func updateProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
-        let id = try args.positionalUUID(0, name: "PROFILE_ID")
-        guard var profile = try workspace.profiles.record(id: id) else { throw CLIError(L10n.text("找不到 profile %@", id.uuidString)) }
-        if let name = args.value("--name") { profile.name = name }
-        if let option = args.value("--lang").map(parseLanguageOption) {
-            profile.followProxyLanguages = option.follow
-            profile.languages = option.languages
-        }
-        if let option = args.value("--tz").map(parseTimeZoneOption) {
-            profile.followProxyTimeZone = option.follow
-            profile.timeZoneIdentifier = option.identifier
-        }
-        if let tabs = try startupTabsOption(args) { profile.startupTabs = tabs }
-        if let raw = args.value("--notes") { profile.notes = raw }
-        let hadProxy = profile.hasOutboundProxy
-        if args.value("--node") == "none", args.value("--sub") == nil, args.value("--proxy") == nil {
-            // 只解绑订阅节点；独立代理（如果有）不动。
-            profile.subscriptionID = nil
-            profile.nodeName = nil
-        } else if let outbound = try parseOutbound(workspace, args) {
-            profile.customOutboundJSON = nil
-            profile.proxyID = outbound.proxyID
-            profile.subscriptionID = outbound.subscriptionID
-            profile.nodeName = outbound.nodeName
-            if !hadProxy, profile.hasOutboundProxy {
-                profile.spi.insert(.disableWebRTC)
-            }
-        }
-        if let raw = args.value("--device") { profile.deviceModel = try parseDevice(raw) }
-        if let spi = try args.spi() { profile.spi = spi }
-        try workspace.profiles.update(profile)
-        if workspace.isRunning(id) {
-            print(L10n.text("已更新 %@；它正在运行，重启后生效", profile.name))
-        } else {
-            print(L10n.text("已更新 %@", profile.name))
-        }
-        return 0
-    }
-
-    /// profile 的重复 --url 替换整个启动列表；不传参数则保留原设置。
-    private static func startupTabsOption(_ args: ParsedArguments) throws -> [StartupTab]? {
-        let urls = args.values("--url")
-        guard !urls.isEmpty else { return nil }
-        if urls == ["none"] { return [] }
-        return try urls.map { StartupTab(url: try parseWebURL($0)) }
-    }
-
-    private static func parseWebURL(_ raw: String) throws -> URL {
-        guard let url = AddressInput.webURL(for: raw) else {
-            throw CLIError(L10n.text("--url 不是合法 URL：%@", raw))
-        }
-        return url
-    }
-
-    private static func parseURL(_ raw: String) throws -> URL {
-        guard let url = URL(string: raw), url.scheme != nil else {
-            throw CLIError(L10n.text("--url 不是合法 URL：%@", raw))
-        }
-        return url
-    }
-
-    private static func parseLanguages(_ raw: String) -> [String] {
-        raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-    }
-
-    /// `--lang`：proxy / auto 跟随代理，timezone（兼容 system / none）按时区匹配，其它是语言标签。
-    static func parseLanguageOption(_ raw: String) -> (follow: Bool, languages: [String]) {
-        switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
-        case "proxy", "auto": return (true, [])
-        case "timezone", "system", "none", "": return (false, [])
-        default: return (false, parseLanguages(raw))
-        }
-    }
-
-    /// `--tz`：proxy / auto 跟随代理出口，system / none 跟随系统，其它是时区标识。
-    static func parseTimeZoneOption(_ raw: String) -> (follow: Bool, identifier: String?) {
-        let value = raw.trimmingCharacters(in: .whitespaces)
-        switch value.lowercased() {
-        case "proxy", "auto": return (true, nil)
-        case "system", "none", "": return (false, nil)
-        default: return (false, value)
-        }
-    }
-
-    /// 复制环境：设置全部照抄、换新 ID；不复制网站数据。
-    private static func cloneProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
-        let id = try args.positionalUUID(0, name: "PROFILE_ID")
-        guard let source = try workspace.profiles.record(id: id) else { throw CLIError(L10n.text("找不到 profile %@", id.uuidString)) }
-        let existing = Set(try workspace.profiles.all().map(\.name))
-        let name = args.value("--name") ?? Profile.duplicateName(for: source.name, existing: existing)
-        let copy = source.duplicated(name: name)
-        try workspace.profiles.insert(copy)
-        print(copy.id.uuidString)
-        print(L10n.text(
-            "已复制「%@」为「%@」（%@，SPI %@，不含网站数据）",
-            source.name,
-            copy.name,
-            copy.mode.rawValue,
-            copy.spi.description
-        ))
-        return 0
-    }
-
-    private static func deleteProfile(_ workspace: SafarierWorkspace, _ args: ParsedArguments) throws -> Int32 {
-        let id = try args.positionalUUID(0, name: "PROFILE_ID")
-        guard !workspace.isRunning(id) else {
-            throw CLIError(L10n.text("profile %@ 正在运行，先关掉它的窗口", id.uuidString))
-        }
-        guard let profile = try workspace.profiles.record(id: id) else { throw CLIError(L10n.text("找不到 profile %@", id.uuidString)) }
-        // 先清数据再删记录：清除失败时记录还在，可以重试，不会留下没人认领的数据目录。
-        let purge = args.flag("--purge-data") && profile.mode == .persistent
-        if purge {
-            try waitForMainActorTask {
-                try await DataStoreManager().removePersistentData(for: id)
-            }
-        }
-        try workspace.profiles.delete(id: id)
-        workspace.removeRunnerArtifacts(for: id)
-        if purge {
-            print(L10n.text("已删除 %@，并清除了它的网站数据", profile.name))
-        } else {
-            print(L10n.text("已删除 %@", profile.name))
-        }
-        return 0
     }
 
     // MARK: - proxy
@@ -841,8 +606,15 @@ enum ManagerCLI {
 
     // MARK: - helpers
 
+    static func parseURL(_ raw: String) throws -> URL {
+        guard let url = URL(string: raw), url.scheme != nil else {
+            throw CLIError(L10n.text("--url 不是合法 URL：%@", raw))
+        }
+        return url
+    }
+
     /// CLI 不跑 NSApplication，所以手动转主 RunLoop，等 @MainActor 异步任务结束。
-    private static func waitForMainActorTask(_ body: @escaping @MainActor () async throws -> Void) throws {
+    static func waitForMainActorTask(_ body: @escaping @MainActor () async throws -> Void) throws {
         final class Box: @unchecked Sendable { var result: Result<Void, Error>? }
         let box = Box()
         Task { @MainActor in
@@ -859,7 +631,7 @@ enum ManagerCLI {
         try box.result?.get()
     }
 
-    private static func printTable(_ header: [String], _ rows: [[String]]) {
+    static func printTable(_ header: [String], _ rows: [[String]]) {
         guard !rows.isEmpty else {
             print(L10n.text("（空）"))
             return

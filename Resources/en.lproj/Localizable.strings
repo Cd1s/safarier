@@ -160,7 +160,6 @@
 "不安全" = "Not Secure";
 "不支持的扩展 manifest 版本：%@。" = "Unsupported extension manifest version: %@.";
 "不支持的节点协议：%@。" = "Unsupported node protocol: %@.";
-"不经过代理。" = "Traffic is not proxied.";
 "个人收藏" = "Favorites";
 "临时" = "Ephemeral";
 "临时无痕 · 关闭窗口即销毁全部网站数据" = "Ephemeral · All site data is destroyed when the window closes";
@@ -907,3 +906,18 @@
 "已导入 %lld 条 Cookie（跳过 %lld 条无效项）。" = "Imported %lld cookies (%lld invalid entries skipped).";
 "已导入 %lld 条 Cookie。" = "Imported %lld cookies.";
 "导入成功" = "Import Succeeded";
+
+/* 本机物理网络直连（绕过系统代理与 TUN） */
+"找不到可用的本地物理网络，已中止启动（未回退到系统代理或 VPN）。" = "No usable local physical network interface was found; launch aborted (did not fall back to system proxy or VPN).";
+"本地物理网络接口名无效：%@。" = "Invalid local physical network interface name: %@.";
+"找不到可用的本地 DNS 服务器，已中止启动。" = "No usable local DNS server was found; launch aborted.";
+"本机网络（%@）" = "Local Network (%@)";
+"本机网络" = "Local Network";
+"强制使用本机网络" = "Force Local Network";
+"即使电脑开着 Clash 等代理软件或 VPN，这个窗口也直接走本地 Wi-Fi / 网线，不影响其他软件。" = "Even if Clash or a VPN is running on this Mac, this window routes directly over local Wi-Fi or Ethernet without affecting other apps.";
+"如果当前连不上本地网络，窗口会直接停止加载，不会偷偷切回代理软件。切换 Wi-Fi 或网线后，重启本环境即可生效。" = "If the local network is unreachable, pages stop loading instead of falling back to system proxies. Restart this profile after switching between Wi-Fi and Ethernet.";
+"不设置应用内代理；如果电脑开着代理软件或 VPN，这个窗口会跟着电脑一起走。" = "No in-app proxy is configured; if a system proxy or VPN is active on this Mac, this window follows it.";
+"profile create/update 的 --bypass-system-proxy 可在直连模式下强制使用本机网络（绕过系统代理与 TUN），与 --proxy/--sub/--node 互斥；--no-bypass-system-proxy 关闭该选项。" = "Pass --bypass-system-proxy in profile create/update to force local physical network access in direct mode (bypassing system proxies and TUN); mutually exclusive with --proxy/--sub/--node. Use --no-bypass-system-proxy to disable it.";
+"--bypass-system-proxy 不能和 --proxy 或 --sub/--node 同时使用" = "--bypass-system-proxy cannot be used together with --proxy or --sub/--node";
+"--bypass-system-proxy 和 --no-bypass-system-proxy 不能同时使用" = "--bypass-system-proxy and --no-bypass-system-proxy cannot be used together";
+"--bypass-system-proxy 不能和已绑定的代理或节点同时使用，请先传入 --proxy none 或 --node none" = "--bypass-system-proxy cannot be used while a proxy or node is bound; pass --proxy none or --node none first";

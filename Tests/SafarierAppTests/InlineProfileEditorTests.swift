@@ -349,4 +349,34 @@ final class InlineProfileEditorTests: XCTestCase {
             "点击非可编辑静态文本标签也应主动结束编辑"
         )
     }
+
+    func testInlineEditorSavesBypassSystemProxyAndClearsOnProxySwitch() async throws {
+        let original = try insert("LocalDirect")
+        let proxy = ProxySettings(name: "SOCKS", kind: .socks5, host: "192.0.2.1", port: 1080)
+        try workspace.proxies.insert(proxy)
+
+        let model = ManagerModel(workspace: workspace)
+        let editor = model.editor(for: original)
+        XCTAssertFalse(editor.values.bypassSystemProxy)
+        editor.values.bypassSystemProxy = true
+        XCTAssertTrue(editor.hasChanges)
+
+        let saved = await editor.save(using: model, selectSavedProfile: false)
+        XCTAssertTrue(saved)
+        let stored = try XCTUnwrap(workspace.profiles.record(id: original.id))
+        XCTAssertTrue(stored.bypassSystemProxy)
+        if case .localDirect = model.proxyBinding(for: stored) {
+            XCTAssertEqual(DisplayText.proxyName(.localDirect), "本机网络")
+        } else {
+            XCTFail("开启绕过系统代理后应展示为 localDirect")
+        }
+
+        editor.values.outboundKind = .proxy
+        editor.values.proxyID = proxy.id
+        let savedProxy = await editor.save(using: model, selectSavedProfile: false)
+        XCTAssertTrue(savedProxy)
+        let afterProxy = try XCTUnwrap(workspace.profiles.record(id: original.id))
+        XCTAssertEqual(afterProxy.proxyID, proxy.id)
+        XCTAssertFalse(afterProxy.bypassSystemProxy, "切换到独立代理后应自动关闭本机网络直连标志")
+    }
 }

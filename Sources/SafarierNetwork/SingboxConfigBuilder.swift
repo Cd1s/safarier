@@ -78,6 +78,7 @@ public struct SingboxConfigBuilder: Sendable {
     public static let defaultInboundAddress = "127.0.0.1"
     public static let proxyTag = "proxy"
     public static let directTag = "direct"
+    public static let localDirectDNSTag = "local-direct-dns"
 
     public static func makeConfiguration(
         inboundPort: Int,
@@ -121,6 +122,53 @@ public struct SingboxConfigBuilder: Sendable {
             route: ["final": .string(proxyTag)],
             dns: outbounds.contains(where: { $0["domain_resolver"] != nil })
                 ? ["servers": .array([.object(["type": .string("local"), "tag": .string("node-dns")])])] : nil
+        )
+    }
+
+    /// 构造本机物理网卡直连配置：本地 SOCKS5 入站 + 绑定物理网卡的 direct 出站 + 绑定同接口的生效主 UDP DNS。
+    public static func makeLocalDirectConfiguration(
+        inboundPort: Int,
+        interfaceName: String,
+        dnsServers: [String],
+        inboundAddress: String = defaultInboundAddress,
+        logLevel: String = "warn"
+    ) throws -> SingboxConfiguration {
+        guard (1...65535).contains(inboundPort) else { throw SingboxConfigError.invalidInboundPort(inboundPort) }
+        let trimmedInterface = interfaceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedInterface.isEmpty else { throw LocalNetworkDirectError.invalidInterfaceName(interfaceName) }
+
+        guard let primaryDNS = LocalNetworkInterfaceResolver.sanitizedDirectDNSServers(dnsServers).first else {
+            throw LocalNetworkDirectError.noUsableDNSServer
+        }
+
+        let inbound: [String: SingboxJSONValue] = [
+            "type": .string("socks"),
+            "tag": .string("socks-in"),
+            "listen": .string(inboundAddress),
+            "listen_port": .number(inboundPort),
+        ]
+        let dnsServer: [String: SingboxJSONValue] = [
+            "tag": .string(localDirectDNSTag),
+            "type": .string("udp"),
+            "server": .string(primaryDNS),
+            "server_port": .number(53),
+            "bind_interface": .string(trimmedInterface),
+        ]
+        let outbound: [String: SingboxJSONValue] = [
+            "type": .string("direct"),
+            "tag": .string(directTag),
+            "bind_interface": .string(trimmedInterface),
+            "domain_resolver": .string(localDirectDNSTag),
+        ]
+        return SingboxConfiguration(
+            log: ["level": .string(logLevel)],
+            inbounds: [inbound],
+            outbounds: [outbound],
+            route: ["final": .string(directTag)],
+            dns: [
+                "servers": .array([.object(dnsServer)]),
+                "final": .string(localDirectDNSTag),
+            ]
         )
     }
 

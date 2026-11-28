@@ -244,6 +244,18 @@ public final class SingboxProcessManager: @unchecked Sendable {
         }
     }
 
+    @discardableResult
+    public func startLocalDirect(profileID: UUID, target: LocalDirectNetworkTarget) throws -> Int32 {
+        try start(profileID: profileID) {
+            try SingboxConfigBuilder.makeLocalDirectConfiguration(
+                inboundPort: port(for: profileID),
+                interfaceName: target.interfaceName,
+                dnsServers: target.dnsServers,
+                logLevel: logLevel
+            )
+        }
+    }
+
     private func start(profileID: UUID, reapMieru: Bool = true, configuration: () throws -> SingboxConfiguration) throws -> Int32 {
         try startProcess(profileID: profileID, executable: executableURL, reapMieru: reapMieru,
                          configuration: { try configuration().encoded() }, mieru: false)

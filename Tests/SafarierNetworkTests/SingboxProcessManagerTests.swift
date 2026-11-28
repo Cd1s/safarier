@@ -227,4 +227,19 @@ final class SingboxProcessManagerTests: XCTestCase {
         XCTAssertEqual(setxattr(other.path, SingboxProcessManager.quarantineAttribute, approved, approved.utf8.count, 0, 0), 0)
         XCTAssertFalse(SingboxProcessManager.isQuarantined(other))
     }
+
+    func testStartLocalDirectWaitAndStopRemovesFiles() throws {
+        let manager = try makeManager()
+        let id = UUID()
+        let target = LocalDirectNetworkTarget(interfaceName: "en0", dnsServers: ["192.0.2.1"])
+        let pid = try manager.startLocalDirect(profileID: id, target: target)
+        let port = try manager.waitUntilReady(profileID: id)
+        XCTAssertTrue(manager.isRunning(profileID: id))
+        XCTAssertTrue(alive(pid))
+        let configText = try String(contentsOf: manager.configurationFileURL(for: id), encoding: .utf8)
+        XCTAssertTrue(configText.contains("\"bind_interface\" : \"en0\""))
+        try manager.stop(profileID: id)
+        XCTAssertFalse(alive(pid))
+        XCTAssertTrue(SingboxProcessManager.isPortAvailable(port))
+    }
 }

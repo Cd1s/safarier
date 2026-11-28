@@ -254,18 +254,39 @@ struct UpdateNotesSheet: View {
 
 struct ManagerSidebar: View {
     @ObservedObject var model: ManagerModel
+    @State private var profileSearchText = ""
+
+    private var filteredProfiles: [Profile] {
+        let query = profileSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.profiles }
+        return model.profiles.filter { profile in
+            let proxyName = DisplayText.proxyName(model.proxyBinding(for: profile))
+            let fields = [
+                profile.name,
+                profile.nodeName ?? "",
+                proxyName,
+                DisplayText.shortTimeZone(of: profile),
+                profile.notes,
+                profile.startupURLs.map(\.absoluteString).joined(separator: " "),
+            ]
+            return fields.contains { $0.localizedCaseInsensitiveContains(query) }
+        }
+    }
 
     var body: some View {
         List(selection: $model.selection) {
-            Section("环境") {
-                ForEach(model.profiles) { profile in
+            Section {
+                ForEach(filteredProfiles) { profile in
                     ProfileRow(profile: profile, proxy: model.proxyBinding(for: profile), state: model.runState(profile.id))
                         .tag(ManagerModel.Selection.profile(profile.id))
                         .contextMenu { profileMenu(profile) }
                 }
-                if model.profiles.isEmpty {
-                    Text("还没有环境").foregroundStyle(.tertiary)
+                if filteredProfiles.isEmpty {
+                    Text(model.profiles.isEmpty ? "还没有环境" : "没有匹配的环境")
+                        .foregroundStyle(.tertiary)
                 }
+            } header: {
+                Text("环境")
             }
             Section("代理") {
                 ForEach(model.proxies) { proxy in
@@ -301,6 +322,7 @@ struct ManagerSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .searchable(text: $profileSearchText, placement: .sidebar, prompt: "搜索环境、节点或网址")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 Divider()
